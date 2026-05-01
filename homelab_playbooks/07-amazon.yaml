@@ -1,0 +1,44 @@
+---
+- name: Deploy amazon
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+
+    - name: Create database URL
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: amazon-database-url
+            namespace: amazon-clone
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            amazon-database-url: "{{ amazon_url }}"
+
+    - name: Apply amazon deployment, svc and the ingress
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - amazon.yml
+    - name: Wait for amazon-backend to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: amazon-backend
+        namespace: amazon-clone
+      register: deploy_info
+      until:
+        - deploy_info.resources | length > 0
+        - deploy_info.resources[0].status.readyReplicas is defined
+        - deploy_info.resources[0].status.readyReplicas == deploy_info.resources[0].status.replicas
+      retries: 40   # e.g. wait up to 200s total
+      delay: 5

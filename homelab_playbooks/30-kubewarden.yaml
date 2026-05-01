@@ -1,0 +1,304 @@
+---
+- name: Install Kubewarden on Kubernetes Cluster
+  hosts: localhost
+  gather_facts: no
+  vars:
+    kubewarden_namespace: kubewarden
+    policy_name: disallow-root-user
+    policy_version: 1.0.0
+    target_namespace: default
+
+  tasks:
+
+    - name: Create "{{ kubewarden_namespace }}" namespace
+      k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ kubewarden_namespace }}"
+
+    - name: Add Kubewarden Helm repository
+      kubernetes.core.helm_repository:
+        name: kubewarden
+        repo_url: https://charts.kubewarden.io
+
+    - name: Update Helm repositories
+      command: helm repo update
+
+    - name: Install Kubewarden CRDs
+      kubernetes.core.helm:
+        name: kubewarden-crds
+        chart_ref: kubewarden/kubewarden-crds
+        release_namespace: "{{ kubewarden_namespace }}"
+        create_namespace: true
+        wait: true
+
+    - name: Install Kubewarden Controller via Helm
+      kubernetes.core.helm:
+        name: kubewarden
+        namespace: "{{ kubewarden_namespace }}"
+        chart_ref: kubewarden/kubewarden-controller
+        wait: yes
+      register: helm_release_result
+
+    - name: Verify Kubewarden Controller is running
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ kubewarden_namespace }}"
+        label_selectors:
+          - app.kubernetes.io/name=kubewarden-controller
+      register: deployments
+      until: deployments.resources | length > 0 and
+            (deployments.resources[0].status.readyReplicas | default(0)) > 0
+      retries: 15
+      delay: 10
+
+    - name: Ensure Kubewarden PolicyServer exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policies.kubewarden.io/v1
+          kind: PolicyServer
+          metadata:
+            name: default
+            namespace: kubewarden
+          spec:
+            replicas: 1
+            image: ghcr.io/kubewarden/policy-server:v1.33.0
+            runtime:
+              type: kubewarden
+
+    - name: Wait for PolicyServer to be ready
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: kubewarden
+        label_selectors:
+          - "app=kubewarden-policy-server-default"
+      register: ps_pods
+      until: ps_pods.resources | selectattr('status.phase', 'equalto', 'Running') | list | length > 0
+      retries: 10
+      delay: 6
+
+    - name: Apply Disallow Root User Policy
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policies.kubewarden.io/v1
+          kind: ClusterAdmissionPolicy
+          metadata:
+            name: disallow-root-user
+          spec:
+            policyServer: default
+            module: registry://ghcr.io/kubewarden/policies/user-group-psp:v0.4.9
+            mode: protect
+            backgroundAudit: true
+            mutating: true
+            settings:
+              run_as_user:
+                rule: MustRunAsNonRoot
+            rules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                resources: ["pods"]
+                operations: ["CREATE", "UPDATE"]
+
+    - name: Probe or die
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policies.kubewarden.io/v1
+          kind: ClusterAdmissionPolicy
+          metadata:
+            name: require-probes
+          spec:
+            policyServer: default
+            module: registry://ghcr.io/kubewarden/policies/probes:v1.0.4
+            mode: protect
+            backgroundAudit: true
+            mutating: false
+            rules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                resources: ["pods"]
+                operations: ["CREATE", "UPDATE"]
+            settings:
+              liveness:
+                enforce: true
+              readiness:
+                enforce: true
+
+    - name: Disallow privileged containers
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policies.kubewarden.io/v1
+          kind: ClusterAdmissionPolicy
+          metadata:
+            name: disallow-privileged
+          spec:
+            policyServer: default
+            module: registry://ghcr.io/kubewarden/policies/pod-privileged:v1.0.10
+            mode: protect
+            backgroundAudit: true
+            mutating: false
+            rules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                resources: ["pods"]
+                operations: ["CREATE", "UPDATE"]
+
+    - name: Block SYS_ADMIN capability
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policies.kubewarden.io/v1
+          kind: ClusterAdmissionPolicy
+          metadata:
+            name: block-sys-admin
+          spec:
+            policyServer: default
+            module: registry://ghcr.io/kubewarden/policies/capabilities-psp:v1.0.10
+            mode: protect
+            backgroundAudit: true
+            mutating: false
+            rules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                resources: ["pods"]
+                operations: ["CREATE", "UPDATE"]
+            settings:
+              denied_capabilities:
+                - SYS_ADMIN
+
+    - name: Restrict NET_ADMIN capability
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policies.kubewarden.io/v1
+          kind: ClusterAdmissionPolicy
+          metadata:
+            name: restrict-net-admin
+          spec:
+            policyServer: default
+            module: registry://ghcr.io/kubewarden/policies/capabilities-psp:v1.0.10
+            mode: protect
+            backgroundAudit: true
+            mutating: false
+            rules:
+              - apiGroups: [""]
+                apiVersions: ["v1"]
+                resources: ["pods"]
+                operations: ["CREATE", "UPDATE"]
+            settings:
+              denied_capabilities:
+                - NET_ADMIN
+
+    - name: Patch require-probes ClusterAdmissionPolicy namespace exceptions
+      kubernetes.core.k8s:
+        state: patched
+        api_version: policies.kubewarden.io/v1
+        kind: ClusterAdmissionPolicy
+        name: require-probes
+        merge_type: merge
+        definition:
+          spec:
+            namespaceSelector:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: NotIn
+                  values:
+                    - kube-system
+                    - rook-ceph
+                    - etcd-backup
+                    - netbox
+                    - open-webui
+                    - monitoring
+                    - haproxy
+                    - paperless
+                    - booking
+                    - www-portfolio
+                    - makita
+                    - thrifty
+                    - trellis
+                    - mariadb
+                    - cert-manager
+                    - external-secrets
+
+    - name: Patch disallow-root-user ClusterAdmissionPolicy namespace exceptions
+      kubernetes.core.k8s_json_patch:
+        api_version: policies.kubewarden.io/v1
+        kind: ClusterAdmissionPolicy
+        name: disallow-root-user
+        patch:
+          - op: add
+            path: /spec/namespaceSelector
+            value:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: NotIn
+                  values:
+                    - rook-ceph
+                    - kube-system
+                    - cert-manager
+                    - mongodb
+                    - open-webui
+                    - frigate
+                    - postgres
+                    - haproxy
+                    - paperless
+                    - booking
+                    - makita
+                    - thrifty
+                    - trellis
+                    - www-portfolio
+
+    - name: Patch restrict-net-admin ClusterAdmissionPolicy namespace exceptions
+      kubernetes.core.k8s_json_patch:
+        api_version: policies.kubewarden.io/v1
+        kind: ClusterAdmissionPolicy
+        name: restrict-net-admin
+        patch:
+          - op: add
+            path: /spec/namespaceSelector
+            value:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: NotIn
+                  values:
+                    - haproxy
+                    - mariadb
+                    - kube-system
+
+    - name: Patch block-sys-admin ClusterAdmissionPolicy namespace exceptions
+      kubernetes.core.k8s_json_patch:
+        api_version: policies.kubewarden.io/v1
+        kind: ClusterAdmissionPolicy
+        name: block-sys-admin
+        patch:
+          - op: add
+            path: /spec/namespaceSelector
+            value:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: NotIn
+                  values:
+                    - haproxy
+                    - kube-system
+
+    - name: Patch privileged containers ClusterAdmissionPolicy namespace exceptions
+      kubernetes.core.k8s_json_patch:
+        api_version: policies.kubewarden.io/v1
+        kind: ClusterAdmissionPolicy
+        name: disallow-privileged
+        patch:
+          - op: add
+            path: /spec/namespaceSelector
+            value:
+              matchExpressions:
+                - key: kubernetes.io/metadata.name
+                  operator: NotIn
+                  values:
+                    - rook-ceph

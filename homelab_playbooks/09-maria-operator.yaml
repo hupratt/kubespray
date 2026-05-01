@@ -1,0 +1,119 @@
+---
+- name: Deploy the mariadb operator
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+  tasks:
+    - name: Ensure the namespace exists
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: mariadb
+        state: present
+
+    - name: Add MariaDB Operator Helm repo
+      community.kubernetes.helm_repository:
+        name: mariadb-operator
+        repo_url: https://helm.mariadb.com/mariadb-operator
+        state: present
+
+    - name: Install MariaDB Operator CRDs via Helm
+      community.kubernetes.helm:
+        name: mariadb-operator-crds
+        chart_ref: mariadb-operator/mariadb-operator-crds
+        release_namespace: mariadb
+        create_namespace: false
+        state: present
+        wait: yes
+
+    - name: Wait for MariaDB CRD to be available
+      kubernetes.core.k8s_info:
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: mariadbs.k8s.mariadb.com
+      register: mariadb_crd
+      retries: 30
+      delay: 5
+      until: mariadb_crd.resources | length == 1
+
+    - name: Install MariaDB Operator with custom values
+      community.kubernetes.helm:
+        name: mariadb-operator
+        chart_ref: mariadb-operator/mariadb-operator
+        release_namespace: mariadb
+        create_namespace: true
+        values_files: 
+          - ./files/mariadb-operator-values.yml
+        state: present
+        wait: yes
+
+    - name: Wait for operator deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: mariadb
+        name: mariadb-operator
+      register: mariadb_operator_info
+      until: >
+        mariadb_operator_info.resources | length == 1 and
+        mariadb_operator_info.resources[0].status.readyReplicas is defined and
+        mariadb_operator_info.resources[0].status.readyReplicas == mariadb_operator_info.resources[0].spec.replicas
+      retries: 30
+      delay: 10
+
+    - name: Create database secrets
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mariadb-root-secret
+            namespace: mariadb
+          type: Opaque
+          stringData:
+            password: "{{ MARIADB_PASSWORD }}"
+
+    - name: Sleep for 5 seconds
+      ansible.builtin.wait_for:
+        timeout: 5
+
+    - name: Apply MariaDB instance
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: mariadb.yml
+
+    - name: Wait for MariaDB instance to be ready
+      kubernetes.core.k8s_info:
+        api_version: k8s.mariadb.com/v1alpha1
+        kind: MariaDB
+        namespace: mariadb
+      register: mariadb_instance
+      retries: 60
+      delay: 10
+      until: >
+        mariadb_instance.resources | length > 0 and
+        mariadb_instance.resources[0].status is defined and
+        mariadb_instance.resources[0].status.conditions is defined and
+        mariadb_instance.resources[0].status.conditions |
+        selectattr('type', 'equalto', 'Ready') |
+        selectattr('status', 'equalto', 'True') | list | length > 0
+
+    - name: Apply database schema (SqlJob)
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: mariadb-schema.yml
+
+    - name: Install toolbox
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - mariadb-toolbox.yml

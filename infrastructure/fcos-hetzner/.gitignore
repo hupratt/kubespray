@@ -1,0 +1,27 @@
+# Terraform files
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+terraform.tfvars
+
+# Sensitive data
+*.pem
+*.key
+secrets/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.json
+*.bu
+
+butane-config.env
+*.xz

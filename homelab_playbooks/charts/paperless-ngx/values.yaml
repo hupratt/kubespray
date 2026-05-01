@@ -1,0 +1,74 @@
+# ──────────────────────────────────────────────
+# Paperless-ngx chart values
+# Secrets are injected at deploy time via Ansible
+# ──────────────────────────────────────────────
+
+image:
+  repository: ghcr.io/paperless-ngx/paperless-ngx
+  tag: latest
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: true
+  ingressClassName: haproxy
+  host: paperless.example.com
+  tls:
+    enabled: true
+    secretName: paperless-tls
+
+# ── Redis (in-cluster) ────────────────────────
+redis:
+  tag: "8"
+  storage: 2Gi
+  storageClass: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 128Mi
+
+# ── External PostgreSQL ───────────────────────
+# Paperless will connect to a host outside the cluster.
+# Set host/port/name/user here; password via vault.
+externalPostgres:
+  host: "192.168.1.10"   # IP or hostname reachable from pods
+  port: 5432
+  database: paperless
+  user: paperless
+
+# ── Paperless non-secret config ───────────────
+paperless:
+  config:
+    PAPERLESS_TIME_ZONE: "Europe/Berlin"
+    PAPERLESS_OCR_LANGUAGE: "deu+eng"
+    PAPERLESS_CONSUMER_POLLING: "0"
+    PAPERLESS_FILENAME_FORMAT: "{created_year}/{correspondent}/{title}"
+  # Secrets — placeholders only, overridden by Ansible vault at deploy time
+  secret:
+    secretKey: "OVERRIDDEN_BY_VAULT"
+    dbPassword: "OVERRIDDEN_BY_VAULT"
+    adminUser: "OVERRIDDEN_BY_VAULT"
+    adminPassword: "OVERRIDDEN_BY_VAULT"
+    adminMail: "OVERRIDDEN_BY_VAULT"
+
+# ── Persistent volumes ────────────────────────
+persistence:
+  data:
+    storageClass: ""
+    size: 5Gi
+  media:
+    storageClass: ""
+    size: 20Gi
+  export:
+    storageClass: ""
+    size: 5Gi
+  consume:
+    storageClass: ""
+    size: 2Gi

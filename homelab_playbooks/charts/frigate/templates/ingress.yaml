@@ -1,0 +1,42 @@
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frigate-web
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    haproxy.org/timeout-server: "30s"
+    haproxy.org/timeout-tunnel: "3600s"
+    haproxy.org/backend-config-snippet: |
+      option http-server-close
+      timeout server 30s
+spec:
+  ingressClassName: {{ .Values.ingress.ingressClassName | quote }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frigate
+                port:
+                  number: 5000
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: haproxy-tcp-services
+  namespace: {{ .Release.Namespace }}
+data:
+  "9054": "{{ .Release.Namespace }}/frigate:8554"
+  "8555": "{{ .Release.Namespace }}/frigate:8555"

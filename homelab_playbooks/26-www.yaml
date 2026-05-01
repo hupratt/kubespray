@@ -1,0 +1,194 @@
+---
+- name: Deploy www
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    namespace: www-portfolio
+    backend_image: registry.thekor.eu/docker/www/portfolio-backend:latest
+    frontend_image: registry.thekor.eu/docker/www/portfolio-frontend:latest
+    backend_port: 9915
+    frontend_port: 80
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # SECRET - built dynamically from ansible-vault variables
+    # Values come from group_vars/all/vault.yml (encrypted).
+    # The dict is constructed at runtime so no secret ever appears in plaintext
+    # in this playbook file.
+    # -------------------------------------------------------------------------
+    - name: Create backend env secret from vault
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: portfolio-backend-env
+            namespace: "{{ namespace }}"
+          type: Opaque
+          stringData: "{{ www_env }}"
+      # no_log: true
+
+    # -------------------------------------------------------------------------
+    # BACKEND DEPLOYMENT (Django)
+    # -------------------------------------------------------------------------
+    - name: Deploy backend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: portfolio-backend
+            namespace: "{{ namespace }}"
+            labels:
+              app: portfolio-backend
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: portfolio-backend
+            strategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 0
+                maxSurge: 1
+            template:
+              metadata:
+                labels:
+                  app: portfolio-backend
+              spec:
+                imagePullSecrets:
+                  - name: docker-registry-secret
+                initContainers:
+                  # Run migrations before the main container starts
+                  - name: migrate
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    command:
+                      - sh
+                      - -c
+                      - |
+                        python manage.py makemigrations &&
+                        python manage.py migrate
+                    envFrom:
+                      - secretRef:
+                          name: portfolio-backend-env
+                    # volumeMounts:
+                    #   - name: app-static
+                    #     mountPath: /app/static
+                    #   - name: app-media
+                    #     mountPath: /app/media
+                containers:
+                  - name: backend
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    # Switch to gunicorn for production (uncomment below and
+                    # remove the runserver command):
+                    # command: ["gunicorn", "Portfolio.wsgi:application",
+                    #           "-w", "2", "--bind", "0.0.0.0:9915"]
+                    command:
+                      - sh
+                      - -c
+                      - python manage.py runserver 0.0.0.0:9915
+                    ports:
+                      - containerPort: "{{ backend_port }}"
+                    envFrom:
+                      - secretRef:
+                          name: portfolio-backend-env
+                    # volumeMounts:
+                    #   - name: app-static
+                    #     mountPath: /app/static
+                    #   - name: app-media
+                    #     mountPath: /app/media
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 256Mi
+                      limits:
+                        memory: 512Mi
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: "{{ backend_port }}"
+                      initialDelaySeconds: 30
+                      periodSeconds: 15
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: "{{ backend_port }}"
+                      initialDelaySeconds: 10
+                      periodSeconds: 5
+                # volumes:
+                #   - name: app-static
+                #     persistentVolumeClaim:
+                #       claimName: portfolio-static
+                #   - name: app-media
+                #     persistentVolumeClaim:
+                #       claimName: portfolio-media
+
+    # -------------------------------------------------------------------------
+    # BACKEND SERVICE
+    # -------------------------------------------------------------------------
+    - name: Create backend service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: portfolio-backend
+            namespace: "{{ namespace }}"
+          spec:
+            selector:
+              app: portfolio-backend
+            ports:
+              - name: http
+                port: "{{ backend_port }}"
+                targetPort: "{{ backend_port }}"
+            type: ClusterIP
+
+    - name: Create ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: portfolio-ingress
+            namespace: "{{ namespace }}"
+            annotations:
+              haproxy.org/check: "disabled"
+              haproxy.org/backend-config-snippet: |
+                no option httpchk
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - hosts:
+                  - portfolio.thekor.eu
+                secretName: wildcard-thekor
+            rules:
+              - host: portfolio.thekor.eu
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: portfolio-backend
+                          port:
+                            number: "{{ backend_port }}"
+              - host: www.thekor.eu
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: portfolio-backend
+                          port:
+                            number: "{{ backend_port }}"

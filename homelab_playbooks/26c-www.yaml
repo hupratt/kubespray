@@ -1,0 +1,70 @@
+---
+- name: Deploy www
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    namespace: www-portfolio
+    backend_image: registry.thekor.eu/docker/www/portfolio-backend:latest
+    frontend_image: registry.thekor.eu/docker/www/portfolio-frontend:latest
+    backend_port: 9915
+    frontend_port: 80
+
+  tasks:
+
+    - name: Create ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: portfolio-ingress
+            namespace: "{{ namespace }}"
+            annotations:
+              haproxy.org/check: "disabled"
+              haproxy.org/backend-config-snippet: |
+                no option httpchk
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - hosts:
+                  - portfolio.thekor.eu
+                secretName: wildcard-thekor
+            rules:
+              - host: portfolio.thekor.eu
+                http:
+                  paths:
+                    # - path: /api
+                    #   pathType: Prefix
+                    #   backend:
+                    #     service:
+                    #       name: portfolio-backend
+                    #       port:
+                    #         number: "{{ backend_port }}"
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: portfolio-backend
+                          port:
+                            number: "{{ backend_port }}"
+              - host: www.thekor.eu
+                http:
+                  paths:
+                    # - path: /api
+                    #   pathType: Prefix
+                    #   backend:
+                    #     service:
+                    #       name: portfolio-backend
+                    #       port:
+                    #         number: "{{ backend_port }}"
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: portfolio-backend
+                          port:
+                            number: "{{ backend_port }}"

@@ -1,0 +1,258 @@
+---
+- name: Deploy etcd backup CronJob to Kubernetes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    # - group_vars/all/vault.yml
+    - group_vars/all/etcd-vault.yml
+
+  tasks:
+    - name: Create S3 credentials secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: etcd-backup-s3-credentials
+            namespace: "{{ etcd_backup_namespace }}"
+          type: Opaque
+          stringData:
+            S3_ENDPOINT: "{{ vault_s3_endpoint }}"
+            S3_BUCKET: "{{ vault_s3_bucket }}"
+            AWS_ACCESS_KEY_ID: "{{ vault_s3_access_key }}"
+            AWS_SECRET_ACCESS_KEY: "{{ vault_s3_secret_key }}"
+            AWS_DEFAULT_REGION: "{{ vault_s3_region }}"
+
+    - name: Create etcd client secret (certs)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: etcd-client-certs
+            namespace: "{{ etcd_backup_namespace }}"
+          type: Opaque
+          data:
+            ca.crt: "{{ vault_etcd_ca_crt | b64encode }}"
+            client.crt: "{{ vault_etcd_client_crt | b64encode }}"
+            client.key: "{{ vault_etcd_client_key | b64encode }}"
+
+    - name: Deploy etcd backup CronJob
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: etcd-backup
+            namespace: "{{ etcd_backup_namespace }}"
+            labels:
+              app: etcd-backup
+          spec:
+            schedule: "{{ etcd_backup_schedule }}"
+            concurrencyPolicy: Forbid
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 3
+            jobTemplate:
+              spec:
+                backoffLimit: 2
+                template:
+                  spec:
+                    restartPolicy: OnFailure
+                    serviceAccountName: etcd-backup
+                    hostNetwork: true
+                    nodeSelector:
+                      node-role.kubernetes.io/control-plane: ""
+                    tolerations:
+                      - key: node-role.kubernetes.io/control-plane
+                        operator: Exists
+                        effect: NoSchedule
+                    initContainers:
+                      - name: install-etcdctl
+                        image: "curlimages/curl:8.7.1"
+                        command:
+                          - sh
+                          - -c
+                          - |
+                            curl -sSL https://github.com/etcd-io/etcd/releases/download/v{{ etcd_version }}/etcd-v{{ etcd_version }}-linux-amd64.tar.gz | \
+                            tar xz -C /etcdctl-bin --strip-components=1 etcd-v{{ etcd_version }}-linux-amd64/etcdctl && \
+                            chmod 755 /etcdctl-bin/etcdctl
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 65534
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: ["ALL"]
+                        volumeMounts:
+                          - name: etcdctl-bin
+                            mountPath: /etcdctl-bin
+                        resources:
+                          requests:
+                            cpu: 50m
+                            memory: 64Mi
+                          limits:
+                            cpu: 100m
+                            memory: 128Mi
+                    containers:
+                      - name: etcd-backup
+                        image: "{{ etcd_backup_image }}"
+                        command: ["/bin/sh", "/scripts/backup.sh"]
+                        envFrom:
+                          - secretRef:
+                              name: etcd-backup-s3-credentials
+                        env:
+                          - name: ETCD_ENDPOINTS
+                            value: "{{ etcd_endpoints }}"
+                          - name: BACKUP_RETENTION_DAYS
+                            value: "{{ etcd_backup_retention_days | string }}"
+                        volumeMounts:
+                          - name: etcd-certs
+                            mountPath: /etc/etcd/certs
+                            readOnly: true
+                          - name: backup-scripts
+                            mountPath: /scripts
+                            readOnly: true
+                          - name: etcdctl-bin
+                            mountPath: /usr/local/bin/etcdctl
+                            subPath: etcdctl
+                            readOnly: true
+                          - name: tmp
+                            mountPath: /tmp
+                        resources:
+                          requests:
+                            cpu: 100m
+                            memory: 128Mi
+                          limits:
+                            cpu: 500m
+                            memory: 512Mi
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 65534
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: true
+                          capabilities:
+                            drop: ["ALL"]
+                        # startupProbe: verify etcdctl binary is usable before the main script runs.
+                        # failureThreshold * periodSeconds = 30s max wait, plenty for the init copy.
+                        startupProbe:
+                          exec:
+                            command: ["etcdctl", "version"]
+                          initialDelaySeconds: 2
+                          periodSeconds: 5
+                          failureThreshold: 6
+                          successThreshold: 1
+                          timeoutSeconds: 5
+                        # livenessProbe / readinessProbe: required by Kubewarden policy.
+                        # For a one-shot job container the check is intentionally lightweight —
+                        # the script creates /tmp/.started as its first action and
+                        # /tmp/.done as its last, so kubelet has something concrete to probe.
+                        livenessProbe:
+                          exec:
+                            command: ["test", "-e", "/tmp/.started"]
+                          initialDelaySeconds: 10
+                          periodSeconds: 30
+                          failureThreshold: 3
+                          successThreshold: 1
+                          timeoutSeconds: 5
+                        readinessProbe:
+                          exec:
+                            command: ["test", "-e", "/tmp/.started"]
+                          initialDelaySeconds: 10
+                          periodSeconds: 30
+                          failureThreshold: 3
+                          successThreshold: 1
+                          timeoutSeconds: 5
+                    volumes:
+                      - name: etcd-certs
+                        secret:
+                          secretName: etcd-client-certs
+                      - name: backup-scripts
+                        configMap:
+                          name: etcd-backup-scripts
+                          defaultMode: 0755
+                      - name: etcdctl-bin
+                        emptyDir: {}
+                      - name: tmp
+                        emptyDir: {}
+
+    - name: Deploy backup script ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: etcd-backup-scripts
+            namespace: "{{ etcd_backup_namespace }}"
+          data:
+            backup.sh: |
+              #!/bin/sh
+              set -euo pipefail
+
+              TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+              BACKUP_FILE="/tmp/etcd-snapshot-${TIMESTAMP}.db"
+              S3_KEY="etcd-backups/etcd-snapshot-${TIMESTAMP}.db"
+
+              # Sentinel for liveness/readiness probes — must exist before kubelet
+              # starts probing (initialDelaySeconds: 10).
+              touch /tmp/.started
+
+              echo "[$(date)] Starting etcd snapshot..."
+
+              etcdctl snapshot save "${BACKUP_FILE}" \
+                --endpoints="${ETCD_ENDPOINTS}" \
+                --cacert=/etc/etcd/certs/ca.crt \
+                --cert=/etc/etcd/certs/client.crt \
+                --key=/etc/etcd/certs/client.key
+
+              echo "[$(date)] Snapshot saved: ${BACKUP_FILE}"
+              etcdctl snapshot status "${BACKUP_FILE}" --write-out=table \
+                --cacert=/etc/etcd/certs/ca.crt \
+                --cert=/etc/etcd/certs/client.crt \
+                --key=/etc/etcd/certs/client.key
+
+              echo "[$(date)] Uploading to s3://${S3_BUCKET}/${S3_KEY}..."
+
+              aws s3 cp "${BACKUP_FILE}" "s3://${S3_BUCKET}/${S3_KEY}" \
+                --endpoint-url="${S3_ENDPOINT}" \
+                --region="${AWS_DEFAULT_REGION}"
+
+              echo "[$(date)] Upload complete."
+
+              # Prune old backups
+              CUTOFF=$(date -d "${BACKUP_RETENTION_DAYS} days ago" +"%Y%m%d")
+
+              echo "[$(date)] Pruning backups older than ${BACKUP_RETENTION_DAYS} days (before ${CUTOFF})..."
+
+              aws s3 ls "s3://${S3_BUCKET}/etcd-backups/" \
+                --endpoint-url="${S3_ENDPOINT}" \
+                --region="${AWS_DEFAULT_REGION}" | \
+              awk '{print $4}' | \
+              while read -r key; do
+                FILE_DATE=$(echo "${key}" | grep -oE '[0-9]{8}' | head -1)
+                if [ -n "${FILE_DATE}" ] && [ "${FILE_DATE}" -lt "${CUTOFF}" ]; then
+                  echo "[$(date)] Deleting old backup: ${key}"
+                  aws s3 rm "s3://${S3_BUCKET}/etcd-backups/${key}" \
+                    --endpoint-url="${S3_ENDPOINT}" \
+                    --region="${AWS_DEFAULT_REGION}"
+                fi
+              done
+
+              rm -f "${BACKUP_FILE}"
+              touch /tmp/.done
+              echo "[$(date)] Done."
+
+    - name: Create ServiceAccount for etcd-backup
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: etcd-backup
+            namespace: "{{ etcd_backup_namespace }}"

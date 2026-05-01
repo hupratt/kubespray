@@ -1,0 +1,224 @@
+---
+- name: Deploy booking
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    namespace: booking
+    backend_image: registry.thekor.eu/docker/booking/booking-backend:latest
+    backend_port: 9225
+    frontend_port: 80
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # SECRET - built dynamically from ansible-vault variables
+    # Values come from group_vars/all/vault.yml (encrypted).
+    # The dict is constructed at runtime so no secret ever appears in plaintext
+    # in this playbook file.
+    # -------------------------------------------------------------------------
+    - name: Create backend env secret from vault
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: booking-backend-env
+            namespace: "{{ namespace }}"
+          type: Opaque
+          stringData: "{{ booking_env }}"
+      # no_log: true
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-booking
+        definition:
+          metadata:
+            name: rook-cephfs-booking
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    - name: Create PVC for media files
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: booking-media
+            namespace: "{{ namespace }}"
+          spec:
+            storageClassName: rook-cephfs-booking
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: "1Gi"
+    # -------------------------------------------------------------------------
+    # BACKEND DEPLOYMENT (Django)
+    # -------------------------------------------------------------------------
+    - name: Deploy backend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: booking-backend
+            namespace: "{{ namespace }}"
+            labels:
+              app: booking-backend
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: booking-backend
+            strategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 0
+                maxSurge: 1
+            template:
+              metadata:
+                labels:
+                  app: booking-backend
+              spec:
+                imagePullSecrets:
+                  - name: docker-registry-secret
+                initContainers:
+                  # Run migrations before the main container starts
+                  - name: migrate
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    command:
+                      - sh
+                      - -c
+                      - |
+                        python manage.py makemigrations &&
+                        python manage.py migrate
+                    envFrom:
+                      - secretRef:
+                          name: booking-backend-env
+                    # volumeMounts:
+                    #   - name: app-static
+                    #     mountPath: /app/static
+                    #   - name: app-media
+                    #     mountPath: /app/media
+                containers:
+                  - name: backend
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    # Switch to gunicorn for production (uncomment below and
+                    # remove the runserver command):
+                    # command: ["gunicorn", "Portfolio.wsgi:application",
+                    #           "-w", "2", "--bind", "0.0.0.0:9915"]
+                    command:
+                      - sh
+                      - -c
+                      - python manage.py runserver 0.0.0.0:9225
+                    ports:
+                      - containerPort: "{{ backend_port }}"
+                    envFrom:
+                      - secretRef:
+                          name: booking-backend-env
+                    volumeMounts:
+                      - name: app-media
+                        mountPath: /hdd/Dev/booking/media
+                    #   - name: app-static
+                    #     mountPath: /app/static
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 256Mi
+                      limits:
+                        memory: 512Mi
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: "{{ backend_port }}"
+                      initialDelaySeconds: 30
+                      periodSeconds: 15
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: "{{ backend_port }}"
+                      initialDelaySeconds: 10
+                      periodSeconds: 5
+                volumes:
+                  - name: app-media
+                    persistentVolumeClaim:
+                      claimName: booking-media
+                #   - name: app-static
+                #     persistentVolumeClaim:
+                #       claimName: portfolio-static
+
+    # -------------------------------------------------------------------------
+    # BACKEND SERVICE
+    # -------------------------------------------------------------------------
+    - name: Create backend service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: booking-backend
+            namespace: "{{ namespace }}"
+          spec:
+            selector:
+              app: booking-backend
+            ports:
+              - name: http
+                port: "{{ backend_port }}"
+                targetPort: "{{ backend_port }}"
+            type: ClusterIP
+
+    - name: Create ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: booking-ingress
+            namespace: "{{ namespace }}"
+            annotations:
+              haproxy.org/check: "disabled"
+              haproxy.org/backend-config-snippet: |
+                no option httpchk
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - hosts:
+                  - booking.thekor.eu
+                secretName: wildcard-thekor
+            rules:
+              - host: booking.thekor.eu
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: booking-backend
+                          port:
+                            number: "{{ backend_port }}"

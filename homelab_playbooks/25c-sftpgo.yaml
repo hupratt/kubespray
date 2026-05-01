@@ -1,0 +1,38 @@
+- name: provision sftpgo
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+
+    - name: Load SFTPGo chart values from file
+      ansible.builtin.set_fact:
+        sftpgo_values: "{{ lookup('file', 'group_vars/all/sftp-vault.yml') | from_yaml }}"
+        
+    - name: Create secret for the sftpgo database
+      kubernetes.core.k8s:
+        state: present
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: sftpgo-secret
+          type: Opaque
+          stringData: 
+            sftpgo_secret_values: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__PASSWORD }}"
+      
+    - name: Deploy SFTPGo Helm chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "my-sftpgo"
+        chart_ref: "oci://ghcr.io/sftpgo/helm-charts/sftpgo"
+        chart_version: "0.43.0"
+        release_namespace: "sftpgo"
+        create_namespace: false
+        wait: true
+        wait_timeout: "5m"
+        values: "{{ sftpgo_values }}"

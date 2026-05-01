@@ -1,0 +1,173 @@
+- name: provision authentik
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/authentik-vault.yml
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+
+    - name: Load authentik values from vault file
+      ansible.builtin.set_fact:
+        authentik_values: "{{ lookup('file', 'group_vars/all/authentik-vault.yml') | from_yaml }}"
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-authentik
+        definition:
+          metadata:
+            name: rook-cephfs-authentik
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    - name: Create authentik PVC
+      k8s:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: authentik
+        name: authentik-pvc
+        definition:
+          metadata:
+            name: authentik-pvc
+            namespace: authentik
+          spec:
+            storageClassName: rook-cephfs-authentik
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: 500Mi
+
+    - name: Create authentik data PVC
+      k8s:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: authentik
+        name: authentik-data-pvc
+        definition:
+          metadata:
+            name: authentik-data-pvc
+            namespace: authentik
+          spec:
+            storageClassName: rook-cephfs-authentik
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: 500Mi
+
+    - name: Add authentik Helm repository
+      community.kubernetes.helm_repository:
+        name: authentik
+        repo_url: https://charts.goauthentik.io
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Install authentik official chart
+      community.kubernetes.helm:
+        name: my-authentik
+        chart_ref: authentik/authentik
+        release_namespace: authentik
+        create_namespace: false
+        values: "{{ authentik_values }}"
+
+    - name: Create PostgreSQL user and database
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - exec
+          - -n
+          - postgres
+          - postgres-0
+          - --
+          - psql
+          - -U
+          - postgres
+          - -c
+          - "CREATE USER authentik WITH ENCRYPTED PASSWORD '{{ authentik_values.authentik.postgresql.password }}';"
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Create PostgreSQL database
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - exec
+          - -n
+          - postgres
+          - postgres-0
+          - --
+          - psql
+          - -U
+          - postgres
+          - -c
+          - "CREATE DATABASE authentik OWNER authentik;"
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Grant privileges on database
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - exec
+          - -n
+          - postgres
+          - postgres-0
+          - --
+          - psql
+          - -U
+          - postgres
+          - -c
+          - "GRANT ALL PRIVILEGES ON DATABASE authentik TO authentik;"
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Grant privileges on tables to authentik
+      kubernetes.core.k8s_exec:
+        namespace: postgres
+        pod: postgres-0
+        command: |
+          psql -U postgres -d authentik -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO authentik;"
+          psql -U postgres -d authentik -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO authentik;"
+          psql -U postgres -d authentik -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO authentik;"
+          psql -U postgres -d authentik -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO authentik;"
+
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Grant privileges on tables to the backup user
+      kubernetes.core.k8s_exec:
+        namespace: postgres
+        pod: postgres-0
+        command: |
+          psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE authentik TO fedora_backup_user;"
+          psql -U postgres -d authentik -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO fedora_backup_user;"
+          psql -U postgres -d authentik -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;"
+          psql -U postgres -d authentik -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO fedora_backup_user;"
+          psql -U postgres -d authentik -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO fedora_backup_user;"
+
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+
+# psql -Upostgres authentik < authentik-2026-04-14.sql

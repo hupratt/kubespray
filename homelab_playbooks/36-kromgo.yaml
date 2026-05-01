@@ -1,0 +1,206 @@
+---
+- name: Deploy kromgo
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kromgo_namespace: monitoring
+    prometheus_url: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+    kromgo_hostname: kromgo.thekor.eu
+    kromgo_tls_secret: wildcard-thekor
+
+  tasks:
+  
+    - name: Deploy kromgo ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: kromgo-config
+            namespace: "{{ kromgo_namespace }}"
+          data:
+            config.yaml: |
+              badge:
+                font: Verdana.ttf
+                size: 12
+
+              metrics:
+                - name: kubernetes_version
+                  query: kubernetes_build_info{service="kubernetes"}
+                  label: git_version
+
+                - name: node_count
+                  query: count(kube_node_info)
+                  suffix: " nodes"
+
+                - name: cluster_cpu_usage
+                  query: "round(cluster:node_cpu:ratio_rate5m * 100, 0.1)"
+                  suffix: "%"
+                  colors:
+                    - { color: "green",  min: 0,  max: 35  }
+                    - { color: "orange", min: 36, max: 75  }
+                    - { color: "red",    min: 76, max: 1000 }
+
+                - name: cluster_memory_usage
+                  query: "round((1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100, 0.1)"
+                  suffix: "%"
+                  colors:
+                    - { color: "green",  min: 0,  max: 60  }
+                    - { color: "orange", min: 61, max: 85  }
+                    - { color: "red",    min: 86, max: 100 }
+
+                - name: pod_count
+                  query: count(kube_pod_info)
+                  suffix: " pods"
+
+                - name: ceph_health
+                  query: ceph_health_status{}
+                  colors:
+                    - { valueOverride: "OK",      color: "green",  min: 0, max: 0 }
+                    - { valueOverride: "Warning", color: "orange", min: 1, max: 1 }
+                    - { valueOverride: "Error",   color: "red",    min: 2, max: 2 }
+
+                - name: cluster_age
+                  query: "min(floor((time() - kube_node_created) / 86400))"
+                  valueTemplate: "clusterAge"
+
+                - name: unhealthy_services
+                  query: "(count(monitor_status == 0) or vector(0))"
+                  suffix: " down"
+                  colors:
+                    - { color: "green",  min: 0, max: 0 }
+                    - { color: "red",    min: 1, max: 1000 }
+
+                - name: node_uptime
+                  query: "floor(max(time() - node_boot_time_seconds{namespace=\"monitoring\"}) / 86400)"
+                  suffix: "d"
+                  
+                - name: fedora_version
+                  query: node_os_info{id="fedora"}
+                  label: version_id
+
+                - name: ilo_power_current_watt
+                  query: sum(ilo_power_current_watt)
+                  suffix: "W"
+                  colors:
+                    - { color: "green",  min: 0,   max: 300  }
+                    - { color: "orange", min: 301, max: 600  }
+                    - { color: "red",    min: 601, max: 9999 }
+
+                - name: cluster_memory_used_gb
+                  query: "round(sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1073741824, 0.1)"
+                  suffix: "Gi"
+                  colors:
+                    - { color: "green",  min: 0,   max: 150 }
+                    - { color: "orange", min: 151, max: 200 }
+                    - { color: "red",    min: 201, max: 9999 }
+
+              templates:
+                clusterAge: "{{ '{{' }} . | simplifyDays {{ '}}' }}"
+
+    - name: Deploy kromgo Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: kromgo
+            namespace: "{{ kromgo_namespace }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: kromgo
+            template:
+              metadata:
+                labels:
+                  app: kromgo
+              spec:
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 65534
+                  fsGroup: 65534
+                containers:
+                  - name: kromgo
+                    image: ghcr.io/kashalls/kromgo:latest
+                    env:
+                      - name: PROMETHEUS_URL
+                        value: "{{ prometheus_url }}"
+                    ports:
+                      - name: http
+                        containerPort: 8080
+                      - name: health
+                        containerPort: 8888
+                    volumeMounts:
+                      - name: config
+                        mountPath: /kromgo/config.yaml
+                        subPath: config.yaml
+                    livenessProbe:
+                      httpGet:
+                        path: /healthz
+                        port: health
+                      initialDelaySeconds: 10
+                      periodSeconds: 30
+                    readinessProbe:
+                      httpGet:
+                        path: /readyz
+                        port: health
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                volumes:
+                  - name: config
+                    configMap:
+                      name: kromgo-config
+
+    - name: Deploy kromgo Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: kromgo
+            namespace: "{{ kromgo_namespace }}"
+          spec:
+            selector:
+              app: kromgo
+            ports:
+              - name: http
+                port: 80
+                targetPort: 8080
+              - name: health
+                port: 8888
+                targetPort: 8888
+
+    - name: Deploy kromgo Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: kromgo
+            namespace: "{{ kromgo_namespace }}"
+          spec:
+            ingressClassName: haproxy
+            rules:
+              - host: "{{ kromgo_hostname }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: kromgo
+                          port:
+                            number: 80
+            tls:
+              - hosts:
+                  - "{{ kromgo_hostname }}"
+                secretName: "{{ kromgo_tls_secret }}"
+

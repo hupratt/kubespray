@@ -1,0 +1,61 @@
+---
+- name: Deploy spotify
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+
+    - name: Create oauth secrets
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: spotify-secrets
+            namespace: spotify
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            SPOTIFY_PUBLIC: "{{ spotify_public }}"
+            SPOTIFY_SECRET: "{{ spotify_secret }}"
+
+    - name: Create database URL
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: spotify-database-url
+            namespace: spotify
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            MONGO_ENDPOINT: "{{ MONGO_ENDPOINT }}"
+
+    - name: Apply spotify deployment, svc and the ingress
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - spotify-deploy.yml
+        - spotify-ingress.yml
+        
+    - name: Wait for spotify-api to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: spotify-api
+        namespace: spotify
+      register: deploy_info
+      until:
+        - deploy_info.resources | length > 0
+        - deploy_info.resources[0].status.readyReplicas is defined
+        - deploy_info.resources[0].status.readyReplicas == deploy_info.resources[0].status.replicas
+      retries: 40   # e.g. wait up to 200s total
+      delay: 5

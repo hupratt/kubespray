@@ -1,0 +1,145 @@
+---
+- name: Deploy Uptime Kuma
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    uptime_repo: "git@gitlab.thekor.eu:kube/uptime-kuma.git"
+    uptime_dir: "/home/hugo/uptime"
+  tasks:
+
+    - name: Check if repo already exists
+      ansible.builtin.stat:
+        path: "{{ uptime_dir }}"
+      register: repo_dir
+
+    - name: Clone Uptime Kuma git repo
+      ansible.builtin.git:
+        repo: "{{ uptime_repo }}"
+        dest: "{{ uptime_dir }}"
+        version: main
+        force: yes
+        accept_hostkey: yes
+      when: not repo_dir.stat.exists
+
+    - name: Create secret for Uptime Kuma database
+      kubernetes.core.k8s:
+        state: present
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: uptime-kuma-secret
+          type: Opaque
+          stringData: "{{ uptime_kuma_secret }}"
+      no_log: true
+
+    - name: Annotate uptime-kuma-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: "monitoring"
+        name: uptime-kuma-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
+
+    - name: Create MariaDB Database for Uptime Kuma
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: uptimekuma
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            characterSet: utf8
+            collate: utf8_general_ci
+
+    - name: Create MariaDB User for Uptime Kuma
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: User
+          metadata:
+            name: "{{ uptime_kuma_secret.UPTIME_KUMA_DB_USERNAME }}"
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            passwordSecretKeyRef:
+              name: uptime-kuma-secret
+              key: UPTIME_KUMA_DB_PASSWORD
+            maxUserConnections: 20
+
+    - name: Create MariaDB Connection for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Connection
+          metadata:
+            name: uptime-kuma-connection
+            namespace: mariadb
+          spec:
+            username: "{{ uptime_kuma_secret.UPTIME_KUMA_DB_USERNAME }}"
+            database: "{{ uptime_kuma_secret.UPTIME_KUMA_DB_NAME }}"
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            passwordSecretKeyRef:
+              name: uptime-kuma-secret
+              key: UPTIME_KUMA_DB_PASSWORD
+
+    - name: Create MariaDB Grant for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Grant
+          metadata:
+            name: uptime-kuma-grant
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            username: "{{ uptime_kuma_secret.UPTIME_KUMA_DB_USERNAME }}"
+            database: "{{ uptime_kuma_secret.UPTIME_KUMA_DB_NAME }}"
+            table: "*"
+            privileges:
+              - ALL
+            grantOption: false
+
+    - name: Install helm chart
+      community.kubernetes.helm:
+        name: uptime-kuma
+        chart_ref: "{{ uptime_dir }}/charts/uptime-kuma"
+        release_namespace: monitoring
+        values_files:
+          - "{{ uptime_dir }}/values.yaml"
+          
+    - name: Apply RBAC - prometheus needs to be able to read the secret in the servicemonitor
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - uptimekuma-rbac-servicemonitor.yml
+
+
+# mariadb -h $MARIADB_HOST -u root -p uptimekuma < uptimekuma-2026-04-14.sql 
+# mariadb -h "$MARIADB_HOST" -P "$MARIADB_PORT" -u root -p

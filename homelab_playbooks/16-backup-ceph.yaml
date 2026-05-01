@@ -1,0 +1,143 @@
+---
+- name: Provision mariadb backup CronJob
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+    namespace: rook-ceph
+    target_node: coreos-cp-1
+    pvc_name: backup-mount-pvc
+
+  tasks:
+
+    - name: Create AWS credentials secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: aws-credentials
+            namespace: rook-ceph
+          type: Opaque
+          stringData:
+            AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
+            AWS_SECRET_ACCESS_KEY: "{{ AWS_SECRET_ACCESS_KEY }}"
+
+    - name: Create backup PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ pvc_name }}"
+            namespace: "{{ namespace }}"
+          spec:
+            storageClassName: rook-ceph-block
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 30Gi
+
+    - name: Create CronJob template (suspended)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: cephblock-backup-template
+            namespace: "{{ namespace }}"
+          spec:
+            schedule: "0 0 31 2 *"
+            suspend: true
+            jobTemplate:
+              spec:
+                backoffLimit: 0
+                template:
+                  metadata:
+                    name: cephblock-backup
+                  spec:
+                    imagePullSecrets:
+                    - name: docker-registry-secret
+                    restartPolicy: Never
+                    securityContext:
+                      runAsUser: 0
+                    affinity:
+                      nodeAffinity:
+                        requiredDuringSchedulingIgnoredDuringExecution:
+                          nodeSelectorTerms:
+                            - matchExpressions:
+                                - key: kubernetes.io/hostname
+                                  operator: In
+                                  values:
+                                    - "{{ target_node }}"
+                    containers:
+                      - name: cephblock-backup
+                        image: registry.thekor.eu/kube/rook/rook-ceph-mytoolbox:latest
+                        command: ["/root/backupoutput/generated.sh"]
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-credentials
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-credentials
+                                key: AWS_SECRET_ACCESS_KEY
+                        stdin: true
+                        tty: true
+                        securityContext:
+                          privileged: true
+                        volumeMounts:
+                          - name: ceph-conf
+                            mountPath: /mnt/ceph
+                          - name: dev
+                            mountPath: /dev
+                          - name: backupoutput
+                            mountPath: /root/backupoutput
+                          - name: tmp-backup-dir
+                            mountPath: /tmp
+                        livenessProbe:
+                          exec:
+                            command: ["true"]
+                          initialDelaySeconds: 5
+                          periodSeconds: 30
+                        readinessProbe:
+                          exec:
+                            command: ["true"]
+                          initialDelaySeconds: 5
+                          periodSeconds: 30
+                    volumes:
+                      - name: ceph-conf
+                        hostPath:
+                          path: /etc/ceph
+                          type: Directory
+                      - name: dev
+                        hostPath:
+                          path: /dev
+                          type: Directory
+                      - name: tmp-backup-dir
+                        persistentVolumeClaim:
+                          claimName: "{{ pvc_name }}"
+                      - name: backupoutput
+                        hostPath:
+                          path: /mnt/backupoutput
+                          type: DirectoryOrCreate
+
+
+# curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
+# unzip /tmp/awscliv2.zip -d /tmp
+# /tmp/aws/install
+
+# kubectl patch deployment rook-ceph-tools -n rook-ceph --type=json -p='[
+#   {"op": "remove", "path": "/spec/template/spec/containers/0/securityContext/runAsNonRoot"},
+#   {"op": "replace", "path": "/spec/template/spec/containers/0/securityContext/runAsUser", "value": 0},
+#   {"op": "replace", "path": "/spec/template/spec/containers/0/securityContext/runAsGroup", "value": 0}
+# ]'

@@ -1,0 +1,14 @@
+# Hetzner Cloud API Token
+hcloud_token = "your-hetzner-api-token-here"
+
+# Fedora CoreOS snapshot ID
+# Get this from: hcloud image list
+image_id = "your-fcos-snapshot-id-here"
+
+# SSH key fingerprint (MD5 format)
+# Get this from: hcloud ssh-key list
+# Or calculate from your public key: ssh-keygen -l -E md5 -f ~/.ssh/id_ed25519.pub
+ssh_key_fingerprint = "your-ssh-key-fingerprint-here"
+
+# Example fingerprints look like:
+# MD5:a1:b2:c3:d4:e5:f6:g7:h8:i9:j0:k1:l2:m3:n4:o5:p6

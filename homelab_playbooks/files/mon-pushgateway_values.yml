@@ -1,0 +1,134 @@
+image:
+  registry: ""
+  repository: quay.io/prometheus/pushgateway
+  # if not set appVersion field from Chart.yaml is used
+  tag: ""
+  pullPolicy: IfNotPresent
+
+extraArgs: 
+  - "--web.listen-address=:9091"
+
+liveness:
+  enabled: true
+  probe:
+    httpGet:
+      path: /-/healthy
+      port: 9091
+    initialDelaySeconds: 10
+    timeoutSeconds: 10
+
+readiness:
+  enabled: true
+  probe:
+    httpGet:
+      path: /-/ready
+      port: 9091
+    initialDelaySeconds: 10
+    timeoutSeconds: 10
+
+ingress:
+  enabled: true
+  path: /
+  pathType: ImplementationSpecific
+  ingressClassName: haproxy
+  hosts:
+    - pushgateway.thekor.eu
+  tls:
+    - secretName: wildcard-thekor
+      hosts:
+        - pushgateway.thekor.eu
+
+## Security context to be added to push-gateway pods
+##
+securityContext:
+  fsGroup: 65534
+  runAsUser: 65534
+  runAsNonRoot: true
+
+serviceMonitor:
+  enabled: false
+  namespace: monitoring
+
+  # telemetryPath: HTTP resource path from which to fetch metrics.
+  # Telemetry path, default /metrics, has to be prefixed accordingly if pushgateway sets a route prefix at start-up.
+  #
+  telemetryPath: "/metrics"
+
+  # Fallback to the prometheus default unless specified
+  interval: ""
+
+  ## scheme: HTTP scheme to use for scraping. Can be used with `tlsConfig` for example if using istio mTLS.
+  scheme: ""
+
+  ## Basic authentication
+  basicAuth: {}
+
+  ## Bearer token file
+  bearerTokenFile: ""
+
+  ## tlsConfig: TLS configuration to use when scraping the endpoint. For example if using istio mTLS.
+  ## Of type: https://github.com/coreos/prometheus-operator/blob/master/Documentation/api.md#tlsconfig
+  tlsConfig: {}
+
+  # bearerTokenFile:
+  # Fallback to the prometheus default unless specified
+  scrapeTimeout: ""
+
+  ## Used to pass Labels that are used by the Prometheus installed in your cluster to select Service Monitors to work with
+  ## ref: https://github.com/coreos/prometheus-operator/blob/master/Documentation/api.md#prometheusspec
+  additionalLabels: {}
+
+  # Retain the job and instance labels of the metrics pushed to the Pushgateway
+  # [Scraping Pushgateway](https://github.com/prometheus/pushgateway#configure-the-pushgateway-as-a-target-to-scrape)
+  honorLabels: true
+
+  ## Metric relabel configs to apply to samples before ingestion.
+  ## [Metric Relabeling](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#metric_relabel_configs)
+  metricRelabelings: []
+  # - action: keep
+  #   regex: 'kube_(daemonset|deployment|pod|namespace|node|statefulset).+'
+  #   sourceLabels: [__name__]
+
+  ## Relabel configs to apply to samples before ingestion.
+  ## [Relabeling](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config)
+  relabelings: []
+  # - sourceLabels: [__meta_kubernetes_pod_node_name]
+  #   separator: ;
+  #   regex: ^(.*)$
+  #   targetLabel: nodename
+  #   replacement: $1
+  #   action: replace
+
+# Deployment Strategy type
+strategy:
+  type: Recreate
+
+persistentVolume:
+  ## If true, pushgateway will create/use a Persistent Volume Claim
+  ## If false, use emptyDir
+  ##
+  enabled: false
+
+  ## pushgateway data Persistent Volume access modes
+  ## Must match those of existing PV or dynamic provisioner
+  ## Ref: http://kubernetes.io/docs/user-guide/persistent-volumes/
+  ##
+  accessModes:
+    - ReadWriteOnce
+
+  ## pushgateway data Persistent Volume Claim annotations
+  ##
+  annotations: {}
+
+  ## pushgateway data Persistent Volume existing claim name
+  ## Requires pushgateway.persistentVolume.enabled: true
+  ## If defined, PVC must be created manually before volume will be bound
+  existingClaim: ""
+
+  ## pushgateway data Persistent Volume mount root path
+  ##
+  mountPath: /data
+
+  ## pushgateway data Persistent Volume size
+  ##
+  size: 2Gi

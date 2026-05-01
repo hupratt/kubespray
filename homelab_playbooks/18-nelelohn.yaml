@@ -1,0 +1,93 @@
+---
+- name: deploy nele lohn
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+    git_repo: "git@registry.thekor.eu:docker/nele-lohn.git"
+    git_dir: "~/appengine-helm"
+    target_namespace: nele-lohn
+  tasks:
+
+    # - name: Add/update mittwald Helm repository
+    #   kubernetes.core.helm_repository:
+    #     name: mittwald
+    #     repo_url: https://helm.mittwald.de
+
+    # - name: Create Docker registry secret
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: Secret
+    #       metadata:
+    #         name: docker-registry-secret
+    #         namespace: kube-system
+    #       type: kubernetes.io/dockerconfigjson
+    #       data:
+    #         .dockerconfigjson: "{{ dockerconfigjson | b64encode }}"
+    #   vars:
+    #     dockerconfigjson: |
+    #       {
+    #         "auths": {
+    #           "{{ registry_url }}": {
+    #             "username": "{{ registry_username }}",
+    #             "password": "{{ registry_password }}",
+    #             "auth": "{{ (registry_username + ':' + registry_password) | b64encode }}"
+    #           }
+    #         }
+    #       }
+
+    # - name: Annotate docker-registry-secret secret declaratively
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     kind: Secret
+    #     namespace: kube-system
+    #     name: docker-registry-secret
+    #     definition:
+    #       metadata:
+    #         annotations:
+    #           replicator.v1.mittwald.de/replicate-to: "{{ target_namespace }}"
+
+    # - name: Annotate wildcard-cloud2-tls secret declaratively
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     kind: Secret
+    #     namespace: cert-manager
+    #     name: wildcard-cloud2-tls
+    #     definition:
+    #       metadata:
+    #         annotations:
+    #           replicator.v1.mittwald.de/replicate-to: "{{ target_namespace }}"
+
+    # - name: Check if repo already exists
+    #   ansible.builtin.stat:
+    #     path: "{{ git_dir }}"
+    #   register: repo_dir
+
+    # - name: Clone git repo
+    #   ansible.builtin.git:
+    #     repo: "{{ git_repo }}"
+    #     dest: "{{ git_dir }}"
+    #     version: main
+    #     force: yes
+    #     accept_hostkey: yes
+    #   when: not repo_dir.stat.exists
+
+    # - name: Ensure target namespace exists
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: Namespace
+    #       metadata:
+    #         name: "{{ target_namespace }}"
+
+    - name: Install helm chart
+      community.kubernetes.helm:
+        name: nelelohn
+        chart_ref: "{{ git_dir }}/appengine"
+        release_namespace: "{{ target_namespace }}"
+        values: "{{ helm_nelelohn_values | from_yaml }}"

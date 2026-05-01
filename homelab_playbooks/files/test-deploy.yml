@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ghcr-demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ghcr-demo
+  template:
+    metadata:
+      labels:
+        app: ghcr-demo
+    spec:
+      containers:
+        - name: app
+          image: ghcr.io/stefanprodan/podinfo:latest
+          ports:
+            - containerPort: 9898

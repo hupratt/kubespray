@@ -1,0 +1,53 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spotify-backend-ingress
+  namespace: spotify
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - spotifyapi.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: spotifyapi.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spotify-api
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spotify-frontend-ingress
+  namespace: spotify
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - spotify.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: spotify.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spotify-frontend
+                port:
+                  number: 3000

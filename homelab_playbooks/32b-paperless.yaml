@@ -1,0 +1,121 @@
+---
+- name: Deploy Paperless-ngx
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - group_vars/all/paperless-vault.yml
+  tasks:
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-paperless
+        definition:
+          metadata:
+            name: rook-cephfs-paperless
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    - name: Pre-create Paperless PVCs
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ item.name }}"
+            namespace: paperless
+          spec:
+            accessModes:
+              - ReadWriteMany
+            storageClassName: "{{ item.storageClass }}"
+            resources:
+              requests:
+                storage: "{{ item.size }}"
+      loop:
+        - name: paperless-paperless-ngx-data
+          storageClass: rook-cephfs-paperless
+          size: 5Gi
+        - name: paperless-paperless-ngx-media
+          storageClass: rook-cephfs-paperless
+          size: 20Gi
+        - name: paperless-paperless-ngx-export
+          storageClass: rook-cephfs-paperless
+          size: 5Gi
+        - name: paperless-paperless-ngx-consume
+          storageClass: rook-cephfs-paperless
+          size: 2Gi
+
+    - name: Deploy paperless-ngx Helm chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ paperless_kubeconfig }}"
+        name: "{{ paperless_release_name }}"
+        chart_ref: "{{ paperless_chart_path }}"
+        release_namespace: "{{ paperless_namespace }}"
+        create_namespace: true
+        wait: true
+        wait_timeout: "10m"
+        values:
+          ingress:
+            host: "{{ paperless_hostname }}"
+            tls:
+              secretName: "{{ paperless_tls_secret }}"
+          externalPostgres:
+            host: "{{ paperless_db_host }}"
+            port: "{{ paperless_db_port }}"
+            database: "{{ paperless_db_name }}"
+            user: "{{ paperless_db_user }}"
+          persistence:
+            data:
+              existingClaim: "paperless-paperless-ngx-data"
+              size: 5Gi
+            media:
+              existingClaim: "paperless-paperless-ngx-media"
+              size: 20Gi
+            export:
+              existingClaim: "paperless-paperless-ngx-export"
+              size: 5Gi
+            consume:
+              existingClaim: "paperless-paperless-ngx-consume"
+              size: 2Gi
+          paperless:
+            config:
+              PAPERLESS_URL: "https://{{ paperless_hostname }}"
+              PAPERLESS_CSRF_TRUSTED_ORIGINS: "https://{{ paperless_hostname }}"
+            secret:
+              secretKey: "{{ paperless_secret_key }}"
+              dbPassword: "{{ paperless_db_password }}"
+              adminUser: "{{ paperless_admin_user }}"
+              adminPassword: "{{ paperless_admin_password }}"
+              adminMail: "{{ paperless_admin_mail }}"
+          redis:
+            storageClass: "rook-ceph-block"
+
+    - name: Verify deployment rollout
+      command: >
+        kubectl rollout status deployment/{{ paperless_release_name }}-paperless-ngx
+        -n {{ paperless_namespace }}
+        --timeout=300s
+      changed_when: false
+
+
+# k cp paperless.tgz paperless-paperless-ngx-7885c8f89c-q6kvb:/tmp -n paperless
+# cd /usr/src/
+# tar -xvzf paperless.tgz --exclude='paperless/src' --exclude='paperless/static'

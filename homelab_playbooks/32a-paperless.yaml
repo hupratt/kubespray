@@ -1,0 +1,63 @@
+---
+- name: Deploy the booking database
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+    - group_vars/all/paperless-vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+
+    # not idempotent, should only run once
+    - name: Create users and database
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -c "CREATE USER {{ paperless_db_user }} WITH ENCRYPTED PASSWORD '{{ vault_paperless_db_password }}';"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -c "CREATE DATABASE {{ paperless_db_name }} OWNER {{ paperless_db_user }};"
+
+    - name: Grant privileges on the database
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ paperless_db_name }} TO {{ paperless_db_user }};"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ paperless_db_name }} TO fedora_backup_user;"
+
+    - name: Grant privileges on tables and sequences to the user
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {{ paperless_db_user }};"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {{ paperless_db_user }};"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO {{ paperless_db_user }};"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO {{ paperless_db_user }};"
+
+    - name: Grant privileges on tables and sequences to fedora_backup_user
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO fedora_backup_user;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO fedora_backup_user;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d booking -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO fedora_backup_user;"

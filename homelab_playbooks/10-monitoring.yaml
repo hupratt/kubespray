@@ -1,0 +1,57 @@
+---
+- name: Deploy the monitoring
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+
+    - name: Add Prometheus Helm repo
+      ansible.builtin.command:
+        cmd: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      register: add_repo
+      changed_when: "'has been added' in add_repo.stdout"
+
+    - name: Update Helm repos
+      ansible.builtin.command:
+        cmd: helm repo update
+
+    - name: Install Prometheus Pushgateway from OCI
+      community.kubernetes.helm:
+        name: pushgateway
+        chart_ref: oci://ghcr.io/prometheus-community/charts/prometheus-pushgateway
+        release_namespace: monitoring
+        create_namespace: false
+        values_files: files/mon-pushgateway_values.yml
+        state: present
+
+    - name: Create secrets
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: grafana-secret
+            namespace: monitoring
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ GF_AUTH_GENERIC_OAUTH_CLIENT_ID }}"
+            GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET }}"
+            GF_SECURITY_ADMIN_PASSWORD: "{{ GF_SECURITY_ADMIN_PASSWORD }}"
+            GF_DATABASE_PASSWORD: "{{ GF_DATABASE_PASSWORD }}"
+            GF_EMAIL_USER: "{{ GF_EMAIL_USER }}"
+            GF_EMAIL_PASSWORD: "{{ GF_EMAIL_PASSWORD }}"
+
+    - name: Upgrade existing prometheus stack with grafana and alert manager
+      community.kubernetes.helm:
+        name: prometheus
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: monitoring
+        kubeconfig: "{{ kubeconfig_path }}"
+        create_namespace: false
+        values_files: files/mon-grafana-values.yml
+        state: present

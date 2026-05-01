@@ -1,0 +1,91 @@
+---
+- name: Provision mongo backup CronJob
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+    - name: Create AWS credentials secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: aws-credentials
+            namespace: mongodb
+          type: Opaque
+          stringData:
+            AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
+            AWS_SECRET_ACCESS_KEY: "{{ AWS_SECRET_ACCESS_KEY }}"
+
+    - name: Deploy mongodump CronJob
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: mongodump-backup-template
+            namespace: mongodb
+          spec:
+            schedule: "0 0 31 2 *"  # Never runs automatically
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 3
+            jobTemplate:
+              spec:
+                backoffLimit: 0
+                template:
+                  spec:
+                    restartPolicy: Never
+                    imagePullSecrets:
+                    - name: docker-registry-secret
+                    nodeSelector:
+                      kubernetes.io/hostname: coreos-cp-1
+                    containers:
+                      - name: pgdump
+                        image: registry.thekor.eu/docker/k8s-fedora-backup/mongo-alpine:7
+                        command:
+                          - /bin/bash
+                          - -c
+                          - /home/mongo/mongo.sh
+                        env:
+                          - name: AWS_ACCESS_KEY_ID
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-credentials
+                                key: AWS_ACCESS_KEY_ID
+                          - name: AWS_SECRET_ACCESS_KEY
+                            valueFrom:
+                              secretKeyRef:
+                                name: aws-credentials
+                                key: AWS_SECRET_ACCESS_KEY
+                          - name: MONGO_HOST
+                            value: mongodb-service.mongodb.svc.cluster.local
+                          - name: MONGO_USER
+                            value: "{{ mongo_backup_user }}"
+                          - name: MONGO_PASSWORD
+                            value: "{{ mongo_backup_password }}"
+                          - name: MONGO_TARGETS
+                            value: "Trellis your_spotify Amazon"
+                        volumeMounts:
+                          - name: backupoutput
+                            mountPath: /home/mongo
+                        livenessProbe:
+                          exec:
+                            command: ["true"]
+                          initialDelaySeconds: 5
+                          periodSeconds: 30
+                        readinessProbe:
+                          exec:
+                            command: ["true"]
+                          initialDelaySeconds: 5
+                          periodSeconds: 30
+                    volumes:
+                      - name: backupoutput
+                        hostPath:
+                          path: /mnt/backupoutput
+                          type: DirectoryOrCreate

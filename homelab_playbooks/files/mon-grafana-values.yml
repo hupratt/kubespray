@@ -1,0 +1,165 @@
+grafana:
+  defaultDashboardsEnabled: true  # this is the default
+  enabled: true
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 472
+    runAsGroup: 472
+    fsGroup: 472
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false  # Grafana writes to its install dir, can't be true
+    capabilities:
+      drop: [ALL]
+  initChownData:
+    enabled: false  # runs as root to chown the PVC, disable it
+  sidecar:
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 472
+      runAsGroup: 472
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+  # --- Inject secrets as environment variables ---
+  envValueFrom:
+    GF_SECURITY_ADMIN_PASSWORD:
+      secretKeyRef:
+        name: grafana-secret
+        key: GF_SECURITY_ADMIN_PASSWORD
+    GF_AUTH_GENERIC_OAUTH_CLIENT_ID:
+      secretKeyRef:
+        name: grafana-secret
+        key: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+    GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+      secretKeyRef:
+        name: grafana-secret
+        key: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+    GF_DATABASE_PASSWORD:
+      secretKeyRef:
+        name: grafana-secret
+        key: GF_DATABASE_PASSWORD
+    GF_EMAIL_PASSWORD:
+      secretKeyRef:
+        name: grafana-secret
+        key: GF_DATABASE_PASSWORD
+    GF_EMAIL_USER:
+      secretKeyRef:
+        name: grafana-secret
+        key: GF_EMAIL_USER
+
+  # --- External Postgres ---
+  grafana.ini:
+    database:
+      type: postgres
+      host: postgres.postgres.svc.cluster.local:5432
+      name: grafana
+      user: grafana
+      password: $__env{GF_DATABASE_PASSWORD}
+      ssl_mode: disable
+
+    # --- OAuth (Authentik) ---
+    auth.generic_oauth:
+      enabled: true
+      name: Authentik
+      allow_sign_up: true
+      client_id: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_ID}
+      client_secret: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
+      scopes: openid profile email
+      auth_url: https://auth.thekor.eu/application/o/authorize/
+      token_url: https://auth.thekor.eu/application/o/token/
+      api_url: https://auth.thekor.eu/application/o/userinfo/
+      role_attribute_path: contains(groups, 'grafana-admin') && 'Admin' || contains(groups, 'grafana-editor') && 'Editor' || 'Viewer'
+      role_attribute_strict: false
+
+    server:
+      domain: dashboard.thekor.eu
+      root_url: https://dashboard.thekor.eu
+
+    smtp:
+      enabled: true
+      host: "mail.thekor.eu:587"
+      user: $__env{GF_EMAIL_USER}
+      password: $__env{GF_EMAIL_PASSWORD}
+      from_address: $__env{GF_EMAIL_USER}
+      from_name: "Grafana k8s"
+      starttls_policy: "OpportunisticStartTLS"
+  # --- Persistence ---
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: rook-cephfs
+    accessModes:
+      - ReadWriteMany
+
+  # --- Ingress ---
+  ingress:
+    enabled: true
+    hosts:
+      - dashboard.thekor.eu
+    ingressClassName: haproxy
+    tls:
+      - hosts:
+          - dashboard.thekor.eu
+        secretName: wildcard-thekor
+
+defaultRules:
+  rules:
+    kubeProxy: false
+  disabled:
+    Watchdog: true
+
+prometheus:
+  enabled: true
+  prometheusSpec:
+    additionalScrapeConfigs:
+      - job_name: 'node_exporter'
+        scrape_interval: 60s      # default is 1m globally, but explicit here
+        scrape_timeout: 60s       # default is 10s — increase if targets are slow
+        static_configs:
+          - targets: ['p8-prod01.thekor.eu:9100','p8-prod02.thekor.eu:9100', 'hz-mailcow.thekor.eu:9100', 'hz-ecom.thekor.eu:9100', 'lb1.thekor.eu:9100', 'lb2.thekor.eu:9100']
+      - job_name: 'pushgateway'
+        static_configs:
+          - targets: ['pushgateway-prometheus-pushgateway.monitoring.svc.cluster.local:9091']
+      - job_name: 'coredns'
+        static_configs:
+          - targets: ['coredns1.thekor.eu:9153','coredns2.thekor.eu:9153', 'coredns3.thekor.eu:9153']
+      - job_name: 'ilo'
+        metrics_path: /metrics
+        scrape_interval: 300s
+        scrape_timeout: 61s
+        static_configs:
+          - targets:
+              - 10.10.99.110
+              - 10.10.99.102
+        relabel_configs:
+          - source_labels: [__address__]
+            target_label: __param_host
+          - source_labels: [__param_host]
+            target_label: instance
+          - target_label: __address__
+            replacement: 'ilo-exporter.monitoring.svc.cluster.local:9545'
+
+# grafana queries the alertmanager alerts from prometheus
+# so these settings are kind of useless
+alertmanager:
+  alertmanagerSpec:
+    alertmanagerConfiguration: {}
+  config:
+    global:
+      resolve_timeout: 5m
+    inhibit_rules:
+      - source_matchers:
+          - severity = "critical"
+        target_matchers:
+          - severity = "warning"
+        equal: ['namespace', 'alertname']
+    route:
+      group_by: ['namespace']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+    receivers:
+      - name: 'null'

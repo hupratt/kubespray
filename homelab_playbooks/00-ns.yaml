@@ -1,0 +1,54 @@
+---
+# i need to declare namespaces from the get go to be able
+# to replicate secrets to them
+- name: Create Kubernetes namespaces
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: "~/.kube/config"
+    namespaces:
+      - amazon-clone
+      - authentik
+      - backup
+      - booking
+      - cert-manager
+      - chirpy
+      - cilium-secrets
+      - donetick
+      - etcd-backup
+      - external-secrets
+      - frigate
+      - haproxy
+      - harbor
+      - kubewarden
+      - kyverno
+      - linkwarden
+      - makita
+      - mariadb
+      - mongo-express
+      - mongodb
+      - monitoring
+      - netbox
+      - open-webui
+      - paperless
+      - postgres
+      - rook-ceph
+      - sftpgo
+      - spotify
+      - thrifty
+      - trellis
+      - vault
+      - vaultwarden
+      - www-portfolio
+
+  tasks:
+    - name: Ensure namespaces exist
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ item }}"
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+      loop: "{{ namespaces }}"
+      loop_control:
+        label: "{{ item }}"

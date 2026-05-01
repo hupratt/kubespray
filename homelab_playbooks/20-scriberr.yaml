@@ -1,0 +1,17 @@
+---
+- name: Deploy scriberr
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+  tasks:
+
+    - name: Apply scriber deployment, svc, pvc and the ingress
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - scriber.yml

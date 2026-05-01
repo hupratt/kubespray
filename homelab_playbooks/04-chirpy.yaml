@@ -1,0 +1,67 @@
+---
+- name: Deploy chirpy
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+    - name: Create Docker registry secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: docker-registry-secret
+            namespace: kube-system
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ dockerconfigjson | b64encode }}"
+      vars:
+        dockerconfigjson: |
+          {
+            "auths": {
+              "{{ registry_url }}": {
+                "username": "{{ registry_username }}",
+                "password": "{{ registry_password }}",
+                "auth": "{{ (registry_username + ':' + registry_password) | b64encode }}"
+              }
+            }
+          }
+
+    - name: Annotate docker-registry-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: kube-system
+        name: docker-registry-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,backup,booking,cert-manager,chirpy,cilium-secrets,etcd-backup,frigate,haproxy,harbor,kubewarden,linkwarden,makita,mariadb,mongo-express,mongodb,monitoring,netbox,open-webui,paperless,postgres,rook-ceph,sftpgo,spotify,thrifty,trellis,vaultwarden,www-portfolio"
+
+    - name: Apply chirpy deployment, svc, pvc and the ingress
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - chirpy_deployment.yml
+        - chirpy_ingress.yml
+        - chirpy_pvc.yml
+
+    - name: Wait for chirpy to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: jekyll
+        namespace: chirpy
+      register: deploy_info
+      until:
+        - deploy_info.resources | length > 0
+        - deploy_info.resources[0].status.readyReplicas is defined
+        - deploy_info.resources[0].status.readyReplicas == deploy_info.resources[0].status.replicas
+      retries: 40   # e.g. wait up to 200s total
+      delay: 5

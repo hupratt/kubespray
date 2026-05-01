@@ -1,0 +1,116 @@
+---
+- name: Deploy Ceph Rook cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    rook_repo: "git@gitlab.thekor.eu:kube/rook.git"
+    rook_dir: "/home/hugo/rook"
+    kubeconfig_path: "/home/hugo/.kube/config"
+
+  tasks:
+
+    - name: Check if Rook repo exists
+      ansible.builtin.stat:
+        path: "{{ rook_dir }}"
+      register: repo_dir
+
+    - name: Clone Rook repository if not present
+      ansible.builtin.git:
+        repo: "{{ rook_repo }}"
+        dest: "{{ rook_dir }}"
+        version: homelab
+        update: true
+        accept_hostkey: true
+      when: not repo_dir.stat.exists
+
+    - name: Configure the deploy/examples/ceph-cluster.yml
+      ansible.builtin.pause:
+        prompt: "Configure the deploy/examples/ceph-cluster.yml before continuing. Press Enter to proceed or Ctrl+C to abort."
+
+    - name: Apply Rook operator
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/operator.yaml"
+
+    - name: Apply Rook common resources
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/common.yaml"
+
+    - name: Apply Rook crds
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/crds.yaml"
+
+    - name: Pause for 6 seconds
+      ansible.builtin.pause:
+        seconds: 6
+
+    - name: Deploy Ceph cluster
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: ~/.kube/config
+        src: "{{ rook_dir }}/deploy/examples/ceph-cluster.yml"
+
+    - name: Apply service monitor + rbac
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - rook-ceph-servicemonitor-rbac.yml
+        - rook-ceph-mgr-servicemonitor.yml
+
+    - name: Wait for CephCluster to be created
+      kubernetes.core.k8s_info:
+        api_version: ceph.rook.io/v1
+        kind: CephCluster
+        namespace: rook-ceph
+      register: ceph_clusters
+      until: ceph_clusters.resources | length > 0
+      retries: 10
+      delay: 60
+
+    - name: Display CephCluster status
+      ansible.builtin.debug:
+        var: ceph_clusters.resources
+
+    - name: Apply RBD StorageClass
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/csi/rbd/storageclass.yaml"
+
+    - name: Apply the cephfs storage class
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/csi/cephfs/storageclass.yaml"
+
+    - name: Apply cephfs
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+       - cephfs.yml
+    
+
+# in case ceph doesn't start because they can't elect:
+
+# kubectl -n rook-ceph scale deployment rook-ceph-operator --replicas=0
+
+# # Delete the monitor deployments AND the secret
+# kubectl -n rook-ceph delete deployment -l app=rook-ceph-mon
+# kubectl -n rook-ceph delete secret rook-ceph-mon
+
+# for the backups to work
+
+# kubectl get secret rook-ceph-admin-keyring -n rook-ceph -o jsonpath='{.data.keyring}' | base64 -d > keyring
+# ceph auth get client.admin
+# cat /etc/ceph/ceph.conf

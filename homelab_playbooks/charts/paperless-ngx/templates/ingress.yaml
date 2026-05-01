@@ -1,0 +1,40 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "paperless-ngx.fullname" . }}
+  labels:
+    {{- include "paperless-ngx.labels" . | nindent 4 }}
+  annotations:
+    # HAProxy Ingress Controller annotations
+    haproxy.org/check: "true"
+    haproxy.org/forwarded-for: "true"
+    haproxy.org/load-balance: "roundrobin"
+    {{- if .Values.ingress.tls.enabled }}
+    haproxy.org/ssl-redirect: "true"
+    {{- end }}
+    # Paperless uploads can be large — raise body limit
+    haproxy.org/request-set-header: "X-Forwarded-Proto https"
+    haproxy.org/timeout-client: "600s"
+    haproxy.org/timeout-server: "600s"
+    haproxy.org/max-connections: "100"
+spec:
+  ingressClassName: haproxy
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      secretName: {{ .Values.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "paperless-ngx.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

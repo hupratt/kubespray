@@ -1,0 +1,144 @@
+---
+
+- name: Create Kubernetes Secret from Ansible Vault
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+    - name: Create DB credentials for the app
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mongodb-secret
+            namespace: mongo-express
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            mongo-root-username: "{{ mongo_testapp_username }}"
+            mongo-root-password: "{{ mongo_testapp_password }}"
+
+    - name: Create root DB credentials
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mongodb-secret
+            namespace: mongodb
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            mongo-root-username: "{{ mongo_testapp_username }}"
+            mongo-root-password: "{{ mongo_testapp_password }}"
+
+    - name: Create user DB credentials
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mongodb-user-secret
+            namespace: mongodb
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            mongo-username: "{{ mongo_username }}"
+            mongo-password: "{{ mongo_password }}"
+            mongo-database: Trellis
+
+- name: Deploy StatefulSet Mongodb
+#  hosts: kube_control_plane[0]
+  hosts: localhost
+  # become: true
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+
+  tasks:
+    - name: Apply deployment, configmap and svc manifests
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - 2-mongo-database.yml
+
+    - name: Wait for mongodb-statefulset to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: StatefulSet
+        name: mongodb-statefulset
+        namespace: mongodb
+      register: deploy_info
+      until:
+        - deploy_info.resources | length > 0
+        - deploy_info.resources[0].status.readyReplicas is defined
+        - deploy_info.resources[0].status.readyReplicas == deploy_info.resources[0].status.replicas
+      retries: 40   # e.g. wait up to 200s total
+      delay: 5
+
+- name: Deploy Mongo Express
+#  hosts: kube_control_plane[0]
+  hosts: localhost
+  # become: true
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+
+  tasks:
+    - name: Apply mongoexpress deployment, svc, haproxy, rbac for haproxy and the ingress for mongoexpress
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - 3-mongo-express.yml
+        - 4-ingress-controller.yml
+        - 5-ingress-rbac.yml
+        - 6-ingress-mongoexpress.yml
+        - 7-nginx-fallback.yml
+    - name: Wait for mongo-express to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: mongo-express
+        namespace: mongo-express
+      register: deploy_info
+      until:
+        - deploy_info.resources | length > 0
+        - deploy_info.resources[0].status.readyReplicas is defined
+        - deploy_info.resources[0].status.readyReplicas == deploy_info.resources[0].status.replicas
+      retries: 40   # e.g. wait up to 200s total
+      delay: 5
+
+    - name: Create MongoDB backup user
+      ansible.builtin.shell: >
+        kubectl --kubeconfig {{ kubeconfig_path }}
+        -n mongodb exec sts/mongodb-statefulset --
+        mongosh admin \
+              -u "{{ mongo_testapp_username }}" \
+              -p "{{ mongo_testapp_password }}" \
+              --authenticationDatabase admin \
+              --quiet \
+              --eval "if (!db.getUser('{{ mongo_backup_user }}')) { db.createUser({ user: '{{ mongo_backup_user }}', pwd: '{{ mongo_backup_password }}', roles: [ { role: 'readAnyDatabase', db: 'admin' }, { role: 'backup', db: 'admin' } ] }); }"
+
+
+# verify with 
+# mongosh
+# use admin
+# db.auth("root", "PASSWORD")
+# db.system.users.find()
+
+# mongorestore --authenticationDatabase=admin --uri "mongodb://<USERNAME>:<PASSWORD>@<IP>" -d Amazon ./Amazon
+# mongorestore --authenticationDatabase=admin --uri "mongodb://<USERNAME>:<PASSWORD>@<IP>" -d Trellis ./Trellis
+# mongorestore --authenticationDatabase=admin --uri "mongodb://<USERNAME>:<PASSWORD>@<IP>" -d your_spotify ./your_spotify
+
+# db.users.findOne({ username: "fedora_backup_user" })

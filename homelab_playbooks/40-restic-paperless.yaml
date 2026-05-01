@@ -1,0 +1,258 @@
+---
+- name:  Setup block based backups of the paperless PVC with restic
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - group_vars/all/vault.yml       # your existing Ansible Vault file
+  vars:
+    homelab_domain: "thekor.eu"
+    vault_addr: "https://vault.{{ homelab_domain }}"
+    # kv-v2 MOUNT only — no /data/ suffix. ESO injects that itself.
+    vault_kv_mount: "kv"
+    vault_kv_path: "paperless"           # path within the mount
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_policy_name: "eso-policy"
+    vault_role_name: "eso-role"
+    external_secret_namespace: "paperless"
+    eso_namespace: "external-secrets"
+    eso_sa_name: "external-secrets"  # default ESO service account name
+    external_secret_name: "{{ external_secret_namespace }}-secrets"
+    data_pvc_name: "paperless-paperless-ngx-data"
+    media_pvc_name: "paperless-paperless-ngx-media"
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # Load unseal/init data (root token for bootstrap only)
+    # -------------------------------------------------------------------------
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    # -------------------------------------------------------------------------
+    # seed the restic secret
+    # -------------------------------------------------------------------------
+    - name: Write secrets to Vault KV
+      community.hashi_vault.vault_kv2_write:
+        engine_mount_point: "kv"
+        path: "{{ vault_kv_path }}"
+        data:
+          AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
+          AWS_SECRET_ACCESS_KEY: "{{ AWS_SECRET_ACCESS_KEY }}"
+          RESTIC_REPOSITORY: "s3://garage-s3.thekor.eu/backup/restic"
+          RESTIC_PASSWORD: "{{ RESTIC_PASSWORD }}"
+        token: "{{ vault_init.root_token }}"
+        url: "{{ vault_addr }}"
+
+
+    # -------------------------------------------------------------------------
+    # Deploy ExternalSecret
+    # -------------------------------------------------------------------------
+    - name: Deploy ExternalSecret for the paperless namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ external_secret_name }}"
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ external_secret_name }}"
+              # Owner: ESO owns and garbage-collects the k8s Secret.
+              # Change to Merge only if this Secret already exists and you
+              # want ESO to add keys without replacing the whole object.
+              creationPolicy: Owner
+            data:
+              - secretKey: AWS_SECRET_ACCESS_KEY      # key name in the resulting k8s Secret
+                remoteRef:
+                  key: "{{ vault_kv_path }}" # path within the KV mount (myapp)
+                  property: AWS_SECRET_ACCESS_KEY      # field inside that KV secret
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: RESTIC_REPOSITORY
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: RESTIC_PASSWORD
+
+    - name: Deploy restic backup CronJob for data pvc
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: paperless-data
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            schedule: "0 0 31 2 *"
+            concurrencyPolicy: Forbid
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 1
+
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    restartPolicy: OnFailure
+
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
+                      fsGroup: 1000
+                      seccompProfile:
+                        type: RuntimeDefault
+
+                    initContainers:
+                      - name: restic-init
+                        image: instrumentisto/restic:0.18.0
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 1000
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        command:
+                          - /bin/sh
+                          - -c
+                          - |
+                            set -e
+                            restic snapshots >/dev/null 2>&1 || restic init
+                        envFrom:
+                          - secretRef:
+                              name: "{{ external_secret_name }}"
+
+                    containers:
+                      - name: restic
+                        image: instrumentisto/restic:0.18.0
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 1000
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: false
+                          capabilities:
+                            drop: ["ALL"]
+                        command:
+                          - /bin/sh
+                          - -c
+                          - |
+                            set -e
+                            restic backup /data
+                            restic forget \
+                              --keep-daily 7 \
+                              --keep-weekly 4 \
+                              --keep-monthly 6 \
+                              --prune
+                        envFrom:
+                          - secretRef:
+                              name: "{{ external_secret_name }}"
+                        volumeMounts:
+                          - name: data
+                            mountPath: /data
+                            readOnly: true
+
+                    volumes:
+                      - name: data
+                        persistentVolumeClaim:
+                          claimName: "{{ data_pvc_name }}"
+
+
+    - name: Deploy restic backup CronJob for media PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: paperless-media
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            schedule: "0 0 31 2 *"
+            concurrencyPolicy: Forbid
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 1
+
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    restartPolicy: OnFailure
+
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
+                      fsGroup: 1000
+                      seccompProfile:
+                        type: RuntimeDefault
+
+                    initContainers:
+                      - name: restic-init
+                        image: instrumentisto/restic:0.18.0
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 1000
+                          allowPrivilegeEscalation: false
+                          capabilities:
+                            drop: ["ALL"]
+                        command:
+                          - /bin/sh
+                          - -c
+                          - |
+                            set -e
+                            restic snapshots >/dev/null 2>&1 || restic init
+                        envFrom:
+                          - secretRef:
+                              name: "{{ external_secret_name }}"
+
+                    containers:
+                      - name: restic
+                        image: instrumentisto/restic:0.18.0
+                        securityContext:
+                          runAsNonRoot: true
+                          runAsUser: 1000
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: false
+                          capabilities:
+                            drop: ["ALL"]
+                        command:
+                          - /bin/sh
+                          - -c
+                          - |
+                            set -e
+                            restic backup /data
+                            restic forget \
+                              --keep-daily 7 \
+                              --keep-weekly 4 \
+                              --keep-monthly 6 \
+                              --prune
+                        envFrom:
+                          - secretRef:
+                              name: "{{ external_secret_name }}"
+                        volumeMounts:
+                          - name: data
+                            mountPath: /data
+                            readOnly: true
+
+                    volumes:
+                      - name: data
+                        persistentVolumeClaim:
+                          claimName: "{{ media_pvc_name }}"
+
+# kubectl create job --from=cronjob/paperless-data paperless-data-$(date +%Y%m%d-%H%M) -n paperless
+# kubectl create job --from=cronjob/paperless-media paperless-media-$(date +%Y%m%d-%H%M) -n paperless
+
+# restic -r s3:garage-s3.thekor.eu/backup/restic/ mount test

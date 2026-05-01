@@ -1,0 +1,68 @@
+---
+- name: Initialise and unseal Vault
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    vault_namespace: vault
+    vault_pod: vault-0
+    unseal_key_dest: group_vars/all/vault_init.json
+
+  tasks:
+    - name: Check Vault status
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "{{ vault_pod }}"
+        command: vault status -format=json
+      register: vault_status_raw
+      failed_when: false
+
+    - name: Parse vault status
+      ansible.builtin.set_fact:
+        vault_status: "{{ vault_status_raw.stdout | from_json }}"
+
+    - name: Initialise Vault
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} {{ vault_pod }}
+          -- vault operator init -key-shares=5 -key-threshold=3 -format=json
+      register: vault_init_raw
+      when: not vault_status.initialized
+
+    - name: Save init output locally
+      ansible.builtin.copy:
+        content: "{{ vault_init_raw.stdout }}"
+        dest: "{{ unseal_key_dest }}"
+        mode: "0600"
+      when: not vault_status.initialized
+
+    - name: Set init data from fresh init
+      ansible.builtin.set_fact:
+        vault_init: "{{ vault_init_raw.stdout | from_json }}"
+      when: not vault_status.initialized
+
+    - name: Set init data from saved file
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', unseal_key_dest) | from_json }}"
+      when: vault_status.initialized
+
+    - name: Unseal vault-0
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-0
+          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]
+
+    - name: Unseal vault-1
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-1
+          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]
+
+    - name: Unseal vault-2
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-2
+          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]

@@ -1,0 +1,28 @@
+---
+- name: Deploy influx
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/influx-vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+
+    - name: Add InfluxData Helm repo
+      community.kubernetes.helm_repository:
+        name: influxdata
+        repo_url: https://helm.influxdata.com
+        force_update: true
+
+    - name: Deploy Influx via Helm
+      community.kubernetes.helm:
+        name: influxdb
+        chart_ref: influxdata/influxdb2
+        release_namespace: monitoring
+        values: "{{ lookup('file', 'group_vars/all/influx-vault.yml') | from_yaml }}"
+        state: present
+# upgrades
+
+# helm upgrade influxdb influxdata/influxdb \                                                                                       
+#   --namespace monitoring \
+#   -f influx-values.yml

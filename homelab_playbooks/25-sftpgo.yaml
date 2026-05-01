@@ -1,0 +1,155 @@
+- name: provision sftpgo
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-sftpgo
+        definition:
+          metadata:
+            name: rook-cephfs-sftpgo
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    - name: Load SFTPGo chart values from file
+      ansible.builtin.set_fact:
+        sftpgo_values: "{{ lookup('file', 'group_vars/all/sftp-vault.yml') | from_yaml }}"
+
+    - name: Create secret for the sftpgo database
+      kubernetes.core.k8s:
+        state: present
+        namespace: monitoring
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: sftpgo-secret
+          type: Opaque
+          stringData: 
+            sftpgo_secret_values: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__PASSWORD }}"
+      no_log: true
+
+    - name: Annotate sftpgo-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: "monitoring"
+        name: sftpgo-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
+
+    - name: Create MariaDB Database for sftpgo
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__NAME }}"
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            characterSet: utf8
+            collate: utf8_general_ci
+
+    - name: Create MariaDB User for sftpgo
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: User
+          metadata:
+            name: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__USERNAME }}"
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            passwordSecretKeyRef:
+              name: sftpgo-secret
+              key: sftpgo_secret_values
+            maxUserConnections: 20
+
+    - name: Create MariaDB Connection for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Connection
+          metadata:
+            name: sftpgo-connection
+            namespace: mariadb
+          spec:
+            username: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__USERNAME }}"
+            database: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__NAME }}"
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            passwordSecretKeyRef:
+              name: sftpgo-secret
+              key: sftpgo_secret_values
+
+    - name: Create MariaDB Grant for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Grant
+          metadata:
+            name: sftpgo-grant
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            username: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__USERNAME }}"
+            database: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__NAME }}"
+            table: "*"
+            privileges:
+              - ALL
+            grantOption: false
+
+    - name: Deploy SFTPGo Helm chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "my-sftpgo"
+        chart_ref: "oci://ghcr.io/sftpgo/helm-charts/sftpgo"
+        chart_version: "0.43.0"
+        release_namespace: "sftpgo"
+        create_namespace: false
+        wait: true
+        wait_timeout: "5m"
+        values: "{{ sftpgo_values }}"
+
+
+# mariadb -u root -p "sftp-go" < sftp-go-2026-04-14.sql
+# DROP DATABASE `sftp-go`;

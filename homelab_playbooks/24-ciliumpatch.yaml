@@ -1,0 +1,15 @@
+---
+- name: cilium_patch
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+    - name: add monitor
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - cilium-servicemonitor.yml

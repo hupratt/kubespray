@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fedora-version-json
+  namespace: monitoring
+data:
+  fedora-version.json: |
+    {
+      "schemaVersion": 1,
+      "label": "fedora",
+      "message": "43",
+      "color": "blue"
+    }

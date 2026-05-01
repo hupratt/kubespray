@@ -1,0 +1,29 @@
+---
+- name: Update Fedora servers and reboot if needed
+  hosts: fedora
+  become: true
+
+  tasks:
+
+    - name: Update all packages
+      ansible.builtin.dnf:
+        name: "*"
+        state: latest
+        update_cache: yes
+      register: update_result
+
+    - name: Determine if reboot is required (kernel changed)
+      ansible.builtin.shell: |
+        latest_installed=$(rpm -q --last kernel | head -1 | awk '{print $NF}')
+        running_kernel=$(uname -r)
+        if [ "$latest_installed" != "$running_kernel" ]; then
+          echo "yes"
+        else
+          echo "no"
+        fi
+      register: reboot_required
+      changed_when: false
+
+    - name: Reboot if required
+      ansible.builtin.reboot:
+      when: reboot_required.stdout == "yes"

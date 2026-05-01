@@ -1,0 +1,122 @@
+- name: provision linkwarden
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+    link_repo: "git@gitlab.thekor.eu:kube/linkwarden.git"
+    link_dir: "~/linkwarden"
+
+  tasks:
+
+    - name: Check if repo already exists
+      ansible.builtin.stat:
+        path: "{{ link_dir }}"
+      register: repo_dir
+
+    - name: Clone linkwarden git repo
+      ansible.builtin.git:
+        repo: "{{ link_repo }}"
+        dest: "{{ link_dir }}"
+        version: main
+        force: true
+        accept_hostkey: true
+      when: not repo_dir.stat.exists
+
+    - name: Install helm chart
+      community.kubernetes.helm:
+        name: my-linkwarden
+        chart_ref: "{{ link_dir }}/charts/linkwarden"
+        release_namespace: "linkwarden"
+        values: "{{ helm_linkwarden_values | from_yaml }}"
+
+    - name: Apply configmap
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - configmap-linkwarden.yml
+
+    - name: Parse linkwarden Helm values
+      set_fact:
+        linkwarden: "{{ helm_linkwarden_values | from_yaml }}"
+
+    - name: Create PostgreSQL user and database
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - exec
+          - -n
+          - postgres
+          - postgres-0
+          - --
+          - psql
+          - -U
+          - postgres
+          - -c
+          - "CREATE USER linkwarden WITH ENCRYPTED PASSWORD '{{ linkwarden.linkwarden.database.password }}';"
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Create PostgreSQL database
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - exec
+          - -n
+          - postgres
+          - postgres-0
+          - --
+          - psql
+          - -U
+          - postgres
+          - -c
+          - "CREATE DATABASE linkwarden OWNER linkwarden;"
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Grant privileges on database
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - exec
+          - -n
+          - postgres
+          - postgres-0
+          - --
+          - psql
+          - -U
+          - postgres
+          - -c
+          - "GRANT ALL PRIVILEGES ON DATABASE linkwarden TO linkwarden;"
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Grant privileges on tables to linkwarden
+      kubernetes.core.k8s_exec:
+        namespace: postgres
+        pod: postgres-0
+        command: |
+          psql -U postgres -d linkwarden -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO linkwarden;"
+          psql -U postgres -d linkwarden -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO linkwarden;"
+          psql -U postgres -d linkwarden -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO linkwarden;"
+          psql -U postgres -d linkwarden -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO linkwarden;"
+
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"
+
+    - name: Grant privileges on tables to the backup user
+      kubernetes.core.k8s_exec:
+        namespace: postgres
+        pod: postgres-0
+        command: |
+          psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE linkwarden TO fedora_backup_user;"
+          psql -U postgres -d linkwarden -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO fedora_backup_user;"
+          psql -U postgres -d linkwarden -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;"
+          psql -U postgres -d linkwarden -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO fedora_backup_user;"
+          psql -U postgres -d linkwarden -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO fedora_backup_user;"
+
+      environment:
+        PGPASSWORD: "{{ POSTGRES_PASSWORD }}"

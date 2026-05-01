@@ -1,0 +1,262 @@
+---
+- name: Deploy makita
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    namespace: makita
+    backend_image: registry.thekor.eu/docker/makita/makita-backend:latest
+    backend_port: 9224
+    frontend_port: 80
+
+  tasks:
+    # -------------------------------------------------------------------------
+    # SECRET - built dynamically from ansible-vault variables
+    # Values come from group_vars/all/vault.yml (encrypted).
+    # The dict is constructed at runtime so no secret ever appears in plaintext
+    # in this playbook file.
+    # -------------------------------------------------------------------------
+    - name: Create backend env secret from vault
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: makita-backend-env
+            namespace: "{{ namespace }}"
+          type: Opaque
+          stringData: "{{ makita_env }}"
+      # no_log: true
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-makita
+        definition:
+          metadata:
+            name: rook-cephfs-makita
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    # -------------------------------------------------------------------------
+    # PERSISTENT VOLUME CLAIMS
+    # (replaces bind-mounts: ./static, ./media, ./:/hdd/Dev/portfolio)
+    # -------------------------------------------------------------------------
+    - name: Create PVC for static files
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: makita-static
+            namespace: "{{ namespace }}"
+          spec:
+            storageClassName: rook-cephfs-makita
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: "500M"
+
+    - name: Create PVC for media files
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: makita-media
+            namespace: "{{ namespace }}"
+          spec:
+            storageClassName: rook-cephfs-makita
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: "100M"
+
+    # -------------------------------------------------------------------------
+    # BACKEND DEPLOYMENT (Django)
+    # -------------------------------------------------------------------------
+    - name: Deploy backend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: makita-backend
+            namespace: "{{ namespace }}"
+            labels:
+              app: makita-backend
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: makita-backend
+            strategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 0
+                maxSurge: 1
+            template:
+              metadata:
+                labels:
+                  app: makita-backend
+              spec:
+                imagePullSecrets:
+                  - name: docker-registry-secret
+                securityContext:
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  fsGroup: 1000
+                initContainers:
+                  - name: migrate
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    command:
+                      - sh
+                      - -c
+                      - |
+                        python manage.py makemigrations &&
+                        python manage.py migrate &&
+                        python manage.py collectstatic --noinput
+                    envFrom:
+                      - secretRef:
+                          name: makita-backend-env
+                    volumeMounts:
+                      - name: app-static
+                        mountPath: /app/static
+                      - name: app-media
+                        mountPath: /app/media
+                containers:
+                  - name: backend
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    command:
+                      - sh
+                      - -c
+                      - python manage.py runserver 0.0.0.0:9224
+                    ports:
+                      - containerPort: "{{ backend_port }}"
+                    envFrom:
+                      - secretRef:
+                          name: makita-backend-env
+                    volumeMounts:
+                      - name: app-static
+                        mountPath: /app/static
+                      - name: app-media
+                        mountPath: /app/media
+                    resources:
+                      requests:
+                        cpu: 100m
+                        memory: 256Mi
+                      limits:
+                        memory: 512Mi
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: "{{ backend_port }}"
+                      initialDelaySeconds: 30
+                      periodSeconds: 15
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: "{{ backend_port }}"
+                      initialDelaySeconds: 10
+                      periodSeconds: 5
+                volumes:
+                  - name: app-static
+                    persistentVolumeClaim:
+                      claimName: makita-static
+                  - name: app-media
+                    persistentVolumeClaim:
+                      claimName: makita-media
+
+    # -------------------------------------------------------------------------
+    # BACKEND SERVICE
+    # -------------------------------------------------------------------------
+    - name: Create backend service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: makita-backend
+            namespace: "{{ namespace }}"
+          spec:
+            selector:
+              app: makita-backend
+            ports:
+              - name: http
+                port: "{{ backend_port }}"
+                targetPort: "{{ backend_port }}"
+            type: ClusterIP
+
+    - name: Create ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: makita-ingress
+            namespace: "{{ namespace }}"
+            annotations:
+              haproxy.org/check: "disabled"
+              haproxy.org/backend-config-snippet: |
+                no option httpchk
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - hosts:
+                  - makita.thekor.eu
+                secretName: wildcard-thekor
+            rules:
+              - host: makita.thekor.eu
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: makita-backend
+                          port:
+                            number: "{{ backend_port }}"
+
+
+# kubectl run copy-helper2 -n makita \
+#   --image=busybox --restart=Never \
+#   --overrides='{
+#     "spec":{
+#       "securityContext":{"runAsUser":1000,"runAsGroup":1000,"fsGroup":1000},
+#       "volumes":[{"name":"media","persistentVolumeClaim":{"claimName":"makita-media"}}],
+#       "containers":[{
+#         "name":"copy-helper2",
+#         "image":"busybox",
+#         "command":["sleep","3600"],
+#         "volumeMounts":[{"name":"media","mountPath":"/mnt/media"}],
+#         "securityContext":{"runAsUser":1000,"runAsGroup":1000}
+#       }]
+#     }
+#   }'

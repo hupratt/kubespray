@@ -1,0 +1,126 @@
+---
+- name: Deploy cert-manager and Hetzner webhook
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    cert_manager_version: v1.18.2
+    cert_manager_namespace: cert-manager
+    kubeconfig_path: /home/hugo/.kube/config
+  vars_files:
+    - group_vars/all/vault.yml
+  tasks:
+  
+    - name: Add/update mittwald Helm repository
+      kubernetes.core.helm_repository:
+        name: mittwald
+        repo_url: https://helm.mittwald.de
+
+    - name: Apply crds and rbac for the webhook
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - a-cert-manager.crds.yml
+        - c-hetzner-webhook-rbac.yml
+
+    - name: Create api Secret
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: hetzner-dns-api-token
+            namespace: "{{ cert_manager_namespace }}"
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            token: "{{ hetzner_api }}"
+
+    - name: Add Jetstack Helm repo
+      community.kubernetes.helm_repository:
+        name: jetstack
+        repo_url: https://charts.jetstack.io
+        force_update: true
+
+    - name: Add Hetzner Helm repository
+      community.kubernetes.helm_repository:
+        name: hcloud
+        repo_url: https://charts.hetzner.cloud
+
+    - name: Update Helm repositories
+      ansible.builtin.command:
+        cmd: helm repo update
+      register: helm_repo_update
+      changed_when: "'Update Complete.' in helm_repo_update.stdout"
+
+    - name: Install cert-manager
+      community.kubernetes.helm:
+        name: cert-manager
+        chart_ref: jetstack/cert-manager
+        release_namespace: "{{ cert_manager_namespace }}"
+        chart_version: "{{ cert_manager_version }}"
+        create_namespace: false
+
+    - name: Clone or update cert-manager-webhook-hetzner repo
+      ansible.builtin.git:
+        repo: "git@gitlab.thekor.eu:kube/cert-manager-webhook-hetzner.git"
+        dest: /home/hugo/cert-manager-webhook-hetzner
+        version: homelab
+        update: no
+      register: webhook_git
+
+    - name: Install or upgrade cert-manager webhook for Hetzner from local path
+      community.kubernetes.helm:
+        name: cert-manager-webhook-hetzner
+        chart_ref: "/home/hugo/cert-manager-webhook-hetzner/chart"
+        namespace: "{{ cert_manager_namespace }}"
+        create_namespace: false
+        wait: true
+        binary_path: "/usr/bin/helm"
+      when: webhook_git is succeeded
+
+    - name: Apply cluster issuer and kick off the wildcard cert process
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - d-clusterissuer-hetzner.yml
+        - e-wildcard-cert.yml
+
+    - name: Wait for wildcard-thekor certificate to be ready
+      kubernetes.core.k8s_info:
+        api_version: cert-manager.io/v1
+        kind: Certificate
+        name: wildcard-thekor
+        namespace: "{{ cert_manager_namespace }}"
+      register: cert_info
+      until: cert_info.resources | length > 0 and (
+              cert_info.resources[0].status is defined and
+              cert_info.resources[0].status.conditions is defined and
+              (cert_info.resources[0].status.conditions | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0))
+      retries: 30
+      delay: 30
+
+    - name: Apply sync job
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - sync-deployment.yml
+        - sync-rbac.yml
+
+    - name: Annotate wildcard-thekor secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: "{{ cert_manager_namespace }}"
+        name: wildcard-thekor
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,booking,chirpy,donetick,frigate,haproxy,harbor,linkwarden,makita,mongo-express,monitoring,netbox,open-webui,paperless,sftpgo,spotify,thrifty,trellis,vault,vaultwarden,www-portfolio"

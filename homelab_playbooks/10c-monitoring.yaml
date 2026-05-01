@@ -1,0 +1,53 @@
+---
+- name: Deploy the monitoring
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+  tasks:
+
+    # not idempotent, should only run once
+
+    - name: Grant privileges on grafana database
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE grafana TO grafana;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE grafana TO fedora_backup_user;"
+
+    - name: Grant privileges on tables and sequences to grafana user
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO grafana;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO grafana;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO grafana;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO grafana;"
+
+    - name: Grant privileges on tables and sequences to fedora_backup_user
+      ansible.builtin.shell:
+        cmd: |
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO fedora_backup_user;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO fedora_backup_user;"
+          kubectl exec -n postgres postgres-0 -- \
+            env PGPASSWORD="{{ POSTGRES_PASSWORD }}" \
+            psql -U postgres -d grafana -c "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO fedora_backup_user;"

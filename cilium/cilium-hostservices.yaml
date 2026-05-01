@@ -1,0 +1,3 @@
+hostServices:
+  enabled: true
+  protocols: tcp,udp

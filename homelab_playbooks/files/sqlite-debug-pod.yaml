@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: sqlite-debug
+  namespace: donetick
+spec:
+  containers:
+    - name: debug
+      image: alpine:latest
+      command: [ "sleep", "3600" ]  # keep pod running
+      securityContext:
+        runAsUser: 0  # root user
+      volumeMounts:
+        - name: donetick-data
+          mountPath: /data
+  restartPolicy: Never
+  volumes:
+    - name: donetick-data
+      persistentVolumeClaim:
+        claimName: donetick-data
+
+
+# sqlite3 /data/donetick.db
+# UPDATE circles
+# SET created_by = 1
+# WHERE created_by = 0;

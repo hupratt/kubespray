@@ -1,225 +1,341 @@
-# Deploy a Production Ready Kubernetes Cluster
+<div align="center">
 
-![Kubernetes Logo](https://raw.githubusercontent.com/kubernetes-sigs/kubespray/master/docs/img/kubernetes-logo.png)
+<img src="https://minio-api.thekor.eu/public-f1492f08-f236-4a55-afb7-70ded209cb27/homeops.png" align="center" width="144px" height="144px"/>
 
-If you have questions, check the documentation at [kubespray.io](https://kubespray.io) and join us on the [kubernetes slack](https://kubernetes.slack.com), channel **\#kubespray**.
-You can get your invite [here](http://slack.k8s.io/)
+## Kubernetes Operations 🦊
 
-- Can be deployed on **[AWS](docs/cloud_providers/aws.md), GCE, [Azure](docs/cloud_providers/azure.md), [OpenStack](docs/cloud_controllers/openstack.md), [vSphere](docs/cloud_controllers/vsphere.md), [Equinix Metal](docs/cloud_providers/equinix-metal.md) (bare metal), Oracle Cloud Infrastructure (Experimental), or Baremetal**
-- **Highly available** cluster
-- **Composable** (Choice of the network plugin for instance)
-- Supports most popular **Linux distributions**
-- **Continuous integration tests**
+[![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
+[![Fedora Core OS](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Ffedora_version&style=for-the-badge&logo=fedora&logoColor=white&color=blue&label=)](https://kromgo.thekor.eu/fedora_version)&nbsp;&nbsp;
+[![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fkubernetes_version&color=blue&style=for-the-badge&logo=kubernetes&logoColor=white&label=)](https://kromgo.thekor.eu/kubernetes_version)&nbsp;&nbsp;
+[![Status](https://img.shields.io/website?url=https%3A%2F%2Fuptime.thekor.eu%2Fstatus%2Fup&style=for-the-badge&label=kuma&up_message=Up&down_message=Down&down_color=red)](https://uptime.thekor.eu/status/up)&nbsp;&nbsp;
 
-## Quick Start
+[![Age-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu/cluster_age&style=flat-square&label=Age&color=green)](https://kromgo.thekor.eu/cluster_age)&nbsp;&nbsp;&nbsp;
+[![Uptime-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu/node_uptime&style=flat-square&label=Uptime&color=green)](https://kromgo.thekor.eu/node_uptime)&nbsp;&nbsp;&nbsp;
+[![Active-Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Funhealthy_services&style=flat-square&label=Alerts)](https://kromgo.thekor.eu/unhealthy_services)&nbsp;&nbsp;&nbsp;
+[![Node-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fnode_count&style=flat-square&label=Nodes&color=green)](https://kromgo.thekor.eu/node_count)&nbsp;&nbsp;&nbsp;
+[![Pod-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fpod_count&style=flat-square&label=Pods&color=green)](https://kromgo.thekor.eu/pod_count)&nbsp;&nbsp;&nbsp;
+[![CPU-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fcluster_cpu_usage&style=flat-square&label=CPU&color=green)](https://kromgo.thekor.eu/cluster_cpu_usage)&nbsp;&nbsp;&nbsp;
+[![Memory-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fcluster_memory_usage&style=flat-square&label=Memory&color=green)](https://kromgo.thekor.eu/cluster_memory_usage)&nbsp;&nbsp;&nbsp;
+[![Cluster Power-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Filo_power_current_watt&style=flat-square&label=Power&color=green)](https://kromgo.thekor.eu/ilo_power_current_watt)
 
-Below are several ways to use Kubespray to deploy a Kubernetes cluster.
 
-### Docker
+</div>
 
-Ensure you have installed Docker then
+### What is this repo?
 
-```ShellSession
-docker run --rm -it --mount type=bind,source="$(pwd)"/inventory/sample,dst=/inventory \
-  --mount type=bind,source="${HOME}"/.ssh/id_rsa,dst=/root/.ssh/id_rsa \
-  quay.io/kubespray/kubespray:v2.30.0 bash
-# Inside the container you may now run the kubespray playbooks:
-ansible-playbook -i /inventory/inventory.ini --private-key /root/.ssh/id_rsa cluster.yml
+This is the repository I use to version control the kubernetes cluster I deploy and maintain at home & at work. I currently use [terraform](https://developer.hashicorp.com/terraform), [fedora core OS](https://fedoraproject.org/coreos/) and [kubespray](https://github.com/kubernetes-sigs/kubespray) to provide a secure, lightweight, reproducible and immutable environment so that I can avoid drift and force everyone to have everything run in containers. 
+
+### Core Components
+
+- **Networking**: [cilium](https://github.com/cilium/cilium) provides eBPF-based (kernel-based) networking replacing kube-proxy, [haproxy](https://www.haproxy.com/) is the cluster's ingress and [harbor](https://goharbor.io/) works as a cluster-local proxy-cache (egress) and scan for vulnerabilities. [Containerd is configured here to use a fallback mirror in case harbor is unavailable](https://github.com/hupratt/kubespray/blob/homelab/inventory/homelab-prod/group_vars/all/offline.yml)
+- **HTTPS**: [cert-manager](https://github.com/cert-manager/cert-manager) is in charge of TLS certificates and i have [DNS acme challenge with hetzner](https://github.com/hetzner/cert-manager-webhook-hetzner/blob/main/docs/guides/quickstart.md) in order to issue and update my wildcard certificate. Gitlab and ansible read the secrets from a local [ansible-vault](https://docs.ansible.com/projects/ansible/latest/cli/ansible-vault.html) for continuous delivery. And i use a handy helper function to soft link the secret in the cert-manager namespace to other namespaces.
+- **Storage & Data Protection**: [rook](https://github.com/rook/rook) provides distributed block storage with Ceph. I have an hourly bash script that does an sql dump of all databases and stores it in an S3 storage hosted at hetzner on an ext4 luks encrypted partition. CephFS and RBD volumes are backed up once a week and stored in the same S3 storage as well.
+- **Single source of truth**: I don't apply patches at the yaml level or edit helm charts on the fly so having this repo be my single source of truth for my infrastructure as code makes my installs as reproducible as I can. Other popular projects like Flux or ArgoCD can do this as well but I'm already configuring my infrastructure with ansible and it [has extensive support for kubernetes](https://galaxy.ansible.com) via its community hub so I decided to stick to it. 
+- **Compliance**: I have [kyverno policies here](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/00-kyverno.yaml) enforcing a number of ClusterAdmissionPolicies such as disallowing privileged containers, requiring resource limits, requiring health probes, blocking latest image tags in production namespaces, blocking containers from running with root privileges and blocking containers from running with SYS_ADMIN and NET_ADMIN permissions so that malicious containers can't impact the host kernel or host network stack.
+- **CI/CD Continuous integration & deployment**: I'm managing the continuous integration and continuous deployment with [a self hosted gitlab instance](https://gitlab.thekor.eu/docker/chirpy/-/blob/master/.gitlab-ci.yml?ref_type=heads) at the project level. The docker build command builds the artifacts and the ```kubectl rollout``` command deploys it and waits for the health checks to be up before replacing the container. I'm self hosting my helm repo in gitlab as a git repository but i'm planning to have an oci repository with [harbor](https://goharbor.io/) soon. Another improvement in the roadmap is to have oauth2 integration between hashicorp's vault and gitlab so that I don't need to share passwords and kubeconfig files as parameters in my gitlab runner's jobs.
+
+
+### Directory Helper
+
+This repository uses the following layout. As a high level overview, the network/VM side is managed by terraform in the infrastructure folder, the inventory then defines the targets and configuration for kubespray to bootstrap our cluster and the homelab_playbooks install the software I need on the pods.
+
+<details>
+  <summary>Click to expand and see the applications deployed in this repo</summary>
+
+### Infrastructure
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | eBPF-based CNI — networking, load balancing, network policies, and TLS secret management |
+| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | Distributed storage: block (RBD), filesystem (CephFS), object (S3-compatible) |
+| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME |
+| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing |
+| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus |
+| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache |
+| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3 |
+| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots |
+| <img src="./icons/gitlab.svg" width="16"/> | **GitLab** | Git + CI/CD — builds container images and pushes to Harbor |
+| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
+| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
+
+### Identity & Security
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync |
+| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities |
+
+### Databases
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/postgresql.svg" width="16"/> | **PostgreSQL** | Shared relational DB for Authentik, NetBox, PostHog, and Django apps |
+| <img src="./icons/mariadb.svg" width="16"/> | **MariaDB** | MySQL-compatible DB managed via Kubernetes operator |
+| <img src="./icons/mongodb.svg" width="16"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
+
+### Productivity & Tools
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search |
+| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving |
+| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates |
+| 🌐 | **Chirpy** | Self-hosted microblogging platform |
+| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | SFTP / FTP / WebDAV server with S3 backend support |
+| 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
+| <img src="./icons/posthog.svg" width="16"/> | **PostHog** | Product analytics and event tracking |
+| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | Listening analytics dashboard |
+
+### AI Powered
+
+| | Application | Description |
+|---|---|---|
+| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat |
+| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection |
+| 🌐 | **Scriberr** | Whisper-based transcription service |
+| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
+
+### My Projects
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system |
+| <img src="./icons/mongodb.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
+| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
+
+</details>
+
+```sh
+📁 infrastructure
+├── 📁 fcos-hetzner # fedora core OS VPS provisioning on hetzner
+│   ├── 📝 main.tf
+│   ├── 📝 terraform.tfvars.example
+│   ├── 📝 generate-butane-and-ign.sh
+│   ├── 📝 upload-fcos-to-hetzner.sh
+│   ├── 📝 upload-fcos-to-hetzner-hcloud.sh
+│   └── 📝 run.sh
+├── 📁 fcos-proxmox-homelab # fedora core OS VM provisioning with the proxmox provider
+│   ├── 📝 main.tf
+│   ├── 📝 outputs.tf
+│   ├── 📝 variables.tf
+│   ├── 📝 terraform.tfvars.example
+│   ├── 📝 generate-butane-and-ign.sh
+│   ├── 📝 run.sh
+└── 📁 talos-hetzner # talos VPS provisioning on hetzner
+    ├── 📝 install.md
+    ├── 📝 main.tf
+    ├── 📝 network.tf
+    ├── 📝 outputs.tf
+    ├── 📝 servers.tf
+    ├── 📝 talos.tf
+    ├── 📝 terraform.tfvars.example
+    └── 📝 variables.tf
+📁 inventory # kubespray's ansible inventory configuration
+├── 📁 mycluster # configuration used to bootstrap my cluster
+│   ├── 📁 group_vars
+│   │   ├── 📁 all # customize ansible's behavior e.g. don't use dnf installs
+│   │   ├── 📝 etcd.yml
+│   │   └── 📁 k8s_cluster
+│   │       ├── 📝 k8s-cluster.yml
+│   │       ├── 📝 k8s-net-cilium.yml
+│   │       └── 📝 kube_control_plane.yml
+│   └── 📝 inventory.ini
+📁 homelab_playbooks # my playbooks
+├── 📝 00-XX.yaml # ansible playbook that installs service XX on k8s
+├── 📁 charts # local helm charts
+├── 📁 files  # basic yaml files
+├── 📁 group_vars # variables and secrets
+├── 📁 env # python environment where you install the requirements
+├── 📝 requirements.txt
+├── 📝 requirements.yml
+📁 work_playbooks # work playbooks
+├── 📝 00-XX.yaml # ansible playbook that installs service XX on k8s
+├── 📁 charts # local helm charts
+├── 📁 files  # basic yaml files
+├── 📁 group_vars # variables and secrets
+├── 📁 env # python environment where you install the requirements
+├── 📝 requirements.txt
+└── 📝 requirements.yml
+
 ```
 
-### Ansible
+### 🌐 Networking
 
-#### Usage
+<details>
+  <summary>Click to expand network architecture</summary>
 
-See [Getting started](/docs/getting_started/getting-started.md)
+#### Overview of my home network
 
-#### Collection
+![Network Topology](https://chirpy.thekor.eu/assets/img/about/Homelab-VLAN.jpg)
 
-See [here](docs/ansible/ansible_collection.md) if you wish to use this repository as an Ansible collection
+#### Ingress for kubernetes
 
-### Vagrant
+i have multiple containerized haproxies that 1) do raw tcp proxying, 2) append TLS certificates and 3) update the configuration through the dataplane api so that I don't get disruptions on other routes. The raw tcp proxying is an absolute must for me since I'm doing TLS termination on the kubernetes cluster and TLS termination on a secondary haproxy for my legacy docker stack. 
 
-For Vagrant we need to install Python dependencies for provisioning tasks.
-Check that ``Python`` and ``pip`` are installed:
+```mermaid
+flowchart LR
+    classDef gateway fill:#163a1e,stroke:#27ae60,color:#fff
+    classDef switch fill:#1e2a4a,stroke:#3498db,color:#fff
+    classDef compute fill:#4a1e3a,stroke:#e74c3c,color:#fff
+    classDef storage fill:#3a2a1e,stroke:#f39c12,color:#fff
+    classDef ap fill:#1e3a2a,stroke:#2ecc71,color:#fff
 
-```ShellSession
-python -V && pip -V
+    Internet(["The Internet"])
+
+    Internet -- "300 Mbit/s ↓ / 50 Mbit/s ↑" --> UCG["FRITZ!Box"]:::gateway
+    UCG -- 1Gbit/s --> FLEX["Sophos SG 135 running pfsense"]:::switch
+
+    FLEX -- 1Gbit/s --> HP-BOLT(["DL380 Gen9 running gitlab and the k8s cluster"]):::ap
+    FLEX -- 1Gbit/s --> HP-GREEN(["DL380 Gen9 running my classic docker compose stack"]):::ap
 ```
 
-If this returns the version of the software, you're good to go. If not, download and install Python from here <https://www.python.org/downloads/source/>
+#### Networks & Vlans
 
-Install Ansible according to [Ansible installation guide](/docs/ansible/ansible.md#installing-ansible)
-then run the following step:
+I went a bit overboard with the number of vlans but I wanted to test out all possible combinations because of the flexibility it allows. I can have a device on the basement and the office on the same network without requiring them to be physically connected to the same switch
 
-```ShellSession
-vagrant up
+| Name                | VLAN | Description                                                                                                  |
+|---------------------|------|--------------------------------------------------------------------------------------------------------------|
+| Management          | 1    | Trunk port is the default on netgear devices. This VLAN is part of all VLANs                                 |
+| IPMI                | 3    | This is the out of band management tool on all servers which of course has no business going to the internet |
+| Backups             | 4    | This is the network for the backup servers                                                                   |
+| IOT                 | 5    | raspberry pi, home assistant and zigbee/wifi devices                                                         |
+| Server Net          | 6    | Both HP servers share this VLAN                                                                              |
+| Printers            | 7    | self explanatory                                                                                             |
+| Media Net           | 8    | For devices that need to communicate with jellyfin                                                           |
+| Guest network       | 99   | I didn't have to define this one on my firewall as my router creates this special VLAN                       |
+
+#### 🌐 DNS
+
+I'm doing split-horizon DNS meaning I have two networks. The first one for my homelab and the second for my family in order to avoid any disturbance. LAN clients on the homelab's network resolve to the pfsense gateway and other devices go straight to the internet.
+
+LAN clients on the homelab's network have a series of coredns that act like caches for my pihole and 2 other coredns instances running on the production k8s cluster but those are not exposed outside of the cluster. Everything that belongs to *.dc.mydomain.com get directed to the windows domain controller and everything else hits the pihole who acts as a recursive DNS resolver.
+
+```mermaid
+flowchart LR
+    classDef gateway fill:#163a1e,stroke:#27ae60,color:#fff
+    classDef switch fill:#1e2a4a,stroke:#3498db,color:#fff
+    classDef compute fill:#4a1e3a,stroke:#e74c3c,color:#fff
+    classDef storage fill:#3a2a1e,stroke:#f39c12,color:#fff
+    classDef ap fill:#1e3a2a,stroke:#2ecc71,color:#fff
+
+    LAN_Client -- 1Gbit/s --> c1["coredns1"]:::switch
+    LAN_Client -- 1Gbit/s --> c2["coredns2"]:::switch
+    LAN_Client -- 1Gbit/s --> c3["coredns3"]:::switch
+
+    c1 -- 1Gbit/s --> dom-controller(["dom-controller"]):::server
+    c1 -- 1Gbit/s --> pihole(["pihole"]):::server
+    c2 -- 1Gbit/s --> dom-controller(["dom-controller"]):::server
+    c2 -- 1Gbit/s --> pihole(["pihole"]):::server
+    c3 -- 1Gbit/s --> dom-controller(["dom-controller"]):::server
+    c3 -- 1Gbit/s --> pihole(["pihole"]):::server
+
 ```
 
-## Documents
+#### ☁️ Cloud Dependencies
 
-- [Requirements](#requirements)
-- [Kubespray vs ...](docs/getting_started/comparisons.md)
-- [Getting started](docs/getting_started/getting-started.md)
-- [Setting up your first cluster](docs/getting_started/setting-up-your-first-cluster.md)
-- [Ansible inventory and tags](docs/ansible/ansible.md)
-- [Integration with existing ansible repo](docs/operations/integration.md)
-- [Deployment data variables](docs/ansible/vars.md)
-- [DNS stack](docs/advanced/dns-stack.md)
-- [HA mode](docs/operations/ha-mode.md)
-- [Network plugins](#network-plugins)
-- [Vagrant install](docs/developers/vagrant.md)
-- [Flatcar Container Linux bootstrap](docs/operating_systems/flatcar.md)
-- [Fedora CoreOS bootstrap](docs/operating_systems/fcos.md)
-- [openSUSE setup](docs/operating_systems/opensuse.md)
-- [Downloaded artifacts](docs/advanced/downloads.md)
-- [Equinix Metal](docs/cloud_providers/equinix-metal.md)
-- [OpenStack](docs/cloud_controllers/openstack.md)
-- [vSphere](docs/cloud_controllers/vsphere.md)
-- [Large deployments](docs/operations/large-deployments.md)
-- [Adding/replacing a node](docs/operations/nodes.md)
-- [Upgrades basics](docs/operations/upgrades.md)
-- [Air-Gap installation](docs/operations/offline-environment.md)
-- [NTP](docs/advanced/ntp.md)
-- [Hardening](docs/operations/hardening.md)
-- [Mirror](docs/operations/mirror.md)
-- [Roadmap](docs/roadmap/roadmap.md)
+While most of my infrastructure and workloads are self-hosted I do rely upon the cloud for certain key parts of my setup. This saves me from dealing with services I critically need for my cluster:
 
-## Supported Linux Distributions
+| Service                     | Use                                                                                                  | Cost              |
+|-----------------------------|------------------------------------------------------------------------------------------------------|-------------------|
+| Hetzner                     | DNS, 2 x x86 VMs with ipv4 addresses, remote backups                                                 | ~€180/yr          |
+| Godaddy                     | Domains registrar                                                                                    | ~€12/yr           |
+| Let's Encrypt               | Issuing TLS Certificates                                                                             | Free              |
+| Github actions              | [Status page](https://github.com/hupratt/upptime) to report on the health of my services             | Free              |
+| Spotify family              | Podcast & music to keep afloat                                                                       | €21.99/month      |
+|                             |                                                                                                      | Total: ~€49/month |
 
-- **Flatcar Container Linux by Kinvolk**
-- **Debian** Bookworm, Bullseye, Trixie
-- **Ubuntu** 22.04, 24.04
-- **CentOS Stream / RHEL** 9, 10
-- **Fedora** 39, 40, 41, 42
-- **Fedora CoreOS** (see [fcos Note](docs/operating_systems/fcos.md))
-- **openSUSE** Leap 15.x/Tumbleweed
-- **Oracle Linux** 9, 10
-- **Alma Linux** 9, 10
-- **Rocky Linux** 9, 10 (experimental in 10: see [Rocky Linux 10 notes](docs/operating_systems/rhel.md#rocky-linux-10))
-- **Kylin Linux Advanced Server V10** (experimental: see [kylin linux notes](docs/operating_systems/kylinlinux.md))
-- **Amazon Linux 2** (experimental: see [amazon linux notes](docs/operating_systems/amazonlinux.md))
-- **UOS Linux** (experimental: see [uos linux notes](docs/operating_systems/uoslinux.md))
-- **openEuler** (experimental: see [openEuler notes](docs/operating_systems/openeuler.md))
+</details>
 
-Note:
+---
 
-- Upstart/SysV init based OS types are not supported.
-- [Kernel requirements](docs/operations/kernel-requirements.md) (please read if the OS kernel version is < 4.19).
+### 💾 Backup Architecture
 
-## Supported Components
+<details>
+  <summary>Click to expand backup strategy</summary>
 
-<!-- BEGIN ANSIBLE MANAGED BLOCK -->
 
-- Core
-  - [kubernetes](https://github.com/kubernetes/kubernetes) 1.36.0
-  - [etcd](https://github.com/etcd-io/etcd) 3.6.10
-  - [docker](https://www.docker.com/) 28.3
-  - [containerd](https://containerd.io/) 2.2.3
-  - [cri-o](http://cri-o.io/) 1.35.0 (experimental: see [CRI-O Note](docs/CRI/cri-o.md). Only on fedora, ubuntu and centos based OS)
-- Network Plugin
-  - [cni-plugins](https://github.com/containernetworking/plugins) 1.9.1
-  - [calico](https://github.com/projectcalico/calico) 3.31.5
-  - [cilium](https://github.com/cilium/cilium) 1.19.3
-  - [flannel](https://github.com/flannel-io/flannel) 0.28.4
-  - [kube-ovn](https://github.com/alauda/kube-ovn) 1.12.21
-  - [kube-router](https://github.com/cloudnativelabs/kube-router) 2.1.1
-  - [multus](https://github.com/k8snetworkplumbingwg/multus-cni) 4.2.2
-  - [kube-vip](https://github.com/kube-vip/kube-vip) 1.0.3
-- Application
-  - [cert-manager](https://github.com/jetstack/cert-manager) 1.15.3
-  - [coredns](https://github.com/coredns/coredns) 1.14.2
-  - [argocd](https://argoproj.github.io/) 2.14.5
-  - [helm](https://helm.sh/) 3.18.4
-  - [metallb](https://metallb.universe.tf/) 0.13.9
-  - [registry](https://github.com/distribution/distribution) 2.8.1
-- Storage Plugin
-  - [aws-ebs-csi-plugin](https://github.com/kubernetes-sigs/aws-ebs-csi-driver) 0.5.0
-  - [azure-csi-plugin](https://github.com/kubernetes-sigs/azuredisk-csi-driver) 1.10.0
-  - [cinder-csi-plugin](https://github.com/kubernetes/cloud-provider-openstack/blob/master/docs/cinder-csi-plugin/using-cinder-csi-plugin.md) 1.30.0
-  - [gcp-pd-csi-plugin](https://github.com/kubernetes-sigs/gcp-compute-persistent-disk-csi-driver) 1.9.2
-  - [local-path-provisioner](https://github.com/rancher/local-path-provisioner) 0.0.32
-  - [local-volume-provisioner](https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner) 2.5.0
-  - [node-feature-discovery](https://github.com/kubernetes-sigs/node-feature-discovery) 0.16.4
+#### Backup Flows
 
-<!-- END ANSIBLE MANAGED BLOCK -->
+| Flow             | Tool               | Destinations                                                                                 | Schedule          |
+|------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
+| Application PVCs | custom bash script | Volumes are backed up with restic for chunked layered backups  | At minute 30 every 2 hours |
+| Postgres SS      | custom bash script | sql dump stored in an S3 storage       | hourly            |
+| Mongodb SS       | custom bash script | tar dump stored in an S3 storage       | hourly            |
+| Mariadb SS       | custom bash script | sql dump stored in an S3 storage       | hourly            |
 
-## Container Runtime Notes
 
-- The cri-o version should be aligned with the respective kubernetes version (i.e. kube_version=1.20.x, crio_version=1.20)
+#### Backup strategy per service
 
-## Requirements
+All backups are sent to the cloud based offsite VPS to an S3 storage hosted at hetzner on an ext4 luks encrypted partition
 
-- **Minimum required version of Kubernetes is v1.30**
-- **Ansible v2.14+, Jinja 2.11+ and python-netaddr is installed on the machine that will run Ansible commands**
-- The target servers must have **access to the Internet** in order to pull docker images. Otherwise, additional configuration is required (See [Offline Environment](docs/operations/offline-environment.md))
-- The target servers are configured to allow **IPv4 forwarding**.
-- If using IPv6 for pods and services, the target servers are configured to allow **IPv6 forwarding**.
-- The **firewalls are not managed**, you'll need to implement your own rules the way you used to.
-    in order to avoid any issue during deployment you should disable your firewall.
-- If kubespray is run from non-root user account, correct privilege escalation method
-    should be configured in the target servers. Then the `ansible_become` flag
-    or command parameters `--become or -b` should be specified.
 
-Hardware:
-These limits are safeguarded by Kubespray. Actual requirements for your workload can differ. For a sizing guide go to the [Building Large Clusters](https://kubernetes.io/docs/setup/cluster-large/#size-of-master-and-master-components) guide.
+| Service | Job type & name | cephfs PVC name | SQL/dump retention | PVC snapshot retention | Target storage |
+|---|---|---|---|---|---|
+| **Kubernetes cluster** | | | | | |
+| etcd |  etcdctl snapshot via cronjob to garage s3 | — | 7 days via script itself | | `s3://backup/etcd-backups/` |
+| **Postgres-backed** | | | | | |
+| prometheus / grafana | postgres sql backup, restic-monitoring | prometheus-grafana | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
+| paperless | postgres sql backup, restic-paperless-data, restic-paperless-media | paperless-data, paperless-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
+| authentik | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| linkwarden | postgres sql backup, restic-linkwarden-data | linkwarden-data | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
+| netbox | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| sftpgo | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| harbor | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| makita | postgres sql backup | makita-static, makita-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/` and `s3://backup/restic/` |
+| booking clone | postgres sql backup | booking-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/` and `s3://backup/restic/` |
+| **MariaDB-backed** | | | | | |
+| vaultwarden | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| uptime kuma | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| **MongoDB-backed** | | | | | |
+| amazon clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| trello clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| spotify clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| **Stateless** | | | | | |
+| pushgateway | stateless no backup needed | — | — | | |
 
-- Control Plane
-  - Memory: 2 GB
-- Worker Node
-  - Memory: 1 GB
+</details>
 
-## Network Plugins
 
-You can choose among ten network plugins. (default: `calico`, except Vagrant uses `flannel`)
+---
 
-- [flannel](docs/CNI/flannel.md): gre/vxlan (layer 2) networking.
+### 🔧 Hardware
 
-- [Calico](https://docs.tigera.io/calico/latest/about/) is a networking and network policy provider. Calico supports a flexible set of networking options
-    designed to give you the most efficient networking across a range of situations, including non-overlay
-    and overlay networks, with or without BGP. Calico uses the same engine to enforce network policy for hosts,
-    pods, and (if using Istio and Envoy) applications at the service mesh layer.
+When deciding to move into distributed storage system like ceph or longhorn it's important to use fast and modern hardware. The hardware I'm using is at the very least 10 years old so I had to make some tweaks (larger bluestore cache and disabling compression) to make it work but as a rule of thumb I'd get at least a 6gbit/s consumer SSD to get started. Those can sustain a couple of users writing to it occasionally. If you're on a budget I would also stay away from 10/25/100 Gbit networking as you probably don't have a use case for it and is not as easy to setup as you might think. You're much better off investing into a hyper converged setup and invest into a good enough platform that won't be bottlenecked by your cpu or your storage.
 
-- [cilium](http://docs.cilium.io/en/latest/): layer 3/4 networking (as well as layer 7 to protect and secure application protocols), supports dynamic insertion of BPF bytecode into the Linux kernel to implement security services, networking and visibility logic.
+A Xeon v3 for instance is slow for this use case and is not even optimized to do those crc32 checksums which ceph does for every block so you'll occasionnaly hit a bottleneck as well even when using those 6bit/s consumer ssds. Datacenter SSDs on the other hand don't rely on that SLC cache thing and can endure sustained reads and writes without losing performance but they come at a hefty price.
 
-- [kube-ovn](docs/CNI/kube-ovn.md): Kube-OVN integrates the OVN-based Network Virtualization with Kubernetes. It offers an advanced Container Network Fabric for Enterprises.
+If I ever want to get fewer kubeapi errors due to my storage latency (long fsyncs) I'll probably have to invest into a small nvme drive so that i can use it as a cache and offload the data that I use the most.
 
-- [kube-router](docs/CNI/kube-router.md): Kube-router is a L3 CNI for Kubernetes networking aiming to provide operational
-    simplicity and high performance: it uses IPVS to provide Kube Services Proxy (if setup to replace kube-proxy),
-    iptables for network policies, and BGP for ods L3 networking (with optionally BGP peering with out-of-cluster BGP peers).
-    It can also optionally advertise routes to Kubernetes cluster Pods CIDRs, ClusterIPs, ExternalIPs and LoadBalancerIPs.
 
-- [macvlan](docs/CNI/macvlan.md): Macvlan is a Linux network driver. Pods have their own unique Mac and Ip address, connected directly the physical (layer 2) network.
+<details>
+  <summary>Click to see the rack</summary>
+  Updated 17/09/2024
 
-- [multus](docs/CNI/multus.md): Multus is a meta CNI plugin that provides multiple network interface support to pods. For each interface Multus delegates CNI calls to secondary CNI plugins such as Calico, macvlan, etc.
+  <img src="https://chirpy.thekor.eu/assets/img/about/21u%20rack.jpeg" align="center" width="500px" alt="rack"/>
 
-- [custom_cni](roles/network-plugin/custom_cni/) : You can specify some manifests that will be applied to the clusters to bring you own CNI and use non-supported ones by Kubespray.
-  See `tests/files/custom_cni/README.md` and `tests/files/custom_cni/values.yaml`for an example with a CNI provided by a Helm Chart.
+| Device                    | Count | OS Disk Size | Data Disk Size                               | Ram           | Operating System | Purpose                           |
+|---------------------------|-------|--------------|----------------------------------------------|---------------|------------------|-----------------------------------|
+| 1U Sophos SG 135          | 1     | -            | 100Gb SSD                                    | -             | pfsense          | Router, DHCP, DHCP relay and PXE  |
+| 2U HP Proliant DL380 Gen9 | 1     | -            | 4x600Gb (raidz1) + 3x2Tb VM passthrough      | 64 Gb DDR4    | debian           | k8s Worker/CP prod                |
+| 2U Dell PowerEdge R720    | 1     | -            | 4x2Tb VM passthrough                         | 64 Gb DDR3    | proxmox VE       | k8s Worker/CP staging             |
+| 2U Fujitsu RX2540 M2 R6   | 1     | -            |                                              | 96 Gb DDR3    | debian           |                                   |
+| 2U HP Proliant DL380 G7   | 1     | -            |                                              |               | debian           |                                   |
+| Sophos UTM 220            | 1     | -            |                                              |               |                  | 2 x L2 Netgear switches           |
+| 1U Cisco catalyst switch  | 1     | -            |                                              |               |                  |                                   |
+| 2U Dell PowerEdge R510    | 1     | -            |                                              | 32 Gb DDR3    | debian           | main backup server                |
+| 2U HP Proliant DL380 Gen9 | 1     | -            | 7x600Gb (raidz1) + 1 500Gb raid0             | 64 Gb DDR4    | debian           | Docker compose stack              |
+| 2U Dell PowerEdge R510    | 1     | -            |                                              | 32 Gb DDR3    | debian           | secondary backup server           |
+| 1U QLogic 8Gbit/s         | 1     | -            |                                              |               |                  |                                   |
 
-The network plugin to use is defined by the variable `kube_network_plugin`. There is also an
-option to leverage built-in cloud provider networking instead.
-See also [Network checker](docs/advanced/netcheck.md).
 
-## Ingress Plugins
+---
+</details>
 
-- [metallb](docs/ingress/metallb.md): the MetalLB bare-metal service LoadBalancer provider.
 
-## Community docs and resources
+## Inspiration
 
-- [kubernetes.io/docs/setup/production-environment/tools/kubespray/](https://kubernetes.io/docs/setup/production-environment/tools/kubespray/)
-- [kubespray, monitoring and logging](https://github.com/gregbkr/kubernetes-kargo-logging-monitoring) by @gregbkr
-- [Deploy Kubernetes w/ Ansible & Terraform](https://rsmitty.github.io/Terraform-Ansible-Kubernetes/) by @rsmitty
-- [Deploy a Kubernetes Cluster with Kubespray (video)](https://www.youtube.com/watch?v=CJ5G4GpqDy0)
-
-## Tools and projects on top of Kubespray
-
-- [Digital Rebar Provision](https://github.com/digitalrebar/provision/blob/v4/doc/integrations/ansible.rst)
-- [Terraform Contrib](https://github.com/kubernetes-sigs/kubespray/tree/master/contrib/terraform)
-- [Kubean](https://github.com/kubean-io/kubean)
-
-## CI Tests
-
-[![Build graphs](https://gitlab.com/kargo-ci/kubernetes-sigs-kubespray/badges/master/pipeline.svg)](https://gitlab.com/kargo-ci/kubernetes-sigs-kubespray/-/pipelines)
-
-CI/end-to-end tests sponsored by: [CNCF](https://cncf.io), [Equinix Metal](https://metal.equinix.com/), [OVHcloud](https://www.ovhcloud.com/), [ELASTX](https://elastx.se/).
-
-See the [test matrix](docs/developers/test_cases.md) for details.
+Thanks to [waifulabs](https://github.com/waifulabs/infrastructure) for sharing this template

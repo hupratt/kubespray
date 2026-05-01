@@ -1,0 +1,46 @@
+# Cilium Helm Values - UPDATED
+# Add/Modify these sections:
+
+# CRITICAL: Define your cluster's service CIDR
+serviceAccounts:
+  cilium:
+    name: cilium
+  operator:
+    name: cilium-operator
+
+# Network Configuration
+ipam:
+  mode: "cluster-pool"
+  operator:
+    clusterPoolIPv4PodCIDRList:
+      - "10.233.64.0/18"
+    clusterPoolIPv4MaskSize: 24
+
+# Define your service CIDR (Kubernetes service IP range)
+k8sServiceHost: "192.168.7.101"
+k8sServicePort: "6443"
+
+# Add service CIDR configuration
+ipv4NativeRoutingCIDR: "10.233.0.0/18"  # This should match your cluster's pod CIDR
+serviceCIDR: "10.233.0.0/18"
+clusterCIDR: "10.233.64.0/18"
+
+# Disable socket LB for API server traffic
+socketLB:
+  enabled: false  # Change to false for now
+
+# Host Reachable Services - DISABLE for troubleshooting
+extraConfig:
+  enable-local-redirect-policy: "false"  # Change to false
+  enable-host-reachable-services: "false"  # Change to false
+  
+# Tunnel Configuration - Consider switching to native routing if using bare metal
+#autoDirectNodeRoutes: true
+
+tunnelProtocol: "vxlan"  # or "geneve"
+routingMode: "tunnel"
+devices: ""  # Auto-detect
+enableIPv4Masquerade: true
+
+# Set the correct device
+# devices: "ens18"  # From your monitor output

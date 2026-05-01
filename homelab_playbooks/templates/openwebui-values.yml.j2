@@ -1,0 +1,101 @@
+# =============================================================================
+# Open WebUI Helm Values — rendered by Ansible
+# =============================================================================
+replicaCount: {{ openwebui_replicas }}
+image:
+  tag: "{{ openwebui_image_tag }}"
+  pullPolicy: IfNotPresent
+service:
+  type: {{ openwebui_service_type }}
+  port: {{ openwebui_service_port }}
+ingress:
+  enabled: {{ openwebui_ingress_enabled | lower }}
+{% if openwebui_ingress_enabled %}
+  class: "haproxy"
+  annotations:
+    haproxy.org/ssl-redirect: "{{ openwebui_ingress_tls_enabled | lower }}"
+    haproxy.org/timeout-client: "3600s"
+    haproxy.org/timeout-server: "3600s"
+    haproxy.org/request-capture: "req.body len 100000"
+  host: {{ openwebui_ingress_host }}
+  tls: {{ openwebui_ingress_tls_enabled | lower }}
+{% if openwebui_ingress_tls_enabled %}
+  existingSecret: {{ openwebui_ingress_tls_secret }}
+{% endif %}
+{% endif %}
+persistence:
+  enabled: {{ openwebui_persistence_enabled | lower }}
+{% if openwebui_persistence_enabled %}
+  size: {{ openwebui_persistence_size }}
+{% if openwebui_persistence_storage_class != "" %}
+  storageClass: "{{ openwebui_persistence_storage_class }}"
+{% endif %}
+  accessModes:
+    - ReadWriteOnce
+  existingClaim: "openwebui-data"
+{% endif %}
+ollama:
+  image:
+    tag: "0.17.7"
+    pullPolicy: Always
+  enabled: {{ ollama_enabled | lower }}
+{% if ollama_enabled %}
+  persistence:
+    enabled: {{ ollama_persistence_enabled | lower }}
+{% if ollama_persistence_enabled %}
+    size: {{ ollama_persistence_size }}
+{% if openwebui_persistence_storage_class != "" %}
+    storageClass: "{{ openwebui_persistence_storage_class }}"
+{% endif %}
+    existingClaim: "ollama-data"
+{% endif %}
+{% if ollama_gpu_enabled %}
+  resources:
+    limits:
+      {{ ollama_gpu_type }}.com/gpu: 1
+  nodeSelector:
+    {{ ollama_gpu_type }}.com/gpu: "true"
+  tolerations:
+    - key: "{{ ollama_gpu_type }}.com/gpu"
+      operator: "Exists"
+      effect: "NoSchedule"
+{% endif %}
+{% endif %}
+{% if not ollama_enabled and external_ollama_url != "" %}
+ollamaUrls:
+  - {{ external_ollama_url }}
+{% endif %}
+{% if openai_api_enabled %}
+openaiBaseApiUrl: "{{ openai_api_base_url }}"
+{% endif %}
+# Force RAG/embedding config — these override the chart's hardcoded defaults
+ragEmbeddingEngine: "ollama"
+ragEmbeddingModel: "nomic-embed-text"
+ollamaBaseUrl: "http://open-webui-ollama.{{ openwebui_namespace }}.svc.cluster.local:11434"
+{% set all_env = extra_env_vars | default({}) %}
+{% if openai_api_enabled and openai_api_key != "" %}
+{% set _ = all_env.update({"OPENAI_API_KEY": openai_api_key}) %}
+{% endif %}
+{% set _ = all_env.update({
+  "RAG_EMBEDDING_ENGINE": "ollama",
+  "RAG_EMBEDDING_MODEL": "nomic-embed-text",
+  "OLLAMA_BASE_URL": "http://open-webui-ollama." + openwebui_namespace + ".svc.cluster.local:11434",
+  "OLLAMA_BASE_URLS": "http://open-webui-ollama." + openwebui_namespace + ".svc.cluster.local:11434"
+}) %}
+extraEnvVars:
+{% for key, value in all_env.items() %}
+  - name: {{ key }}
+    value: "{{ value }}"
+{% endfor %}
+pipelines:
+  enabled: {{ openwebui_pipelines_enabled | lower }}
+{% if openwebui_pipelines_enabled %}
+  persistence:
+    enabled: true
+    size: {{ openwebui_pipelines_persistence_size | default('5Gi') }}
+{% if openwebui_persistence_storage_class != "" %}
+    storageClass: "{{ openwebui_persistence_storage_class }}"
+{% endif %}
+    accessModes:
+      - ReadWriteOnce
+{% endif %}

@@ -1,0 +1,17 @@
+apiVersion: mariadb.com/v1
+kind: Grant
+metadata:
+  name: backup-global
+  namespace: mariadb
+spec:
+  user: fedora-backup-user
+  privileges:
+    - SELECT
+    - SHOW VIEW
+    - LOCK TABLES
+    - RELOAD
+    - EVENT
+    - TRIGGER
+  database: "*"
+  table: "*"
+  applyToNewDatabases: true

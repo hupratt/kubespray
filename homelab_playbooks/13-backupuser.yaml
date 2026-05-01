@@ -1,0 +1,148 @@
+---
+- name: Provision backup tooling
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+
+    - name: Backup user permissions + cronjobs
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - backup-clusterrole.yml
+        - backup-cronjob-ceph.yml
+        - backup-cronjob-mariadb.yml
+        # - grant-api-list-permissions.yml
+
+    - name: Create secret for referencing later on this script
+      kubernetes.core.k8s:
+        state: present
+        namespace: backup
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: backup-secret
+          type: Opaque
+          stringData: "{{ backup_secret }}"
+      no_log: true
+
+    - name: Annotate backup-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: backup
+        name: backup-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
+
+    - name: Wait for backup-secret to appear in mariadb namespace
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: mariadb
+        name: backup-secret
+      register: replicated_secret
+      retries: 10
+      delay: 5
+      until: replicated_secret.resources | length > 0
+
+    - name: Create MariaDB User for the backup user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: User
+          metadata:
+            name: "{{ backup_secret.DB_USERNAME }}"
+            namespace: mariadb
+          spec:
+            host: "%"
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            passwordSecretKeyRef:
+              name: backup-secret
+              key: DB_PASSWORD
+            maxUserConnections: 20
+
+    - name: Wait for MariaDB User to exist
+      kubernetes.core.k8s_info:
+        api_version: k8s.mariadb.com/v1alpha1
+        kind: User
+        namespace: mariadb
+        name: "{{ backup_secret.DB_USERNAME }}"
+      register: mariadb_user
+      retries: 30
+      delay: 5
+      until: mariadb_user.resources | length > 0
+
+    # No FLUSH PRIVILEGES needed — the operator manages that internally
+    - name: Grant SELECT and LOCK TABLES to backup user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Grant
+          metadata:
+            name: backup-read-lock-perms
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+            username: "{{ backup_secret.DB_USERNAME }}"
+            privileges:
+              - SELECT
+              - LOCK TABLES
+              - EXECUTE
+              - SHOW VIEW
+            database: "*"
+            table: "*"
+
+
+# \c grafana
+
+# GRANT CONNECT ON DATABASE linkwarden TO fedora_backup_user;
+# GRANT USAGE ON SCHEMA public TO fedora_backup_user;
+# GRANT SELECT ON ALL TABLES IN SCHEMA public TO fedora_backup_user;
+
+# -- For linkwarden
+# \c linkwarden
+
+# GRANT CONNECT ON DATABASE linkwarden TO fedora_backup_user;
+# GRANT USAGE ON SCHEMA public TO fedora_backup_user;
+# GRANT SELECT ON ALL TABLES IN SCHEMA public TO fedora_backup_user;
+
+# -- For netbox
+# \c netbox
+
+# GRANT CONNECT ON DATABASE netbox TO fedora_backup_user;
+# GRANT USAGE ON SCHEMA public TO fedora_backup_user;
+# GRANT SELECT ON ALL TABLES IN SCHEMA public TO fedora_backup_user;
+
+
+# ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO fedora_backup_user;
+
+
+# \c grafana
+
+# GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;
+
+# -- For linkwarden
+# \c linkwarden
+
+# -- Grant usage and select on all sequences in public schema
+# GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;
+
+# -- For netbox
+# \c netbox
+# GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fedora_backup_user;
+
+# ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, USAGE ON SEQUENCES TO postgres_backup;

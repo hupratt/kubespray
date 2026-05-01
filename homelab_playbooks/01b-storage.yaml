@@ -1,0 +1,32 @@
+---
+- name: Deploy Ceph Rook cluster
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    rook_repo: "git@gitlab.thekor.eu:kube/rook.git"
+    rook_dir: "/home/hugo/rook"
+    kubeconfig_path: "/home/hugo/.kube/config"
+
+  tasks:
+
+    - name: Check if Rook repo exists
+      ansible.builtin.stat:
+        path: "{{ rook_dir }}"
+      register: repo_dir
+
+    - name: Clone Rook repository if not present
+      ansible.builtin.git:
+        repo: "{{ rook_repo }}"
+        dest: "{{ rook_dir }}"
+        version: homelab
+        update: true
+        accept_hostkey: true
+      when: not repo_dir.stat.exists
+      
+    - name: Apply the toolbox
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/toolbox.yaml"

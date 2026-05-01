@@ -1,0 +1,21 @@
+- name: provision donetick
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: ~/.kube/config
+
+  tasks:
+
+    - name: Add donetick repo
+      kubernetes.core.helm_repository:
+        name: donetick-chart
+        repo_url: "https://rtomik.github.io/helm-charts"
+
+    - name: Install helm chart
+      community.kubernetes.helm:
+        name: my-donetick
+        chart_ref: "donetick-chart/donetick"
+        release_namespace: "donetick"
+        values: "{{ helm_donetick_values | from_yaml }}"

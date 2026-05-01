@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: mongo-express-ingress
+  namespace: mongo-express
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - mongo.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: mongo.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: mongo-express-service
+                port:
+                  number: 8081

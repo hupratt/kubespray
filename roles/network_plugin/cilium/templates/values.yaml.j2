@@ -1,4 +1,7 @@
 #jinja2: trim_blocks: True, lstrip_blocks: True
+applySysctlOverwrites: false
+cni:
+  install: false
 MTU: {{ cilium_mtu }}
 debug:
   enabled: {{ cilium_debug | to_json }}

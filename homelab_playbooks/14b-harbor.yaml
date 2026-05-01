@@ -1,0 +1,175 @@
+---
+- name: Deploy Harbor with Helm using Rook-Ceph PVCs and HAProxy
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  tasks:
+
+    - name: Mark rook-ceph-block as default StorageClass
+      kubernetes.core.k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-ceph-block
+        definition:
+          metadata:
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+
+    - name: Create Harbor DB secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: harbor-db-secret
+            namespace: harbor
+          stringData:
+            password: "{{ harbor.db.password }}"
+
+    - name: Add Harbor Helm repo
+      community.kubernetes.helm_repository:
+        name: harbor
+        repo_url: https://helm.goharbor.io
+
+    - name: Update Helm repos
+      command: helm repo update
+
+    - name: Deploy Harbor with Helm
+      community.kubernetes.helm:
+        name: harbor
+        chart_ref: harbor/harbor
+        chart_version: "1.18.3"
+        create_namespace: true
+        release_namespace: harbor
+        state: present
+        release_values:
+          logLevel: debug
+          registry:
+            credentials:
+              username: "harbor_registry_user"
+              password: "{{ harbor.registry_password }}"
+              htpasswdString: "{{ harbor.registry_htpasswd }}"
+            replicaCount: 1
+            updateStrategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 1
+          jobservice:
+            replicaCount: 1
+            updateStrategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 1
+          expose:
+            type: ingress
+            ingress:
+              hosts:
+                core: harbor.thekor.eu
+                portal: harbor.thekor.eu
+                notary: notary-harbor.thekor.eu
+              annotations:
+                haproxy.org/ssl-redirect: "true"
+                haproxy.org/forwarded-for: "true"
+                haproxy.org/backend-config-snippet: |
+                  http-request set-header X-Forwarded-Proto https
+                  http-request set-header X-Forwarded-Port 443
+                haproxy.org/server-ssl: "false"
+                haproxy.org/check: "true"
+                haproxy.org/check-interval: "10s"
+          externalURL: "https://harbor.thekor.eu"
+          harborAdminPassword: "{{ harbor.admin_password }}"
+          persistence:
+            enabled: true
+            resourcePolicy: keep
+            persistentVolumeClaim:
+              registry:
+                storageClass: rook-cephfs
+                size: 20Gi
+                accessMode: ReadWriteMany
+              chartmuseum:
+                storageClass: rook-cephfs
+                size: 10Gi
+                accessMode: ReadWriteMany
+              jobservice:
+                storageClass: rook-cephfs
+                size: 2Gi
+                accessMode: ReadWriteMany
+              # database and redis PVCs removed — no longer needed
+              redis:
+                storageClass: rook-ceph-block
+                size: 5Gi
+                accessMode: ReadWriteOnce
+          database:
+            type: external
+            external:
+              host: "{{ harbor.db.host }}"
+              port: "{{ harbor.db.port | default('5432') }}"
+              username: "{{ harbor.db.username }}"
+              existingSecret: "harbor-db-secret"
+              coreDatabase: "{{ harbor.db.core_database}}"
+              notaryServerDatabase: "{{ harbor.db.notary_server_database}}"
+              notarySignerDatabase: "{{ harbor.db.notary_signer_database}}"
+              sslmode: "{{ harbor.db.sslmode}}"
+              trivyDatabase: "{{ harbor.db.trivy_database}}"
+
+    - name: Wait until Harbor pods are ready
+      ansible.builtin.pause:
+        prompt: "Press Enter to proceed or Ctrl+C to abort."
+
+    - name: Configure Harbor OIDC Authentication
+      uri:
+        url: "https://harbor.thekor.eu/api/v2.0/configurations"
+        method: PUT
+        user: admin
+        password: "{{ harbor.admin_password }}"
+        force_basic_auth: yes
+        body_format: json
+        body:
+          auth_mode: "oidc_auth"
+          oidc_name: "Authentik"
+          oidc_endpoint: "https://auth.thekor.eu/application/o/harbor/"
+          oidc_client_id: "{{ harbor.clientId }}"
+          oidc_client_secret: "{{ harbor.clientSecret }}"
+          oidc_groups_claim: "groups"
+          oidc_admin_group: "lvl1"
+          oidc_scope: "openid,profile,email,offline_access"
+          oidc_user_claim: "preferred_username"
+          oidc_verify_cert: false
+          oidc_auto_onboard: true
+        validate_certs: no
+        status_code: 200
+      retries: 5
+      delay: 10
+
+    - name: Patch Harbor Ingress TLS secret
+      kubernetes.core.k8s:
+        api_version: networking.k8s.io/v1
+        kind: Ingress
+        name: harbor-ingress
+        namespace: harbor
+        merge_type: strategic-merge
+        definition:
+          spec:
+            tls:
+              - hosts:
+                  - harbor.thekor.eu
+                secretName: wildcard-thekor
+
+    - name: Get harbor PV names
+      kubernetes.core.k8s_info:
+        kind: PersistentVolumeClaim
+        namespace: harbor
+      register: harbor_pvcs
+
+    - name: Set PV reclaim policy to Retain for all harbor PVs
+      kubernetes.core.k8s:
+        state: patched
+        kind: PersistentVolume
+        name: "{{ item.spec.volumeName }}"
+        definition:
+          spec:
+            persistentVolumeReclaimPolicy: Retain
+      loop: "{{ harbor_pvcs.resources }}"
+      when: item.spec.volumeName is defined

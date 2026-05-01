@@ -1,0 +1,29 @@
+replicaCount: 1
+
+image:
+  repository: nginx
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: true
+  className: haproxy
+  hosts:
+    - host: vanity.thekor.eu
+      paths:
+        - path: /
+          pathType: Prefix
+          backend:
+            service:
+              name: vanity-vanity
+              port:
+                number: 80
+  annotations: {}
+  tls:
+    - secretName: wildcard-thekor
+      hosts:
+        - vanity.thekor.eu

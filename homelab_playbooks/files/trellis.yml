@@ -1,0 +1,71 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: trellis-expressjs
+  namespace: trellis
+  labels:
+    app: trellis-expressjs
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: trellis-expressjs
+  template:
+    metadata:
+      labels:
+        app: trellis-expressjs
+    spec:
+      imagePullSecrets:
+      - name: docker-registry-secret
+      containers:
+      - name: trellis-expressjs
+        image: registry.thekor.eu/docker/trellis:latest
+        ports:
+        - containerPort: 1313
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: trello-database-url
+              key: trello_mongo_endpoint
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: trellis-expressjs-svc
+  namespace: trellis
+spec:
+  selector:
+    app: trellis-expressjs
+  type: ClusterIP
+  ports:
+    - protocol: TCP
+      port: 1313
+      targetPort: 1313
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: trellis-ingress
+  namespace: trellis
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - trello.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: trello.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: trellis-expressjs-svc
+                port:
+                  number: 1313

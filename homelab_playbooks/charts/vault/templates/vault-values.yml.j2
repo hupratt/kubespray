@@ -1,0 +1,115 @@
+global:
+  enabled: true
+  tlsDisable: true  # TLS terminated at HAProxy
+
+injector:
+  enabled: true
+
+server:
+  telemetry:
+    prometheusRetentionTime: "30s"
+    disableHostname: true
+    # optional: allow metrics to be accessed without auth
+    unauthenticatedMetricsAccess: true
+
+  service:
+    annotations:
+      prometheus.io/scrape: "true"
+      prometheus.io/path: "/v1/sys/metrics"
+      prometheus.io/port: "8200"
+  enabled: true
+
+  livenessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"
+    port: 8200
+    initialDelaySeconds: 60
+    periodSeconds: 10
+    failureThreshold: 3
+  readinessProbe:
+    enabled: true
+    path: "/v1/sys/health?standbyok=true&sealedcode=204&uninitcode=204"
+    port: 8200
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 3
+    
+  image:
+    tag: "1.17.2"
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 250m
+    limits:
+      memory: 512Mi
+      #cpu: 500m
+
+  # Persistent storage via Rook-Ceph
+  dataStorage:
+    enabled: true
+    size: 10Gi
+    storageClass: rook-ceph-block
+
+  standalone:
+    enabled: false
+
+  ha:
+    enabled: true
+    replicas: 3
+    raft:
+      enabled: true
+      setNodeId: true
+      config: |
+        ui = true
+        listener "tcp" {
+          address     = "[::]:8200"
+          cluster_address = "[::]:8201"
+          tls_disable = true
+          telemetry {
+            unauthenticated_metrics_access = true
+          }
+        }
+        telemetry {
+          prometheus_retention_time = "30s"
+          disable_hostname = true
+        }
+
+        storage "raft" {
+          path = "/vault/data"
+          retry_join {
+            leader_api_addr = "http://vault-0.vault-internal:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault-1.vault-internal:8200"
+          }
+          retry_join {
+            leader_api_addr = "http://vault-2.vault-internal:8200"
+          }
+        }
+        service_registration "kubernetes" {}
+        
+  ingress:
+    enabled: true
+    ingressClassName: haproxy
+    annotations:
+      haproxy.org/ssl-redirect: "true"
+      haproxy.org/timeout-connect: "5s"
+      haproxy.org/timeout-client: "50s"
+      haproxy.org/timeout-server: "50s"
+    hosts:
+      - host: vault.{{ homelab_domain }}
+        paths:
+          - /
+    tls:
+      - secretName: vault-tls
+        hosts:
+          - vault.{{ homelab_domain }}
+
+  serviceAccount:
+    create: true
+    name: vault
+
+ui:
+  enabled: true
+  serviceType: ClusterIP

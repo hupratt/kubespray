@@ -1,0 +1,13 @@
+# kubectl -n monitoring create secret generic additional-scrape-configs \
+#   --from-file=additional-targets.yaml=./additional-targets.yaml
+
+apiVersion: v1
+kind: Secret
+metadata:
+  name: prometheus-kube-prometheus-prometheus-scrape-confg
+  namespace: monitoring
+stringData:
+  additional-scrape-configs.yaml: |
+    - job_name: 'node_exporter'
+      static_configs:
+        - targets: ['p8-prod01.thekor.eu:9100','p8-prod02.thekor.eu:9100', 'hz-mailcow.thekor.eu:9100', 'hz-ecom.thekor.eu:9100', 'lb1.thekor.eu:9100', 'lb2.thekor.eu:9100']

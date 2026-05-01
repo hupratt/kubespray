@@ -1,0 +1,132 @@
+- name: provision vaultwarden
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    vault_repo: "git@gitlab.thekor.eu:kube/vaultwarden.git"
+    vault_dir: "/home/hugo/vaultwarden"
+
+  tasks:
+
+    - name: Check if repo already exists
+      ansible.builtin.stat:
+        path: "{{ vault_dir }}"
+      register: repo_dir
+
+    - name: Clone git repo
+      ansible.builtin.git:
+        repo: "{{ vault_repo }}"
+        dest: "{{ vault_dir }}"
+        version: main
+        force: true
+        accept_hostkey: true
+      when: not repo_dir.stat.exists
+
+    - name: Create secret for vaultwarden's database
+      kubernetes.core.k8s:
+        state: present
+        namespace: vaultwarden
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: vaultwarden-secret
+          type: Opaque
+          stringData: "{{ vaultwarden_secret }}"
+      no_log: true
+
+    - name: Annotate vaultwarden-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: vaultwarden
+        name: vaultwarden-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
+
+    - name: Create MariaDB Database for vaultwarden
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: vaultwarden
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            characterSet: utf8
+            collate: utf8_general_ci
+
+    - name: Create MariaDB User for vaultwarden
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: User
+          metadata:
+            name: "{{ vaultwarden_secret.username }}"
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            passwordSecretKeyRef:
+              name: vaultwarden-secret
+              key: password
+            maxUserConnections: 20
+
+    - name: Create MariaDB Connection for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Connection
+          metadata:
+            name: vaultwarden-connection
+            namespace: mariadb
+          spec:
+            username: "{{ vaultwarden_secret.username }}"
+            database: "{{ vaultwarden_secret.dbName }}"
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            passwordSecretKeyRef:
+              name: vaultwarden-secret
+              key: password
+
+    - name: Create MariaDB Grant for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Grant
+          metadata:
+            name: vaultwarden-grant
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            username: "{{ vaultwarden_secret.username }}"
+            database: "{{ vaultwarden_secret.dbName }}"
+            table: "*"
+            privileges:
+              - ALL
+            grantOption: false
+
+    - name: Install helm chart
+      community.kubernetes.helm:
+        name: vaultwarden
+        chart_ref: "{{ vault_dir }}/charts/vaultwarden"
+        release_namespace: vaultwarden
+        values: "{{ vaultwarden_values | from_yaml }}"

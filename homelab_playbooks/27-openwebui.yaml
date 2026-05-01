@@ -1,0 +1,173 @@
+---
+
+- name: Deploy Open WebUI with Helm
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - group_vars/all/openwebui-vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+
+  tasks:
+
+    # ------------------------------------------------------------------
+    #    Helm repo
+    # ------------------------------------------------------------------
+    - name: Add Open WebUI Helm repository
+      ansible.builtin.command: >
+        helm repo add {{ helm_repo_name }} {{ helm_repo_url }}
+      register: repo_add
+      changed_when: "'already exists' not in repo_add.stdout"
+      tags: [install, upgrade]
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      changed_when: true
+      tags: [install, upgrade]
+
+    # tasks/openwebui_pvcs.yml
+    - name: Create Ollama persistent volume claim
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: ollama-data
+            namespace: "{{ openwebui_namespace }}"
+            annotations:
+              helm.sh/resource-policy: keep   # survives helm uninstall
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "{{ openwebui_persistence_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ ollama_persistence_size }}"
+      tags: [install, upgrade]
+
+    - name: Create OpenWebUI persistent volume claim
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: openwebui-data
+            namespace: "{{ openwebui_namespace }}"
+            annotations:
+              helm.sh/resource-policy: keep
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "{{ openwebui_persistence_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ openwebui_persistence_size }}"
+      tags: [install, upgrade]
+
+    # ------------------------------------------------------------------
+    # 3. Build Helm values
+    # ------------------------------------------------------------------
+    - name: Render Helm values file
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/templates/openwebui-values.yml.j2"
+        dest: "/tmp/openwebui-values-rendered.yml"
+        mode: "0600"
+      tags: [install, upgrade]
+
+    # ------------------------------------------------------------------
+    # 4. Install / Upgrade
+    # ------------------------------------------------------------------
+    - name: Install or upgrade Open WebUI Helm release
+      ansible.builtin.command: >
+        helm upgrade --install {{ openwebui_release_name }}
+        {{ helm_chart_name }}
+        --namespace {{ openwebui_namespace }}
+        --values /tmp/openwebui-values-rendered.yml
+        {% if helm_chart_version != "" %}--version {{ helm_chart_version }}{% endif %}
+        --wait
+        --timeout 10m
+        --atomic
+      register: helm_deploy
+      changed_when: true
+      tags: [install, upgrade]
+
+    - name: Show Helm deploy output
+      ansible.builtin.debug:
+        var: helm_deploy.stdout_lines
+      tags: [install, upgrade]
+
+    # ------------------------------------------------------------------
+    # 5. Verify rollout
+    # ------------------------------------------------------------------
+    - name: Wait for Open WebUI deployment to be ready
+      ansible.builtin.command: >
+        kubectl rollout status statefulset/{{ openwebui_release_name }}
+        -n {{ openwebui_namespace }}
+        --timeout=300s
+      register: rollout_status
+      changed_when: false
+      tags: [install, upgrade, verify]
+
+    - name: Wait for Open WebUI pipelines to be ready
+      ansible.builtin.command: >
+        kubectl rollout status deployment/{{ openwebui_release_name }}-pipelines
+        -n {{ openwebui_namespace }}
+        --timeout=300s
+      changed_when: false
+      tags: [install, upgrade, verify]
+
+    - name: Wait for Open WebUI ollama to be ready
+      ansible.builtin.command: >
+        kubectl rollout status deployment/{{ openwebui_release_name }}-ollama
+        -n {{ openwebui_namespace }}
+        --timeout=300s
+      changed_when: false
+      tags: [install, upgrade, verify]
+
+    - name: Wait for Open WebUI redis to be ready
+      ansible.builtin.command: >
+        kubectl rollout status deployment/{{ openwebui_release_name }}-redis
+        -n {{ openwebui_namespace }}
+        --timeout=300s
+      changed_when: false
+      tags: [install, upgrade, verify]
+
+    - name: List Open WebUI pods
+      ansible.builtin.command: >
+        kubectl get pods -n {{ openwebui_namespace }} -l app.kubernetes.io/name=open-webui -o wide
+      register: pod_list
+      changed_when: false
+      tags: [install, upgrade, verify]
+
+    - name: Display pod status
+      ansible.builtin.debug:
+        var: pod_list.stdout_lines
+      tags: [install, upgrade, verify]
+
+    # ------------------------------------------------------------------
+    # 6. Print access info
+    # ------------------------------------------------------------------
+    - name: Print access information
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - "  Open WebUI deployed successfully!"
+          - "  Release   : {{ openwebui_release_name }}"
+          - "  Namespace : {{ openwebui_namespace }}"
+          - "  Service   : {{ openwebui_service_type }} on port {{ openwebui_service_port }}"
+          - "  URL       : {{ 'https://' + openwebui_ingress_host if openwebui_ingress_enabled else 'kubectl port-forward svc/' + openwebui_release_name + ' 8080:' + openwebui_service_port|string + ' -n ' + openwebui_namespace }}"
+          - "============================================================"
+      tags: [install, upgrade, verify]
+
+    # ------------------------------------------------------------------
+    # 7. Uninstall (run with --tags uninstall)
+    # ------------------------------------------------------------------
+    - name: Uninstall Open WebUI Helm release
+      ansible.builtin.command: >
+        helm uninstall {{ openwebui_release_name }} --namespace {{ openwebui_namespace }}
+      register: helm_uninstall
+      changed_when: true
+      tags: [never, uninstall]

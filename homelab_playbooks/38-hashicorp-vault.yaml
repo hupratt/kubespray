@@ -1,0 +1,98 @@
+---
+- name: Deploy HashiCorp Vault
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
+
+  vars:
+    vault_namespace: vault
+    vault_release_name: vault
+    vault_chart_version: "0.28.1"
+    homelab_domain: "thekor.eu"
+  tasks:
+
+    - name: Add HashiCorp Helm repo
+      kubernetes.core.helm_repository:
+        name: hashicorp
+        repo_url: https://helm.releases.hashicorp.com
+
+    - name: Template Vault Helm values
+      ansible.builtin.template:
+        src: charts/vault/templates/vault-values.yml.j2
+        dest: /tmp/vault-values.yml
+
+    - name: Deploy Vault via Helm
+      kubernetes.core.helm:
+        name: "{{ vault_release_name }}"
+        chart_ref: hashicorp/vault
+        chart_version: "{{ vault_chart_version }}"
+        release_namespace: "{{ vault_namespace }}"
+        create_namespace: false
+        values_files:
+          - /tmp/vault-values.yml
+        wait: true
+        timeout: "10m0s"
+
+    - name: Clean up temp values file
+      ansible.builtin.file:
+        path: /tmp/vault-values.yml
+        state: absent
+
+
+    - name: Create Vault ServiceMonitor
+      community.kubernetes.k8s:
+        state: present
+        definition:
+          apiVersion: monitoring.coreos.com/v1
+          kind: ServiceMonitor
+          metadata:
+            name: vault-servicemonitor
+            namespace: vault
+            labels:
+              release: prometheus
+              name: vault
+          spec:
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: vault
+            namespaceSelector:
+              matchNames:
+                - vault
+            endpoints:
+              - port: http
+                path: /v1/sys/metrics
+                params:
+                  format: ["prometheus"]
+                interval: 30s
+                scheme: http
+
+    - name: Create Vault Active Client Service
+      community.kubernetes.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: vault-active-client
+            namespace: vault
+            labels:
+              app.kubernetes.io/name: vault
+              vault-active: "true"
+          spec:
+            selector:
+              app.kubernetes.io/name: vault
+            ports:
+              - name: http
+                port: 8200
+                targetPort: 8200
+            type: ClusterIP
+# upgrade path:
+
+# helm search repo hashicorp/vault --versions | grep -E "1\.(18|19|20|21)"
+
+# helm upgrade vault hashicorp/vault -n vault --version 0.29.1 --reuse-values --set server.image.tag=1.18.1
+# helm upgrade vault hashicorp/vault -n vault --version 0.30.0 --reuse-values --set server.image.tag=1.19.0
+# helm upgrade vault hashicorp/vault -n vault --version 0.31.0 --reuse-values --set server.image.tag=1.20.4
+# helm upgrade vault hashicorp/vault -n vault --version 0.32.0 --reuse-values --set server.image.tag=1.21.2
+

@@ -1,0 +1,76 @@
+---
+- name: Deploy Frigate to Kubernetes via Helm
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    default_storage_class: rook-ceph-block
+
+  tasks:
+
+    - name: Set default StorageClass
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: patched
+        kind: StorageClass
+        name: "{{ default_storage_class }}"
+        definition:
+          metadata:
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+
+    - name: Create Frigate RTSP secret
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: frigate-secret
+            namespace: "{{ frigate_namespace }}"
+          type: Opaque
+          stringData:
+            FRIGATE_RTSP_PASSWORD: "{{ frigate_rtsp_password }}"
+
+    - name: Create Frigate config ConfigMap
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: frigate-config
+            namespace: "{{ frigate_namespace }}"
+          data:
+            config.yml: "{{ frigate_config }}"
+
+    - name: Deploy Frigate Helm chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: frigate
+        chart_ref: "{{ frigate_chart_path }}"
+        release_namespace: "{{ frigate_namespace }}"
+        create_namespace: true
+        values:
+          storage:
+            config:
+              storageClassName: "{{ default_storage_class }}"
+            media:
+              storageClassName: "{{ default_storage_class }}"
+          image:
+            tag: stable
+          rtspPassword:
+            existingSecret: frigate-secret
+            key: FRIGATE_RTSP_PASSWORD
+          ingress:
+            enabled: true
+            ingressClassName: haproxy
+            host: frigate.thekor.eu
+            annotations:
+              haproxy.org/timeout-tunnel: "3600s"
+              haproxy.org/timeout-server: "30s"
+            tls:
+              enabled: true
+              secretName: wildcard-thekor
