@@ -80,3 +80,21 @@ coreos-cp-3   <none>
 kubectl get nodes
 kubectl get pods -A
 kubectl get nodes coreos-cp-1 -o yaml | grep kubeletVersion
+
+
+# 2026/01/02
+
+
+ansible-playbook -i inventory/homelab-prod/inventory.ini --become cluster.yml -t gather-facts
+
+kubectl drain coreos-cp-2 --ignore-daemonsets --delete-emptydir-data
+
+ansible-playbook upgrade-cluster.yml -b -i inventory/homelab-prod/inventory.ini -e kube_version=1.36.0 --limit "coreos-cp-2"
+
+kubectl drain coreos-cp-3 --ignore-daemonsets --delete-emptydir-data
+
+ansible-playbook upgrade-cluster.yml -b -i inventory/homelab-prod/inventory.ini -e kube_version=1.36.0 --limit "coreos-cp-3"
+
+kubectl drain coreos-cp-1 --ignore-daemonsets --delete-emptydir-data
+
+ansible-playbook upgrade-cluster.yml -b -i inventory/homelab-prod/inventory.ini -e kube_version=1.36.0 --limit "coreos-cp-1"
