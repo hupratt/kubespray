@@ -1,0 +1,181 @@
+# PatchMon Helm values
+# Managed by Ansible - do not edit manually
+
+global:
+  storageClass: "rook-ceph-block"
+
+nameOverride: ""
+fullnameOverride: "patchmon"
+
+# Disable chart-managed postgres - use external shared StatefulSet
+database:
+  enabled: false
+  host: "postgres.postgres.svc.cluster.local"
+  port: 5432
+  auth:
+    database: patchmon
+    username: patchmon
+    existingSecret: "patchmon-db-secret"
+    existingSecretPasswordKey: "password"
+
+# Chart-managed Redis (no shared Redis in cluster)
+redis:
+  enabled: true
+  auth:
+    existingSecret: "patchmon-redis-secret"
+    existingSecretPasswordKey: "password"
+  persistence:
+    enabled: true
+    storageClass: "rook-ceph-block"
+    size: 2Gi
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 999
+    runAsGroup: 1000
+    fsGroup: 1000
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: false
+    runAsUser: 999
+    runAsGroup: 1000
+    runAsNonRoot: true
+
+server:
+  enabled: true
+  image:
+    registry: "ghcr.io"
+    repository: patchmon/patchmon-server
+    tag: "2.0.2"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  # Secret refs at server level (chart validation checks here)
+  existingSecret: "patchmon-server-secret"
+  existingSecretJwtKey: "jwt-secret"
+  existingSecretAiEncryptionKey: "ai-encryption-key"
+
+  env:
+    enableLogging: true
+    logLevel: info
+    logToConsole: true
+
+    serverProtocol: https
+    serverHost: "patchmon.thekor.eu"
+    serverPort: "443"
+    corsOrigin: "https://patchmon.thekor.eu"
+
+    dbConnectionLimit: "30"
+    dbPoolTimeout: "20"
+    dbConnectTimeout: "10"
+    dbIdleTimeout: "300"
+    dbMaxLifetime: "1800"
+
+    rateLimitWindowMs: "900000"
+    rateLimitMax: "5000"
+    authRateLimitWindowMs: "600000"
+    authRateLimitMax: "500"
+    agentRateLimitWindowMs: "60000"
+    agentRateLimitMax: "1000"
+
+    redisDb: "0"
+    trustProxy: "true"
+    enableHsts: true
+
+    defaultUserRole: "user"
+    autoCreateRolePermissions: false
+
+    oidc:
+      enabled: true
+      issuerUrl: "https://auth.thekor.eu/application/o/patchmon/"
+      clientId: "{{ vault_patchmon_oidc_client_id }}"
+      existingSecret: "patchmon-oidc-secret"
+      existingSecretClientSecretKey: "client-secret"
+      scopes: "openid profile email"
+      buttonText: "Login with authentik"
+      autoCreateUsers: true
+      defaultRole: "user"
+      syncRoles: true
+      disableLocalAuth: false
+      sessionTtl: 86400
+      groups:
+        superadmin: "patchmon-superadmin"
+        admin: "patchmon-admin"
+        hostManager: "patchmon-hostmanager"
+        user: "patchmon-user"
+        readonly: "patchmon-readonly"
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    runAsNonRoot: true
+
+  initContainers:
+    waitForDatabase:
+      enabled: true
+    waitForRedis:
+      enabled: true
+    waitForGuacd:
+      enabled: true
+
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+guacd:
+  enabled: true
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    readOnlyRootFilesystem: true
+
+ingress:
+  enabled: true
+  className: "haproxy"
+  annotations:
+    haproxy.org/timeout-tunnel: "3600s"
+    haproxy.org/proxy-protocol: "enabled"
+  hosts:
+    - host: patchmon.thekor.eu
+      paths:
+        - path: /
+          pathType: Prefix
+          service:
+            name: server
+            port: 3000
+  tls:
+    - secretName: patchmon-tls
+      hosts:
+        - patchmon.thekor.eu

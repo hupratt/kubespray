@@ -31,6 +31,7 @@
       - netbox
       - open-webui
       - paperless
+      - patchmon
       - postgres
       - rook-ceph
       - sftpgo

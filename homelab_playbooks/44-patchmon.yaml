@@ -1,0 +1,210 @@
+---
+- name: Deploy PatchMon
+  hosts: localhost
+  gather_facts: false
+  vars_files:
+    - group_vars/all/patchmon_vault.yml
+  vars:
+    patchmon_namespace: patchmon
+    patchmon_chart_git: git@gitlab.thekor.eu:kube/patchmon.git
+    patchmon_chart_version: main
+    patchmon_release_name: patchmon
+    patchmon_db_host: postgres.postgres.svc.cluster.local
+    patchmon_db_name: patchmon
+    patchmon_db_user: patchmon
+    patchmon_hostname: patchmon.thekor.eu
+    vault_addr: "https://vault.thekor.eu"
+    vault_kv_path: "patchmon"
+    patchmon_ssh_key: "~/.ssh/id_ed25519"
+
+  tasks:
+
+    # ------------------------------------------------------------------ #
+    # Write secrets to HashiCorp Vault KV
+    # ------------------------------------------------------------------ #
+    - name: Write PatchMon secrets to Vault KV
+      community.hashi_vault.vault_kv2_write:
+        engine_mount_point: kv
+        path: "{{ vault_kv_path }}"
+        data:
+          db-password: "{{ vault_patchmon_db_password }}"
+          redis-password: "{{ vault_patchmon_redis_password }}"
+          jwt-secret: "{{ vault_patchmon_jwt_secret }}"
+          ai-encryption-key: "{{ vault_patchmon_ai_encryption_key }}"
+          oidc-client-id: "{{ vault_patchmon_oidc_client_id }}"
+          oidc-client-secret: "{{ vault_patchmon_oidc_client_secret }}"
+        url: "{{ vault_addr }}"
+        auth_method: token
+        token: "{{ vault_token }}"
+
+    # ------------------------------------------------------------------ #
+    # ExternalSecrets
+    # ------------------------------------------------------------------ #
+    - name: Deploy ExternalSecret for PatchMon DB
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: patchmon-db-secret
+            namespace: "{{ patchmon_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: patchmon-db-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db-password
+
+    - name: Deploy ExternalSecret for PatchMon Redis
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: patchmon-redis-secret
+            namespace: "{{ patchmon_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: patchmon-redis-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: redis-password
+
+    - name: Deploy ExternalSecret for PatchMon server (JWT + AI key)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: patchmon-server-secret
+            namespace: "{{ patchmon_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: patchmon-server-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: jwt-secret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: jwt-secret
+              - secretKey: ai-encryption-key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ai-encryption-key
+
+    - name: Deploy ExternalSecret for PatchMon OIDC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: patchmon-oidc-secret
+            namespace: "{{ patchmon_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: patchmon-oidc-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: client-secret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: oidc-client-secret
+
+    - name: Wait for ExternalSecrets to sync
+      ansible.builtin.command:
+        cmd: >
+          kubectl wait externalsecret
+          patchmon-db-secret patchmon-redis-secret patchmon-server-secret patchmon-oidc-secret
+          -n {{ patchmon_namespace }}
+          --for=condition=Ready
+          --timeout=60s
+      changed_when: false
+
+ 
+    # ------------------------------------------------------------------ #
+    # PostgreSQL database + user
+    # ------------------------------------------------------------------ #
+    - name: Create patchmon postgres role
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n postgres statefulset/postgres -- psql -U postgres -c
+          "DO $$ BEGIN
+            IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ patchmon_db_user }}') THEN
+              CREATE ROLE {{ patchmon_db_user }} LOGIN PASSWORD '{{ vault_patchmon_db_password }}';
+            END IF;
+          END $$;"
+      register: pg_role
+      changed_when: '"CREATE ROLE" in pg_role.stdout'
+ 
+    - name: Create patchmon database
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n postgres statefulset/postgres -- psql -U postgres -c
+          "CREATE DATABASE {{ patchmon_db_name }} OWNER {{ patchmon_db_user }};"
+      register: pg_db
+      failed_when:
+        - pg_db.rc != 0
+        - '"already exists" not in pg_db.stderr'
+      changed_when: '"CREATE DATABASE" in pg_db.stdout'
+
+
+    # ------------------------------------------------------------------ #
+    # Helm
+    # ------------------------------------------------------------------ #
+    - name: Clone PatchMon Helm chart from GitLab
+      ansible.builtin.git:
+        repo: "{{ patchmon_chart_git }}"
+        dest: /tmp/patchmon-chart
+        version: "{{ patchmon_chart_version }}"
+        force: true
+        accept_hostkey: true
+      environment:
+        GIT_SSH_COMMAND: "ssh -i {{ patchmon_ssh_key }} -o IdentitiesOnly=yes"
+ 
+    - name: Render values template
+      ansible.builtin.template:
+        src: charts/patchmon/values.yaml.j2
+        dest: /tmp/patchmon-values.yaml
+        mode: "0600"
+ 
+    - name: Deploy PatchMon via Helm
+      kubernetes.core.helm:
+        name: "{{ patchmon_release_name }}"
+        chart_ref: /tmp/patchmon-chart
+        release_namespace: "{{ patchmon_namespace }}"
+        create_namespace: false
+        values_files:
+          - /tmp/patchmon-values.yaml
+        wait: true
+        timeout: "10m0s"
+ 
+    - name: Remove rendered values
+      ansible.builtin.file:
+        path: /tmp/patchmon-values.yaml
+        state: absent
