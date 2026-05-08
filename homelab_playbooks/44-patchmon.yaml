@@ -86,7 +86,7 @@
                   key: "{{ vault_kv_path }}"
                   property: redis-password
 
-    - name: Deploy ExternalSecret for PatchMon server (JWT + AI key)
+    - name: Deploy ExternalSecret for PatchMon server (JWT + AI key + OIDC client secret)
       kubernetes.core.k8s:
         state: present
         definition:
@@ -112,25 +112,6 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: ai-encryption-key
-
-    - name: Deploy ExternalSecret for PatchMon OIDC
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: external-secrets.io/v1
-          kind: ExternalSecret
-          metadata:
-            name: patchmon-oidc-secret
-            namespace: "{{ patchmon_namespace }}"
-          spec:
-            refreshInterval: 1h
-            secretStoreRef:
-              name: vault-backend
-              kind: ClusterSecretStore
-            target:
-              name: patchmon-oidc-secret
-              creationPolicy: Owner
-            data:
               - secretKey: client-secret
                 remoteRef:
                   key: "{{ vault_kv_path }}"
@@ -140,7 +121,7 @@
       ansible.builtin.command:
         cmd: >
           kubectl wait externalsecret
-          patchmon-db-secret patchmon-redis-secret patchmon-server-secret patchmon-oidc-secret
+          patchmon-db-secret patchmon-redis-secret patchmon-server-secret
           -n {{ patchmon_namespace }}
           --for=condition=Ready
           --timeout=60s
@@ -204,7 +185,3 @@
         wait: true
         timeout: "10m0s"
  
-    - name: Remove rendered values
-      ansible.builtin.file:
-        path: /tmp/patchmon-values.yaml
-        state: absent

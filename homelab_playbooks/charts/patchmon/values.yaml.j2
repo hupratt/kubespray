@@ -91,25 +91,25 @@ server:
     defaultUserRole: "user"
     autoCreateRolePermissions: false
 
-    oidc:
-      enabled: true
-      issuerUrl: "https://auth.thekor.eu/application/o/patchmon/"
-      clientId: "{{ vault_patchmon_oidc_client_id }}"
-      existingSecret: "patchmon-oidc-secret"
-      existingSecretClientSecretKey: "client-secret"
-      scopes: "openid profile email"
-      buttonText: "Login with authentik"
-      autoCreateUsers: true
-      defaultRole: "user"
-      syncRoles: true
-      disableLocalAuth: false
-      sessionTtl: 86400
-      groups:
-        superadmin: "patchmon-superadmin"
-        admin: "patchmon-admin"
-        hostManager: "patchmon-hostmanager"
-        user: "patchmon-user"
-        readonly: "patchmon-readonly"
+  oidc:
+    enabled: true
+    issuerUrl: "https://auth.thekor.eu/application/o/patchmon/"
+    clientId: "{{ vault_patchmon_oidc_client_id }}"
+    existingSecret: "patchmon-oidc-secret"
+    existingSecretClientSecretKey: "client-secret"
+    scopes: "openid profile email"
+    buttonText: "Login with authentik"
+    autoCreateUsers: true
+    defaultRole: "user"
+    syncRoles: true
+    disableLocalAuth: false
+    sessionTtl: 86400
+    groups:
+      superadmin: "patchmon-superadmin"
+      admin: "patchmon-admin"
+      hostManager: "patchmon-hostmanager"
+      user: "patchmon-user"
+      readonly: "patchmon-readonly"
 
   podSecurityContext:
     runAsNonRoot: true
