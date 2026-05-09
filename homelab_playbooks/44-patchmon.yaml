@@ -154,6 +154,23 @@
         - '"already exists" not in pg_db.stderr'
       changed_when: '"CREATE DATABASE" in pg_db.stdout'
 
+    - name: Grant permissions to the backup user
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n postgres statefulset/postgres -- psql -U postgres -c
+          "GRANT SELECT ON ALL TABLES IN SCHEMA public TO fedora_backup_user;"
+      register: pg_bu1
+      failed_when:
+        - pg_bu1.rc != 0
+
+    - name: Grant permissions to the backup user future tables
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n postgres statefulset/postgres -- psql -U postgres -c
+          "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO fedora_backup_user;"
+      register: pg_bu2
+      failed_when:
+        - pg_bu2.rc != 0
 
     # ------------------------------------------------------------------ #
     # Helm

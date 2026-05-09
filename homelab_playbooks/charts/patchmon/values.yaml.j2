@@ -97,7 +97,7 @@ server:
     clientId: "{{ vault_patchmon_oidc_client_id }}"
     existingSecret: "patchmon-oidc-secret"
     existingSecretClientSecretKey: "client-secret"
-    scopes: "openid profile email"
+    scopes: "openid profile email groups"
     buttonText: "Login with authentik"
     autoCreateUsers: true
     defaultRole: "user"
