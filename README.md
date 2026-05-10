@@ -54,7 +54,7 @@ This repository uses the following layout. As a high level overview, the network
 | <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache |
 | 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3 |
 | <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots |
-| <img src="./icons/gitlab.svg" width="16"/> | **GitLab** | Git + CI/CD — builds container images and pushes to Harbor |
+| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks |
 | <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
 | <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
 
@@ -86,6 +86,8 @@ This repository uses the following layout. As a high level overview, the network
 | 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
 | <img src="./icons/posthog.svg" width="16"/> | **PostHog** | Product analytics and event tracking |
 | <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | Listening analytics dashboard |
+| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example |
+| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes |
 
 ### AI Powered
 
