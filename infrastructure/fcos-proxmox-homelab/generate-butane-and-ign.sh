@@ -2,7 +2,8 @@
 set -euo pipefail
 
 # Default configuration
-NUM_NODES=3
+# NUM_NODES=3
+NUM_NODES=1
 # SSH keys array - can be populated from config file or command line
 # Legacy single key support (for backwards compatibility with config file)
 SSH_KEY=""
@@ -18,7 +19,8 @@ SSH_KEY_FBAK="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIF0Xp/z7zql1V6cuIraTyZwCCM48+8
 BASE_IP="10.10.85"
 GATEWAY=10.10.85.1
 DNS=10.10.85.105
-STARTING_IP=21
+# STARTING_IP=21
+STARTING_IP=24
 INTERFACE_NAME="ens18"
 HOSTNAME_PREFIX="coreos-cp"
 CONTAINER_RUNTIME="containerd"  # containerd or crio

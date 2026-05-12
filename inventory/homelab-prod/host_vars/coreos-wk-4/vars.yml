@@ -1,0 +1,10 @@
+ansible_user: core
+ansible_become: true
+ansible_become_method: sudo
+# Writable paths for CoreOS
+kube_config_dir: /var/lib/kubernetes
+kube_cert_dir: /var/lib/kubernetes/ssl
+etcd_config_dir: /var/lib/etcd
+etcd_cert_dir: /var/lib/etcd/ssl
+etcd_data_dir: /var/lib/etcd/data
+

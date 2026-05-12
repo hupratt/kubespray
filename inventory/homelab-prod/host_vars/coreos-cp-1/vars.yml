@@ -1,0 +1,7 @@
+---
+ansible_user: core
+ansible_become: true
+ansible_become_method: sudo
+etcd_config_dir: /etc/ssl/etcd
+etcd_cert_dir: /etc/ssl/etcd/ssl
+etcd_script_dir: /opt/bin/etcd-scripts
