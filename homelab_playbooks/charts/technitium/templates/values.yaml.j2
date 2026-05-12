@@ -1,0 +1,94 @@
+image:
+  repository: technitium/dns-server
+  tag: ""
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+env:
+  TZ: Europe/Berlin
+  DNS_SERVER_DOMAIN: "{{ technitium_ingress_host }}"
+  DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/secrets/admin-password"
+  DNS_SERVER_RECURSION: "AllowOnlyForPrivateNetworks"
+  DNS_SERVER_QNAME_MINIMIZATION: "true"
+  DNS_SERVER_DNSSEC_VALIDATION: "true"
+
+service:
+  main:
+    enabled: true
+    type: LoadBalancer
+    externalTrafficPolicy: Local
+    ports:
+      http:
+        enabled: true
+        port: 80
+        targetPort: 5380
+        protocol: TCP
+      https:
+        enabled: false
+      dns-udp:
+        enabled: true
+        port: 53
+        protocol: UDP
+      dns-tcp:
+        enabled: true
+        port: 53
+        protocol: TCP
+      dhcp:
+        enabled: false
+      dot:
+        enabled: false
+      doh-reverse:
+        enabled: false
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: haproxy
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: "{{ technitium_ingress_host }}"
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: "{{ technitium_tls_name }}"
+        hosts:
+          - "{{ technitium_ingress_host }}"
+
+persistence:
+  config:
+    enabled: true
+    type: pvc
+    storageClass: "{{ technitium_storage_class }}"
+    accessMode: ReadWriteOnce
+    size: "{{ technitium_storage_size }}"
+    mountPath: /etc/dns
+
+extraVolumes:
+  - name: admin-secret
+    secret:
+      secretName: technitium-admin-secret
+extraVolumeMounts:
+  - name: admin-secret
+    mountPath: /run/secrets
+    readOnly: true
+
+resources:
+  requests:
+    memory: "128Mi"
+  limits:
+    memory: "512Mi"
+
+nodeSelector:
+  kubernetes.io/hostname: coreos-wk-4
+
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "slow-services"
+    effect: "NoSchedule"
+
+securityContext: {}
+podSecurityContext: {}

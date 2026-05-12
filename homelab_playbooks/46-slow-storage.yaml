@@ -1,0 +1,65 @@
+---
+- name: Configure slow-services node storage
+  hosts: localhost
+  gather_facts: false
+  vars:
+    slow_node: coreos-wk-4
+    storage_base: /var/mnt/slow-storage
+    storage_class: slow-local
+    pvs:
+      - name: slow-pv-01
+        size: 50Gi
+      # - name: slow-pv-02
+      #   size: 100Gi
+      # - name: slow-pv-03
+      #   size: 50Gi
+
+  tasks:
+
+    - name: Create StorageClass (no-provisioner)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: storage.k8s.io/v1
+          kind: StorageClass
+          metadata:
+            name: "{{ storage_class }}"
+          provisioner: kubernetes.io/no-provisioner
+          volumeBindingMode: WaitForFirstConsumer
+          reclaimPolicy: Retain
+
+    - name: Create PersistentVolumes
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: "{{ item.name }}"
+          spec:
+            capacity:
+              storage: "{{ item.size }}"
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "{{ storage_base }}/{{ item.name }}"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+      loop: "{{ pvs }}"
+
+    - name: Ensure storage directories exist on slow node
+      ansible.builtin.file:
+        path: "{{ storage_base }}/{{ item.name }}"
+        state: directory
+        mode: "0750"
+      loop: "{{ pvs }}"
+      delegate_to: "{{ slow_node }}"
+      become: true

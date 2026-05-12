@@ -1,0 +1,81 @@
+---
+- name: Deploy Technitium
+  hosts: localhost
+  gather_facts: false
+  # vars_files:
+  #   - group_vars/all/patchmon_vault.yml
+  vars:
+    technitium_namespace: technitium
+    technitium_release_name: technitium
+    technitium_chart_version: "1.10.0"
+    technitium_ingress_host: "dns.thekor.eu"
+    technitium_storage_class: "slow-local"
+    technitium_storage_size: "5Gi"
+    technitium_tls_name: "wildcard-thekor"
+    vault_kv_path: "technitium"
+
+  tasks:
+
+    - name: Deploy ExternalSecret for Technitium admin password
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: technitium-admin-secret
+            namespace: "{{ technitium_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: technitium-admin-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: admin-password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: admin_password
+
+    - name: Add obeone Helm repo
+      kubernetes.core.helm_repository:
+        name: obeone
+        repo_url: https://charts.obeone.cloud
+        state: present
+
+    - name: Render Technitium values
+      ansible.builtin.template:
+        src: charts/technitium/templates/values.yaml.j2
+        dest: /tmp/technitium-values.yaml
+        mode: "0600"
+
+    - name: Deploy Technitium via Helm
+      kubernetes.core.helm:
+        name: "{{ technitium_release_name }}"
+        chart_ref: obeone/technitium-dnsserver
+        chart_version: "{{ technitium_chart_version }}"
+        release_namespace: "{{ technitium_namespace }}"
+        create_namespace: false
+        values_files:
+          - /tmp/technitium-values.yaml
+
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/technitium-values.yaml
+        state: absent
+
+    - name: Verify Technitium pod is running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ technitium_namespace }}"
+        label_selectors:
+          - "app.kubernetes.io/name=technitium-dnsserver"
+      register: technitium_pods
+      until: >
+        technitium_pods.resources | length > 0 and
+        technitium_pods.resources[0].status.phase == "Running"
+      retries: 12
+      delay: 10
