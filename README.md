@@ -57,6 +57,7 @@ This repository uses the following layout. As a high level overview, the network
 | <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks |
 | <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
 | <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
+| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain |
 
 ### Identity & Security
 
@@ -191,8 +192,8 @@ flowchart LR
     Internet -- "300 Mbit/s ↓ / 50 Mbit/s ↑" --> UCG["FRITZ!Box"]:::gateway
     UCG -- 1Gbit/s --> FLEX["Sophos SG 135 running pfsense"]:::switch
 
-    FLEX -- 1Gbit/s --> HP-BOLT(["DL380 Gen9 running gitlab and the k8s cluster"]):::ap
-    FLEX -- 1Gbit/s --> HP-GREEN(["DL380 Gen9 running my classic docker compose stack"]):::ap
+    FLEX -- 1Gbit/s --> HP-BOLT(["DL380 Gen9 running gitlab and 3 of my master/worker k8s hybrid nodes"]):::ap
+    FLEX -- 1Gbit/s --> HP-GREEN(["DL380 Gen9 running my classic docker compose stack as well as a worker node that i use on slower HDD's"]):::ap
 ```
 
 #### Networks & Vlans
@@ -214,7 +215,7 @@ I went a bit overboard with the number of vlans but I wanted to test out all pos
 
 I'm doing split-horizon DNS meaning I have two networks. The first one for my homelab and the second for my family in order to avoid any disturbance. LAN clients on the homelab's network resolve to the pfsense gateway and other devices go straight to the internet.
 
-LAN clients on the homelab's network have a series of coredns that act like caches for my pihole and 2 other coredns instances running on the production k8s cluster but those are not exposed outside of the cluster. Everything that belongs to *.dc.mydomain.com get directed to the windows domain controller and everything else hits the pihole who acts as a recursive DNS resolver.
+LAN clients on the homelab's network have a series of coredns that act like caches for my technitium server and 2 other coredns instances running on the production k8s cluster but those are not exposed outside of the cluster. Everything that belongs to *.dc.mydomain.com get directed to the windows domain controller and everything else hits the technitium who acts as a recursive DNS resolver. I switched from pihole to technitium because it supports recursion without having to side-car an unbound server, it's cloud native, has more features and allows changes through the rest api. 
 
 ```mermaid
 flowchart LR
@@ -229,11 +230,11 @@ flowchart LR
     LAN_Client -- 1Gbit/s --> c3["coredns3"]:::switch
 
     c1 -- 1Gbit/s --> dom-controller(["dom-controller"]):::server
-    c1 -- 1Gbit/s --> pihole(["pihole"]):::server
+    c1 -- 1Gbit/s --> technitium(["technitium"]):::server
     c2 -- 1Gbit/s --> dom-controller(["dom-controller"]):::server
-    c2 -- 1Gbit/s --> pihole(["pihole"]):::server
+    c2 -- 1Gbit/s --> technitium(["technitium"]):::server
     c3 -- 1Gbit/s --> dom-controller(["dom-controller"]):::server
-    c3 -- 1Gbit/s --> pihole(["pihole"]):::server
+    c3 -- 1Gbit/s --> technitium(["technitium"]):::server
 
 ```
 
