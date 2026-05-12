@@ -148,3 +148,7 @@ download_force_cache: false
 download_run_once: false
 download_keep_remote_cache: false
 download_localhost: false
+
+ansible_user: core
+ansible_become: true
+ansible_become_method: sudo
