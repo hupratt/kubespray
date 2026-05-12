@@ -18,6 +18,8 @@ service:
     enabled: true
     type: LoadBalancer
     externalTrafficPolicy: Local
+    externalIPs:
+      - "{{ technitium_node_ip }}"
     ports:
       http:
         enabled: true
