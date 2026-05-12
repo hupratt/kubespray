@@ -62,7 +62,7 @@
                     - { valueOverride: "Error",   color: "red",    min: 2, max: 2 }
 
                 - name: cluster_age
-                  query: "min(floor((time() - kube_node_created) / 86400))"
+                  query: "max(floor((time() - kube_node_created) / 86400))"
                   valueTemplate: "clusterAge"
 
                 - name: unhealthy_services
