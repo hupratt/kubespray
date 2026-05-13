@@ -14,6 +14,7 @@
     technitium_tls_name: "wildcard-thekor"
     vault_kv_path: "technitium"
     technitium_node_ip: "10.10.85.24"
+    technitium_clusterissuer: "letsencrypt-dns-hetzner"
 
   tasks:
 

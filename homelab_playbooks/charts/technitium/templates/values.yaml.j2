@@ -13,29 +13,36 @@ env:
   DNS_SERVER_QNAME_MINIMIZATION: "true"
   DNS_SERVER_DNSSEC_VALIDATION: "true"
 
+# IMPORTANT: needed for port 53 on the node
+hostNetwork: true
+dnsPolicy: Default
 service:
   main:
     enabled: true
-    type: LoadBalancer
-    externalTrafficPolicy: Local
-    externalIPs:
-      - "{{ technitium_node_ip }}"
+    type: ClusterIP
+    externalTrafficPolicy: null
+
     ports:
       http:
         enabled: true
-        port: 80
+        port: 5380
         targetPort: 5380
         protocol: TCP
-      https:
-        enabled: false
+
       dns-udp:
         enabled: true
         port: 53
+        targetPort: 53
         protocol: UDP
+
       dns-tcp:
         enabled: true
         port: 53
+        targetPort: 53
         protocol: TCP
+
+      https:
+        enabled: false
       dhcp:
         enabled: false
       dot:
@@ -48,7 +55,7 @@ ingress:
     enabled: true
     ingressClassName: haproxy
     annotations:
-      cert-manager.io/cluster-issuer: letsencrypt-prod
+      cert-manager.io/cluster-issuer: "{{ technitium_clusterissuer }}"
     hosts:
       - host: "{{ technitium_ingress_host }}"
         paths:
@@ -72,6 +79,7 @@ extraVolumes:
   - name: admin-secret
     secret:
       secretName: technitium-admin-secret
+
 extraVolumeMounts:
   - name: admin-secret
     mountPath: /run/secrets
@@ -93,4 +101,5 @@ tolerations:
     effect: "NoSchedule"
 
 securityContext: {}
+
 podSecurityContext: {}
