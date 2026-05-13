@@ -12,6 +12,7 @@ env:
   DNS_SERVER_RECURSION: "AllowOnlyForPrivateNetworks"
   DNS_SERVER_QNAME_MINIMIZATION: "true"
   DNS_SERVER_DNSSEC_VALIDATION: "true"
+  DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/dns-secrets/admin-password"
 
 # IMPORTANT: needed for port 53 on the node
 hostNetwork: true
@@ -66,6 +67,7 @@ ingress:
         hosts:
           - "{{ technitium_ingress_host }}"
 
+
 persistence:
   config:
     enabled: true
@@ -74,15 +76,18 @@ persistence:
     accessMode: ReadWriteOnce
     size: "{{ technitium_storage_size }}"
     mountPath: /etc/dns
-
-extraVolumes:
-  - name: admin-secret
-    secret:
-      secretName: technitium-admin-secret
-
-extraVolumeMounts:
-  - name: admin-secret
-    mountPath: /run/secrets
+  admin-secret:
+    enabled: true
+    type: secret
+    name: technitium-admin-secret
+    mountPath: /run/dns-secrets
+    readOnly: true
+  mysql-config:
+    enabled: true
+    type: secret
+    name: technitium-mysql-config
+    mountPath: "/etc/dns/apps/Query Logs (MySQL)/dnsApp.config"
+    subPath: dnsApp.config
     readOnly: true
 
 resources:

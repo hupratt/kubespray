@@ -1,0 +1,165 @@
+---
+- name: Provision secrets and database logging
+  hosts: localhost
+  gather_facts: false
+  # vars_files:
+  #   - group_vars/all/patchmon_vault.yml
+  vars:
+    technitium_namespace: technitium
+    technitium_release_name: technitium
+    technitium_chart_version: "1.10.0"
+    technitium_ingress_host: "dns.thekor.eu"
+    technitium_storage_class: "slow-local"
+    technitium_storage_size: "5Gi"
+    technitium_tls_name: "wildcard-thekor"
+    vault_kv_path: "technitium"
+    technitium_node_ip: "10.10.85.24"
+
+  tasks:
+
+    - name: Create secret for Uptime Kuma database
+      kubernetes.core.k8s:
+        state: present
+        namespace: "{{ technitium_namespace }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: technitium-secret
+          type: Opaque
+          stringData: "{{ technitium_secret }}"
+      no_log: true
+
+    - name: Annotate secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: "{{ technitium_namespace }}"
+        name: technitium-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
+
+    - name: Create MariaDB Database
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: "{{ technitium_secret.db_name }}"
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            characterSet: utf8
+            collate: utf8_general_ci
+
+    - name: Create MariaDB User
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: User
+          metadata:
+            name: "{{ technitium_secret.username }}"
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            passwordSecretKeyRef:
+              name: technitium-secret
+              key: password
+            maxUserConnections: 20
+
+    - name: Create MariaDB Connection for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Connection
+          metadata:
+            name: technitium-connection
+            namespace: mariadb
+          spec:
+            username: "{{ technitium_secret.username }}"
+            database: "{{ technitium_secret.db_name }}"
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            passwordSecretKeyRef:
+              name: technitium-secret
+              key: password
+
+    - name: Create MariaDB Grant for the user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Grant
+          metadata:
+            name: technitium-grant
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              name: mariadb
+              namespace: mariadb
+            username: "{{ technitium_secret.username }}"
+            database: "{{ technitium_secret.db_name }}"
+            table: "*"
+            privileges:
+              - ALL
+            grantOption: false
+
+    - name: Deploy ExternalSecret for mysql connection string
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: technitium-mysql-config
+            namespace: "{{ technitium_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: technitium-mysql-config
+              template:
+                data:
+                  dnsApp.config: |
+                    {% raw %}
+                    {
+                      "enableLogging": true,
+                      "maxQueueSize": 1000000,
+                      "maxLogDays": 30,
+                      "maxLogRecords": 0,
+                      "databaseName": "{{ .db_name }}",
+                      "connectionString": "Server={{ .host }}; Port=3306; Uid={{ .user }}; Pwd={{ .password }};"
+                    }
+                    {% endraw %}
+            data:
+              - secretKey: host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: host
+              - secretKey: user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: user
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: password
+              - secretKey: db_name
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_name

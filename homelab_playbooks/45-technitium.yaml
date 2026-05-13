@@ -81,3 +81,35 @@
         technitium_pods.resources[0].status.phase == "Running"
       retries: 12
       delay: 10
+
+# before setting up technitium as a dns server you'll have to configure resolved to not 
+
+# /etc/systemd/resolved.conf
+# [Resolve]
+# DNSStubListener=no
+
+# and you'll need to patch nmcli by removing the current dns and adding the ip of the node itself 
+
+# nmcli con edit private 
+
+# make sure to reconfigure the deployments/ss that you deploy to use th
+
+# for ds in csi-rbdplugin csi-cephfsplugin; do
+#   kubectl patch daemonset $ds \
+#     -n rook-ceph \
+#     --type='merge' \
+#     -p '
+# spec:
+#   template:
+#     spec:
+#       affinity:
+#         nodeAffinity:
+#           requiredDuringSchedulingIgnoredDuringExecution:
+#             nodeSelectorTerms:
+#             - matchExpressions:
+#               - key: kubernetes.io/hostname
+#                 operator: NotIn
+#                 values:
+#                 - coreos-wk-4
+# '
+# done

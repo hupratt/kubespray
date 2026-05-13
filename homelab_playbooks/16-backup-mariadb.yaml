@@ -48,7 +48,7 @@
                     containers:
                       - name: tools
                         image: registry.thekor.eu/docker/k8s-fedora-backup/mariadb-tools:latest
-                        command: ["/home/appuser/sql_generated.sh", "uptimekuma", "vaultwarden", "sftp-go"]
+                        command: ["/home/appuser/sql_generated.sh", "uptimekuma", "vaultwarden", "sftp-go", "technitium"]
                         env:
                           - name: AWS_ACCESS_KEY_ID
                             valueFrom:
