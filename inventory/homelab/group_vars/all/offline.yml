@@ -18,6 +18,10 @@
 # quay_image_repo: "{{ registry_host }}"
 
 # Point kubespray's own image pulls through harbor
+# 
+# tar -xvzf /tmp/certs.tgz -C /etc/containerd
+# systemctl restart containerd
+
 kube_image_repo: "harbor.thekor.eu/proxy-k8s"
 github_image_repo: "harbor.thekor.eu/proxy-gcr"
 docker_image_repo: "harbor.thekor.eu/proxy-dockerhub"

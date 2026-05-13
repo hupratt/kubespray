@@ -27,22 +27,21 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 
 ### Core Components
 
+- **4 node k8s cluster**: I have a total of 4 virtual machines, 3 of which are master/worker hybrids and the 4th one is a worker node running on my slower HDD's to host applications that don't need low latency. 
 - **Networking**: [cilium](https://github.com/cilium/cilium) provides eBPF-based (kernel-based) networking replacing kube-proxy, [haproxy](https://www.haproxy.com/) is the cluster's ingress and [harbor](https://goharbor.io/) works as a cluster-local proxy-cache (egress) and scan for vulnerabilities. [Containerd is configured here to use a fallback mirror in case harbor is unavailable](https://github.com/hupratt/kubespray/blob/homelab/inventory/homelab-prod/group_vars/all/offline.yml)
 - **HTTPS**: [cert-manager](https://github.com/cert-manager/cert-manager) is in charge of TLS certificates and i have [DNS acme challenge with hetzner](https://github.com/hetzner/cert-manager-webhook-hetzner/blob/main/docs/guides/quickstart.md) in order to issue and update my wildcard certificate. Gitlab and ansible read the secrets from a local [ansible-vault](https://docs.ansible.com/projects/ansible/latest/cli/ansible-vault.html) for continuous delivery. And i use a handy helper function to soft link the secret in the cert-manager namespace to other namespaces.
-- **Storage & Data Protection**: [rook](https://github.com/rook/rook) provides distributed block storage with Ceph. I have an hourly bash script that does an sql dump of all databases and stores it in an S3 storage hosted at hetzner on an ext4 luks encrypted partition. CephFS and RBD volumes are backed up once a week and stored in the same S3 storage as well.
+- **Storage & Data Protection**: [rook](https://github.com/rook/rook) provides distributed block storage with Ceph. I have an hourly bash script that does an pull-based sql dump of all databases and stores it in an S3 storage hosted at hetzner on an ext4 luks encrypted partition. CephFS and RBD volumes are backed up once a week and stored in the same S3 storage as well.
 - **Single source of truth**: I don't apply patches at the yaml level or edit helm charts on the fly so having this repo be my single source of truth for my infrastructure as code makes my installs as reproducible as I can. Other popular projects like Flux or ArgoCD can do this as well but I'm already configuring my infrastructure with ansible and it [has extensive support for kubernetes](https://galaxy.ansible.com) via its community hub so I decided to stick to it. 
 - **Compliance**: I have [kyverno policies here](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/00-kyverno.yaml) enforcing a number of ClusterAdmissionPolicies such as disallowing privileged containers, requiring resource limits, requiring health probes, blocking latest image tags in production namespaces, blocking containers from running with root privileges and blocking containers from running with SYS_ADMIN and NET_ADMIN permissions so that malicious containers can't impact the host kernel or host network stack.
 - **CI/CD Continuous integration & deployment**: I'm managing the continuous integration and continuous deployment with [a self hosted gitlab instance](https://gitlab.thekor.eu/docker/chirpy/-/blob/master/.gitlab-ci.yml?ref_type=heads) at the project level. The docker build command builds the artifacts and the ```kubectl rollout``` command deploys it and waits for the health checks to be up before replacing the container. I'm self hosting my helm repo in gitlab as a git repository but i'm planning to have an oci repository with [harbor](https://goharbor.io/) soon. Another improvement in the roadmap is to have oauth2 integration between hashicorp's vault and gitlab so that I don't need to share passwords and kubeconfig files as parameters in my gitlab runner's jobs.
 
 
-### Directory Helper
-
-This repository uses the following layout. As a high level overview, the network/VM side is managed by terraform in the infrastructure folder, the inventory then defines the targets and configuration for kubespray to bootstrap our cluster and the homelab_playbooks install the software I need on the pods.
+### What I'm running on my cluster
 
 <details>
-  <summary>Click to expand and see the applications deployed in this repo</summary>
+  <summary>Click to see the applications deployed in this repo</summary>
 
-### Infrastructure
+### 1. Infrastructure
 
 | | Application | Description |
 |---|---|---|
@@ -59,7 +58,7 @@ This repository uses the following layout. As a high level overview, the network
 | <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
 | <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain |
 
-### Identity & Security
+### 2. Identity & Security
 
 | | Application | Description |
 |---|---|---|
@@ -67,7 +66,7 @@ This repository uses the following layout. As a high level overview, the network
 | <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync |
 | <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities |
 
-### Databases
+### 3. Databases
 
 | | Application | Description |
 |---|---|---|
@@ -75,7 +74,7 @@ This repository uses the following layout. As a high level overview, the network
 | <img src="./icons/mariadb.svg" width="16"/> | **MariaDB** | MySQL-compatible DB managed via Kubernetes operator |
 | <img src="./icons/mongodb.svg" width="16"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
 
-### Productivity & Tools
+### 4. Productivity & Tools
 
 | | Application | Description |
 |---|---|---|
@@ -90,7 +89,7 @@ This repository uses the following layout. As a high level overview, the network
 | 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example |
 | 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes |
 
-### AI Powered
+### 5. AI Powered
 
 | | Application | Description |
 |---|---|---|
@@ -99,7 +98,7 @@ This repository uses the following layout. As a high level overview, the network
 | 🌐 | **Scriberr** | Whisper-based transcription service |
 | <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
 
-### My Projects
+### 6. My Projects
 
 | | Application | Description |
 |---|---|---|
@@ -111,6 +110,11 @@ This repository uses the following layout. As a high level overview, the network
 | <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
 
 </details>
+
+### Directory Helper
+
+This repository uses the following layout. As a high level overview, the network/VM side is managed by terraform in the infrastructure folder, the inventory then defines the targets and configuration for kubespray to bootstrap our cluster and the homelab_playbooks install the software I need on the pods.
+
 
 ```sh
 📁 infrastructure
