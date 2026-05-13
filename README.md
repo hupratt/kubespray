@@ -299,7 +299,6 @@ All backups are sent to the cloud based offsite VPS to an S3 storage hosted at h
 | uptime kuma | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
 | sftpgo      | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
 | technitium  | mariadb sql backup | — | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/` and `s3://backup/restic/` |
-
 | **MongoDB-backed** | | | | | |
 | amazon clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
 | trello clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
