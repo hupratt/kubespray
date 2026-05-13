@@ -32,3 +32,10 @@ DNSStubListener=no
 
 
 systemctl restart systemd-resolved
+
+nmcli con edit private
+set ipv4.dns
+set ipv4.dns 10.10.85.24 
+save
+
+editing /etc/resolv.conf won't persist accross reboots
