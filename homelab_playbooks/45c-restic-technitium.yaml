@@ -1,0 +1,71 @@
+---
+- name: Setup block based backups of the PVC with restic
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    external_secret_namespace: "technitium"
+    external_secret_name: "{{ external_secret_namespace }}-secret"
+    pvc_name: "technitium-technitium-dnsserver-config"
+
+  tasks:
+
+    - name: Deploy restic backup CronJob
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: restic-technitium
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            schedule: "0 0 31 2 *"
+            concurrencyPolicy: Forbid
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 1
+            jobTemplate:
+              spec:
+                template:
+                  spec:
+                    restartPolicy: OnFailure
+                    nodeName: "coreos-wk-4"
+                    tolerations:
+                      - key: "node-role"
+                        operator: "Equal"
+                        value: "slow-services"
+                        effect: "NoSchedule"
+
+                    containers:
+                      - name: restic
+                        image: instrumentisto/restic:0.18.0
+                        securityContext:
+                          runAsUser: 0
+                          readOnlyRootFilesystem: false
+                          capabilities:
+                            drop: ["ALL"]
+                        command:
+                          - /bin/sh
+                          - -c
+                          - |
+                            set -e
+                            restic backup /data
+                            restic forget \
+                              --keep-daily 7 \
+                              --keep-weekly 4 \
+                              --keep-monthly 6 \
+                              --prune
+                        envFrom:
+                          - secretRef:
+                              name: "{{ external_secret_name }}"
+                        volumeMounts:
+                          - name: data
+                            mountPath: /data
+                            readOnly: true
+
+                    volumes:
+                      - name: data
+                        persistentVolumeClaim:
+                          claimName: "{{ pvc_name }}"
