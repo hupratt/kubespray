@@ -224,6 +224,7 @@
           spec:
             instances: 1
             imageName: "{{ pg_image }}"
+            enableSuperuserAccess: true
             superuserSecret:
               name: "{{ item.name }}-superuser-vault-secret"
             bootstrap:
@@ -243,3 +244,15 @@
             monitoring:
               enablePodMonitor: true
       loop: "{{ clusters }}"
+
+# debugging
+# kubectl get externalsecrets.external-secrets.io -A -o json \
+# | jq -r '
+#   .items[]
+#   | select(
+#       (.status.conditions[]? | select(.type=="Ready" and .status=="False"))
+#     )
+#   | "kubectl delete externalsecret -n \(.metadata.namespace) \(.metadata.name)"
+# ' \
+# | sh
+
