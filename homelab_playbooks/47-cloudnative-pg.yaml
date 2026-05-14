@@ -105,21 +105,10 @@
     #     data:
     #       superuser_username: postgres
     #       superuser_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
-    #   loop: "{{ clusters }}"
-    #   no_log: true
-
-    # - name: Write database credentials to Vault
-    #   community.hashi_vault.vault_kv2_write:
-    #     url: "{{ vault_addr }}"
-    #     token: "{{ vault_init.root_token }}"
-    #     path: "{{ item.vault_path }}"
-    #     engine_mount_point: "kv"
-    #     data:
     #       pg_username: "{{ item.owner }}"
     #       pg_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
     #   loop: "{{ clusters }}"
     #   no_log: true
-
 
     - name: Create ExternalSecrets for database credentials of the app users
       kubernetes.core.k8s:
