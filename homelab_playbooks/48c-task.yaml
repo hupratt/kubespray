@@ -1,0 +1,295 @@
+---
+# tasks/volsync_restore_db.yml
+# Included per-database by postgres_volsync_restore.yml
+# Loop variable: db
+#   db.name, db.namespace, db.storage_class, db.storage_size
+
+- name: "[{{ db.name }}] Set derived vars"
+  ansible.builtin.set_fact:
+    _cluster: "{{ db.namespace }}-pg"
+    _pod: "{{ db.namespace }}-pg-1"
+    _pvc: "{{ db.namespace }}-pg-1"
+    _rd: "restore-{{ db.name }}"
+
+# --- credentials -------------------------------------------------------------
+
+- name: "[{{ db.name }}] Read restic Secret"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ db.namespace }}"
+    name: restic-credentials
+  register: _restic_raw
+  failed_when: _restic_raw.resources | length == 0
+
+- name: "[{{ db.name }}] Read DB app Secret"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: v1
+    kind: Secret
+    namespace: "{{ db.namespace }}"
+    name: "{{ db.namespace }}-pg-vault-secret"
+  register: _db_raw
+  failed_when: _db_raw.resources | length == 0
+
+- name: "[{{ db.name }}] Decode credentials"
+  ansible.builtin.set_fact:
+    _rc:
+      key: "{{ _restic_raw.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}"
+      secret: "{{ _restic_raw.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}"
+      password: "{{ _restic_raw.resources[0].data.RESTIC_PASSWORD | b64decode }}"
+      repo: "{{ _restic_raw.resources[0].data.RESTIC_REPOSITORY | b64decode }}"
+    _dc:
+      username: "{{ _db_raw.resources[0].data.username | b64decode }}"
+      password: "{{ _db_raw.resources[0].data.password | b64decode }}"
+
+# --- emptiness check ---------------------------------------------------------
+
+- name: Check if DB has any user tables
+  kubernetes.core.k8s_exec:
+    namespace: "{{ db.namespace }}"
+    pod: "{{ db.namespace }}-pg-1"
+    container: postgres
+    command: >
+      psql -U postgres -d {{ db.name }} -tAc
+      "SELECT EXISTS (
+         SELECT 1 FROM information_schema.tables
+         WHERE table_schema = 'public'
+       )"
+  register: _count
+  changed_when: false
+
+- name: "[{{ db.name }}] Skip — {{ _count.stdout.strip() }} tables present"
+  ansible.builtin.debug:
+    msg: "{{ db.name }} is not empty — skipping."
+  when: _count.stdout.strip() | int > 0
+
+- name: "[{{ db.name }}] Set restore_needed"
+  ansible.builtin.set_fact:
+    _restore_needed: "{{ _count.stdout.strip() | int == 0 }}"
+
+- name: "[{{ db.name }}] Dry-run — would restore from {{ _rc.repo }}"
+  ansible.builtin.debug:
+    msg: "dry_run=true — no changes made for {{ db.name }}."
+  when:
+    - _restore_needed
+    - dry_run | bool
+
+# --- suspend CNPG Cluster ----------------------------------------------------
+# k8s_scale does not work on CNPG Cluster (no scale subresource).
+# The hibernation annotation gracefully stops all pods while
+# preserving the Cluster object and its spec.
+
+- name: "[{{ db.name }}] Hibernate CNPG Cluster"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: patched
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: "{{ _cluster }}"
+    namespace: "{{ db.namespace }}"
+    definition:
+      metadata:
+        annotations:
+          cnpg.io/hibernation: "on"
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+- name: "[{{ db.name }}] Wait for pod to terminate"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: v1
+    kind: Pod
+    namespace: "{{ db.namespace }}"
+    name: "{{ _pod }}"
+  register: _pod_gone
+  until: _pod_gone.resources | length == 0
+  retries: 24
+  delay: 5
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+# --- recreate PVC unbound ----------------------------------------------------
+
+- name: "[{{ db.name }}] Delete PVC"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: absent
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ _pvc }}"
+    namespace: "{{ db.namespace }}"
+    wait: true
+    wait_timeout: 120
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+- name: "[{{ db.name }}] Create empty PVC"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: "{{ _pvc }}"
+        namespace: "{{ db.namespace }}"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: "{{ db.storage_class }}"
+        resources:
+          requests:
+            storage: "{{ db.storage_size }}"
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+# --- VolSync ReplicationDestination ------------------------------------------
+# restic-credentials Secret must contain:
+#   RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+
+- name: "[{{ db.name }}] Create ReplicationDestination"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: present
+    definition:
+      apiVersion: volsync.backube/v1alpha1
+      kind: ReplicationDestination
+      metadata:
+        name: "{{ _rd }}"
+        namespace: "{{ db.namespace }}"
+      spec:
+        trigger:
+          manual: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+        restic:
+          repository: restic-credentials
+          destinationPVC: "{{ _pvc }}"
+          copyMethod: Direct
+          storageClassName: "{{ db.storage_class }}"
+          accessModes:
+            - ReadWriteOnce
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+- name: "[{{ db.name }}] Wait for ReplicationDestination to complete"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "{{ _rd }}"
+    namespace: "{{ db.namespace }}"
+  register: _rd_status
+  until: >-
+    _rd_status.resources | length > 0 and
+    (_rd_status.resources[0].status.lastManualSync is defined or
+     _rd_status.resources[0].status.conditions | default([]) |
+     selectattr('type', 'equalto', 'Synchronizing') |
+     selectattr('status', 'equalto', 'False') | list | length > 0)
+  retries: "{{ (volsync_restore_timeout / 10) | int }}"
+  delay: 10
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+- name: "[{{ db.name }}] Fail if ReplicationDestination errored"
+  ansible.builtin.fail:
+    msg: "VolSync restore failed for {{ db.name }} — check RD {{ _rd }} in {{ db.namespace }}"
+  when:
+    - _restore_needed
+    - not dry_run | bool
+    - >-
+      _rd_status.resources[0].status.conditions | default([]) |
+      selectattr('type', 'equalto', 'Synchronizing') |
+      selectattr('reason', 'equalto', 'Error') | list | length > 0
+
+# --- resume CNPG Cluster -----------------------------------------------------
+
+- name: "[{{ db.name }}] Resume CNPG Cluster"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: patched
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: "{{ _cluster }}"
+    namespace: "{{ db.namespace }}"
+    definition:
+      metadata:
+        annotations:
+          cnpg.io/hibernation: "off"
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+- name: "[{{ db.name }}] Wait for pod Ready"
+  kubernetes.core.k8s_info:
+    kubeconfig: "{{ kubeconfig }}"
+    api_version: v1
+    kind: Pod
+    namespace: "{{ db.namespace }}"
+    name: "{{ _pod }}"
+  register: _pod_ready
+  until: >-
+    _pod_ready.resources | length > 0 and
+    _pod_ready.resources[0].status.conditions | default([]) |
+    selectattr('type', 'equalto', 'Ready') |
+    selectattr('status', 'equalto', 'True') | list | length > 0
+  retries: 36
+  delay: 10
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+# --- verify ------------------------------------------------------------------
+
+- name: "[{{ db.name }}] Verify table count post-restore"
+  kubernetes.core.k8s_exec:
+    kubeconfig: "{{ kubeconfig }}"
+    namespace: "{{ db.namespace }}"
+    pod: "{{ _pod }}"
+    command: >-
+      psql -U {{ _dc.username }} -d {{ db.name }} -tAc
+      "SELECT COUNT(*) FROM information_schema.tables
+       WHERE table_schema NOT IN ('information_schema','pg_catalog')
+       AND table_type = 'BASE TABLE'"
+  environment:
+    PGPASSWORD: "{{ _dc.password }}"
+  register: _post_count
+  changed_when: false
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+- name: "[{{ db.name }}] Fail if empty after restore"
+  ansible.builtin.fail:
+    msg: "{{ db.name }}: 0 tables after restore — check restic snapshot content."
+  when:
+    - _restore_needed
+    - not dry_run | bool
+    - _post_count.stdout.strip() | int == 0
+
+- name: "[{{ db.name }}] Done — {{ _post_count.stdout.strip() }} tables restored"
+  ansible.builtin.debug:
+    msg: "{{ db.name }} restored successfully via VolSync."
+  when:
+    - _restore_needed
+    - not dry_run | bool
+
+# --- cleanup -----------------------------------------------------------------
+
+- name: "[{{ db.name }}] Delete ReplicationDestination"
+  kubernetes.core.k8s:
+    kubeconfig: "{{ kubeconfig }}"
+    state: absent
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "{{ _rd }}"
+    namespace: "{{ db.namespace }}"
+  when:
+    - _restore_needed
+    - not dry_run | bool

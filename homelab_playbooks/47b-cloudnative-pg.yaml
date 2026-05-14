@@ -110,6 +110,11 @@
                   key: "{{ vault_kv_restic_path }}"
                   property: AWS_SECRET_ACCESS_KEY
 
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: RESTIC_REPOSITORY
+
       loop: "{{ clusters }}"
       loop_control:
         loop_var: db
