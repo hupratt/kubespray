@@ -9,7 +9,7 @@
     restic_keep_daily: 7
     restic_keep_weekly: 4
     restic_keep_monthly: 3
-    vault_backup_schedule: "0 3 * * *"   # 03:00 daily
+    vault_backup_schedule: "0 0 31 2 *"
     vault_backup_image: "registry.thekor.eu/hashicorp-vault:restic-0.18.0-vault-1.17"
     vault_kv_path: "vault_backup"
     vault_kv_restic_path: "restic"

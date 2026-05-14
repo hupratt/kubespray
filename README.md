@@ -270,9 +270,12 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 | Flow             | Tool               | Destinations                                                                                 | Schedule          |
 |------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
 | Application PVCs | custom bash script | Volumes are backed up with restic for chunked layered backups  | At minute 30 every 2 hours |
-| Postgres SS      | custom bash script | sql dump stored in an S3 storage       | hourly            |
-| Mongodb SS       | custom bash script | tar dump stored in an S3 storage       | hourly            |
-| Mariadb SS       | custom bash script | sql dump stored in an S3 storage       | hourly            |
+| Postgres statefulset      | custom bash script | sql dump stored in an S3 storage       | hourly            |
+| Mongodb statefulset       | custom bash script | tar dump stored in an S3 storage       | hourly            |
+| Mariadb statefulset       | custom bash script | sql dump stored in an S3 storage       | hourly            |
+| vault's raft database       | custom bash script | .snap stored in an S3 storage       | hourly            |
+| etcd       | custom bash script | *.db stored in an S3 storage       | hourly            |
+
 
 
 #### Backup strategy per service
@@ -284,6 +287,7 @@ All backups are sent to the cloud based offsite VPS to an S3 storage hosted at h
 |---|---|---|---|---|---|
 | **Kubernetes cluster** | | | | | |
 | etcd |  etcdctl snapshot via cronjob to garage s3 | — | 7 days via script itself | | `s3://backup/etcd-backups/` |
+| hashicorp-vault |  backup of the secret manager's raft database | — | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | | `s3://backup/vault/` |
 | **Postgres-backed** | | | | | |
 | prometheus / grafana | postgres sql backup, restic-monitoring | prometheus-grafana | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
 | paperless | postgres sql backup, restic-paperless-data, restic-paperless-media | paperless-data, paperless-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
