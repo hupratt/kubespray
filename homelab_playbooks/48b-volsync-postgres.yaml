@@ -108,6 +108,73 @@
           RESTIC_PASSWORD: "{{ restic_secret.resources[0].data.RESTIC_PASSWORD | b64decode }}"
       when: current_db is defined
 
+    - name: Read database credentials secret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ current_db.namespace }}"
+        name: "{{ current_db.namespace }}-pg-vault-secret"
+      register: db_app_secret
+      when: current_db is defined
+
+    - name: Decode database credentials
+      set_fact:
+        db_app_secret:
+          username: "{{ db_app_secret.resources[0].data.username | b64decode }}"
+          password: "{{ db_app_secret.resources[0].data.password | b64decode }}"
+      when: current_db is defined
+
+    # - name: Show variable
+    #   ansible.builtin.debug:
+    #     msg: "AWS_ACCESS_KEY_ID is {{ restic_credentials.AWS_ACCESS_KEY_ID }}"
+
+
+    - name: "[{{ current_db.name }}] Count user tables via exec"
+      kubernetes.core.k8s_exec:
+        namespace: "{{ current_db.namespace }}"
+        pod: "{{ current_db.namespace }}-pg-1"
+        command: >
+          PGPASSWORD='{{ db_app_secret.password }}' psql -U {{ db_app_secret.username }} -d {{ current_db.name }} -tAc
+          "SELECT COUNT(*) FROM information_schema.tables
+            WHERE table_schema NOT IN ('information_schema','pg_catalog')
+            AND table_type = 'BASE TABLE'"
+      register: _table_count
+      changed_when: false
+
+    - name: "[{{ current_db.name }}] Skip — DB has data ({{ _table_count.stdout.strip() }} tables)"
+      ansible.builtin.debug:
+        msg: "{{ current_db.name }} is not empty — skipping restore."
+      when:
+        - _table_count.stdout.strip() | int > 0
+
+    - name: "[{{ current_db.name }}] Set restore_needed fact"
+      ansible.builtin.set_fact:
+        _restore_needed: >-
+          {{
+            _table_count.stdout.strip() | int == 0
+          }}
+
+    - name: "[{{ current_db.name }}] Dry-run — would restore from {{ _repo }}"
+      ansible.builtin.debug:
+        msg: "dry_run=true — skipping restore of {{ current_db.name }}."
+      when:
+        - _restore_needed
+        - dry_run | bool
+
+    # --- scale down ------------------------------------------------------
+
+    - name: "[{{ current_db.name }}] Scale down StatefulSet"
+      kubernetes.core.k8s_scale:
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        name: "{{ current_db.namespace }}-pg"
+        namespace: "{{ current_db.namespace }}"
+        replicas: 0
+        wait: true
+        wait_timeout: 120
+      when:
+        - _restore_needed
+        - not dry_run | bool
 
     # -------------------------------------------------------------------------
     # Per-database restore
