@@ -4,30 +4,13 @@
   gather_facts: false
 
   vars:
-    # Namespace to deploy everything into
     vault_backup_namespace: vault
-    # ── Vault ─────────────────────────────────────────────────────────────────────
-    vault_addr: https://vault.vault.svc.cluster.local:8200
-    vault_skip_verify: "false"           # set "true" if using self-signed without CA mount
-
-    # ── Restic / S3 ───────────────────────────────────────────────────────────────
-    # Garage S3 example:
-    restic_repo: "s3:https://garage.example.com/vault-backups"
-    s3_endpoint: "https://garage.example.com"
-    s3_region: garage                    # arbitrary for Garage; just needs to be set
-
     restic_hostname: vault-backup
     restic_keep_daily: 7
     restic_keep_weekly: 4
     restic_keep_monthly: 3
-
-    # ── CronJob ───────────────────────────────────────────────────────────────────
     vault_backup_schedule: "0 3 * * *"   # 03:00 daily
-
-    # Image with both `vault` and `restic` binaries.
-    # Build a simple one: FROM hashicorp/vault:latest + RUN apk add restic
-    # or use a community image. Override here.
-    vault_backup_image: "registry.thekor.eu/kube/hashicorp-vault:restic-0.18.0-vault-1.17"
+    vault_backup_image: "registry.thekor.eu/hashicorp-vault:restic-0.18.0-vault-1.17"
     vault_kv_path: "vault_backup"
     vault_kv_restic_path: "restic"
 
@@ -76,20 +59,20 @@
                   key: "{{ vault_kv_path }}"
                   property: VAULT_TOKEN
 
-              - secretKey: restic_repo
+              - secretKey: RESTIC_REPOSITORY
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: restic_repo
+                  property: RESTIC_REPOSITORY
 
-              - secretKey: s3_endpoint
+              - secretKey: RESTIC_AWS_ENDPOINT
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: s3_endpoint
+                  property: RESTIC_AWS_ENDPOINT
 
-              - secretKey: vault_addr
+              - secretKey: VAULT_ADDR
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: vault_addr
+                  property: VAULT_ADDR
 
               # Restic repo password
               - secretKey: RESTIC_PASSWORD
@@ -108,6 +91,25 @@
                   key: "{{ vault_kv_restic_path }}"
                   property: AWS_SECRET_ACCESS_KEY
 
+              - secretKey: RESTIC_KEEP_DAILY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: RESTIC_KEEP_DAILY
+
+              - secretKey: RESTIC_KEEP_WEEKLY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: RESTIC_KEEP_WEEKLY  
+
+              - secretKey: RESTIC_KEEP_MONTHLY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: RESTIC_KEEP_MONTHLY   
+
+              - secretKey: RESTIC_HOSTNAME
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: RESTIC_HOSTNAME              
     # -------------------------------------------------------------------------
     # ConfigMap — backup script
     # -------------------------------------------------------------------------
@@ -123,6 +125,7 @@
             namespace: "{{ vault_backup_namespace }}"
           data:
             backup.sh: |
+              {% raw %}
               #!/bin/sh
               set -euo pipefail
 
@@ -135,23 +138,23 @@
 
               echo "[vault-backup] Pushing to restic repo..."
               restic \
-                --repo "{{ restic_repo }}" \
+                --repo "${RESTIC_REPOSITORY}" \
                 --verbose \
                 backup "$SNAPSHOT_FILE" \
                 --tag vault-raft-snapshot \
-                --host "{{ restic_hostname | default('vault-backup') }}"
-
+                --host "$RESTIC_HOSTNAME"
               echo "[vault-backup] Applying retention policy..."
               restic \
-                --repo "{{ restic_repo }}" \
+                --repo "${RESTIC_REPOSITORY}" \
                 forget \
-                --keep-daily   "{{ restic_keep_daily   | default(7) }}" \
-                --keep-weekly  "{{ restic_keep_weekly  | default(4) }}" \
-                --keep-monthly "{{ restic_keep_monthly | default(3) }}" \
+                --keep-daily   "$RESTIC_KEEP_DAILY" \
+                --keep-weekly  "$RESTIC_KEEP_WEEKLY" \
+                --keep-monthly "$RESTIC_KEEP_MONTHLY" \
                 --prune
 
               rm -f "$SNAPSHOT_FILE"
               echo "[vault-backup] Done."
+              {% endraw %}
 
     # -------------------------------------------------------------------------
     # CronJob
@@ -193,17 +196,10 @@
                         # alongside the official vault image.
                         command: ["/bin/sh", "/scripts/backup.sh"]
                         env:
-                          - name: VAULT_ADDR
-                            value: "{{ vault_addr }}"
                           - name: VAULT_SKIP_VERIFY
                             value: "{{ vault_skip_verify | default('false') }}"
-                          - name: RESTIC_REPOSITORY
-                            value: "{{ restic_repo }}"
                           - name: AWS_DEFAULT_REGION
-                            value: "{{ s3_region }}"
-                          # Garage / custom S3 endpoint
-                          - name: RESTIC_AWS_ENDPOINT
-                            value: "{{ s3_endpoint | default('') }}"
+                            value: "garage"
                         envFrom:
                           - secretRef:
                               name: vault-backup-credentials
