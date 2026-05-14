@@ -3,7 +3,7 @@
   hosts: localhost
   gather_facts: false
 
-  vars_files:
+  vars:
     # Namespace to deploy everything into
     vault_backup_namespace: vault
     # ── Vault ─────────────────────────────────────────────────────────────────────
@@ -27,25 +27,11 @@
     # Image with both `vault` and `restic` binaries.
     # Build a simple one: FROM hashicorp/vault:latest + RUN apk add restic
     # or use a community image. Override here.
-    vault_backup_image: "instrumentisto/restic:0.18.0"
-    vault_kv_path: "vault-backup"
+    vault_backup_image: "registry.thekor.eu/kube/hashicorp-vault:restic-0.18.0-vault-1.17"
+    vault_kv_path: "vault_backup"
     vault_kv_restic_path: "restic"
 
   tasks:
-
-    # -------------------------------------------------------------------------
-    # Namespace
-    # -------------------------------------------------------------------------
-
-    - name: Ensure backup namespace exists
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ vault_backup_namespace }}"
-
     # -------------------------------------------------------------------------
     # RBAC — ServiceAccount for the CronJob pod
     # -------------------------------------------------------------------------
@@ -88,39 +74,39 @@
               - secretKey: VAULT_TOKEN
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: "{{ VAULT_TOKEN }}"
+                  property: VAULT_TOKEN
 
               - secretKey: restic_repo
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: "{{ restic_repo }}"
+                  property: restic_repo
 
               - secretKey: s3_endpoint
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: "{{ s3_endpoint }}"
+                  property: s3_endpoint
 
               - secretKey: vault_addr
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: "{{ vault_addr }}"
+                  property: vault_addr
 
               # Restic repo password
               - secretKey: RESTIC_PASSWORD
                 remoteRef:
                   key: "{{ vault_kv_restic_path }}"
-                  property: "{{ RESTIC_PASSWORD }}"
+                  property: RESTIC_PASSWORD
 
               # S3 / Garage credentials
               - secretKey: AWS_ACCESS_KEY_ID
                 remoteRef:
                   key: "{{ vault_kv_restic_path }}"
-                  property: "{{ AWS_ACCESS_KEY_ID }}"
+                  property: AWS_ACCESS_KEY_ID
 
               - secretKey: AWS_SECRET_ACCESS_KEY
                 remoteRef:
                   key: "{{ vault_kv_restic_path }}"
-                  property: "{{ AWS_SECRET_ACCESS_KEY }}"
+                  property: AWS_SECRET_ACCESS_KEY
 
     # -------------------------------------------------------------------------
     # ConfigMap — backup script
