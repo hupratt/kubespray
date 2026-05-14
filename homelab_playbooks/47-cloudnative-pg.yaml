@@ -92,34 +92,33 @@
           monitoring:
             podMonitorEnabled: true
 
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+    # - name: Load vault_init.json
+    #   ansible.builtin.set_fact:
+    #     vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
 
+    # - name: Write superuser credentials to Vault
+    #   community.hashi_vault.vault_kv2_write:
+    #     url: "{{ vault_addr }}"
+    #     token: "{{ vault_init.root_token }}"
+    #     path: "{{ item.vault_path }}"
+    #     engine_mount_point: "kv"
+    #     data:
+    #       superuser_username: postgres
+    #       superuser_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+    #   loop: "{{ clusters }}"
+    #   no_log: true
 
-    - name: Write superuser credentials to Vault
-      community.hashi_vault.vault_kv2_write:
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-        path: "{{ item.vault_path }}"
-        engine_mount_point: "kv"
-        data:
-          superuser_username: postgres
-          superuser_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
-      loop: "{{ clusters }}"
-      no_log: true
-
-    - name: Write database credentials to Vault
-      community.hashi_vault.vault_kv2_write:
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-        path: "{{ item.vault_path }}"
-        engine_mount_point: "kv"
-        data:
-          superuser_username: "{{ item.owner }}"
-          superuser_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
-      loop: "{{ clusters }}"
-      no_log: true
+    # - name: Write database credentials to Vault
+    #   community.hashi_vault.vault_kv2_write:
+    #     url: "{{ vault_addr }}"
+    #     token: "{{ vault_init.root_token }}"
+    #     path: "{{ item.vault_path }}"
+    #     engine_mount_point: "kv"
+    #     data:
+    #       pg_username: "{{ item.owner }}"
+    #       pg_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+    #   loop: "{{ clusters }}"
+    #   no_log: true
 
 
     - name: Create ExternalSecrets for database credentials of the app users
@@ -145,11 +144,11 @@
               - secretKey: username
                 remoteRef:
                   key: "{{ item.vault_path }}"
-                  property: username
+                  property: pg_username
               - secretKey: password
                 remoteRef:
                   key: "{{ item.vault_path }}"
-                  property: password
+                  property: pg_password
       loop: "{{ clusters }}"
 
     - name: Create ExternalSecret for backup user
@@ -172,7 +171,7 @@
             data:
               - secretKey: setup.sql
                 remoteRef:
-                  key: secret/homelab/cnpg/backup_user
+                  key: "{{ cnpg_namespace }}"
                   property: setup.sql
       loop: "{{ clusters }}"
 
