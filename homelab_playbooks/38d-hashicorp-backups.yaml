@@ -1,0 +1,243 @@
+---
+- name: Deploy Vault Raft backup CronJob
+  hosts: localhost
+  gather_facts: false
+
+  vars_files:
+    # Namespace to deploy everything into
+    vault_backup_namespace: vault
+    # ── Vault ─────────────────────────────────────────────────────────────────────
+    vault_addr: https://vault.vault.svc.cluster.local:8200
+    vault_skip_verify: "false"           # set "true" if using self-signed without CA mount
+
+    # ── Restic / S3 ───────────────────────────────────────────────────────────────
+    # Garage S3 example:
+    restic_repo: "s3:https://garage.example.com/vault-backups"
+    s3_endpoint: "https://garage.example.com"
+    s3_region: garage                    # arbitrary for Garage; just needs to be set
+
+    restic_hostname: vault-backup
+    restic_keep_daily: 7
+    restic_keep_weekly: 4
+    restic_keep_monthly: 3
+
+    # ── CronJob ───────────────────────────────────────────────────────────────────
+    vault_backup_schedule: "0 3 * * *"   # 03:00 daily
+
+    # Image with both `vault` and `restic` binaries.
+    # Build a simple one: FROM hashicorp/vault:latest + RUN apk add restic
+    # or use a community image. Override here.
+    vault_backup_image: "instrumentisto/restic:0.18.0"
+    vault_kv_path: "vault-backup"
+    vault_kv_restic_path: "restic"
+
+  tasks:
+
+    # -------------------------------------------------------------------------
+    # Namespace
+    # -------------------------------------------------------------------------
+
+    - name: Ensure backup namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ vault_backup_namespace }}"
+
+    # -------------------------------------------------------------------------
+    # RBAC — ServiceAccount for the CronJob pod
+    # -------------------------------------------------------------------------
+
+    - name: ServiceAccount for snapshot job
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: vault-backup
+            namespace: "{{ vault_backup_namespace }}"
+
+    # -------------------------------------------------------------------------
+    # ExternalSecret — pulls Vault token + S3/restic creds from your provider
+    # -------------------------------------------------------------------------
+
+    - name: ExternalSecret for backup credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: vault-backup-credentials
+            namespace: "{{ vault_backup_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: vault-backup-credentials
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+              # Vault token — needs policy: capabilities ["read"] on sys/storage/raft/snapshot
+              - secretKey: VAULT_TOKEN
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: "{{ VAULT_TOKEN }}"
+
+              - secretKey: restic_repo
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: "{{ restic_repo }}"
+
+              - secretKey: s3_endpoint
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: "{{ s3_endpoint }}"
+
+              - secretKey: vault_addr
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: "{{ vault_addr }}"
+
+              # Restic repo password
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: "{{ RESTIC_PASSWORD }}"
+
+              # S3 / Garage credentials
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: "{{ AWS_ACCESS_KEY_ID }}"
+
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: "{{ AWS_SECRET_ACCESS_KEY }}"
+
+    # -------------------------------------------------------------------------
+    # ConfigMap — backup script
+    # -------------------------------------------------------------------------
+
+    - name: ConfigMap with backup script
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: vault-backup-script
+            namespace: "{{ vault_backup_namespace }}"
+          data:
+            backup.sh: |
+              #!/bin/sh
+              set -euo pipefail
+
+              SNAPSHOT_FILE="/tmp/vault-snapshot-$(date +%Y%m%d-%H%M%S).snap"
+
+              echo "[vault-backup] Saving Raft snapshot..."
+              vault operator raft snapshot save "$SNAPSHOT_FILE"
+
+              echo "[vault-backup] Snapshot size: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
+
+              echo "[vault-backup] Pushing to restic repo..."
+              restic \
+                --repo "{{ restic_repo }}" \
+                --verbose \
+                backup "$SNAPSHOT_FILE" \
+                --tag vault-raft-snapshot \
+                --host "{{ restic_hostname | default('vault-backup') }}"
+
+              echo "[vault-backup] Applying retention policy..."
+              restic \
+                --repo "{{ restic_repo }}" \
+                forget \
+                --keep-daily   "{{ restic_keep_daily   | default(7) }}" \
+                --keep-weekly  "{{ restic_keep_weekly  | default(4) }}" \
+                --keep-monthly "{{ restic_keep_monthly | default(3) }}" \
+                --prune
+
+              rm -f "$SNAPSHOT_FILE"
+              echo "[vault-backup] Done."
+
+    # -------------------------------------------------------------------------
+    # CronJob
+    # -------------------------------------------------------------------------
+
+    - name: CronJob for Vault Raft snapshot backup
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: vault-backup
+            namespace: "{{ vault_backup_namespace }}"
+          spec:
+            schedule: "{{ vault_backup_schedule }}"
+            concurrencyPolicy: Forbid
+            successfulJobsHistoryLimit: 3
+            failedJobsHistoryLimit: 3
+            jobTemplate:
+              spec:
+                backoffLimit: 2
+                template:
+                  metadata:
+                    labels:
+                      app: vault-backup
+                  spec:
+                    serviceAccountName: vault-backup
+                    restartPolicy: OnFailure
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
+                    containers:
+                      - name: vault-backup
+                        image: "{{ vault_backup_image }}"
+                        # Image should have both `vault` and `restic` binaries.
+                        # e.g. a custom image, or use an initContainer to stage restic
+                        # alongside the official vault image.
+                        command: ["/bin/sh", "/scripts/backup.sh"]
+                        env:
+                          - name: VAULT_ADDR
+                            value: "{{ vault_addr }}"
+                          - name: VAULT_SKIP_VERIFY
+                            value: "{{ vault_skip_verify | default('false') }}"
+                          - name: RESTIC_REPOSITORY
+                            value: "{{ restic_repo }}"
+                          - name: AWS_DEFAULT_REGION
+                            value: "{{ s3_region }}"
+                          # Garage / custom S3 endpoint
+                          - name: RESTIC_AWS_ENDPOINT
+                            value: "{{ s3_endpoint | default('') }}"
+                        envFrom:
+                          - secretRef:
+                              name: vault-backup-credentials
+                        volumeMounts:
+                          - name: script
+                            mountPath: /scripts
+                        resources:
+                          requests:
+                            cpu: "50m"
+                            memory: "64Mi"
+                          limits:
+                            cpu: "200m"
+                            memory: "256Mi"
+                        securityContext:
+                          allowPrivilegeEscalation: false
+                          readOnlyRootFilesystem: false   # restic needs /tmp
+                          capabilities:
+                            drop: ["ALL"]
+                    volumes:
+                      - name: script
+                        configMap:
+                          name: vault-backup-script
+                          defaultMode: 0755
