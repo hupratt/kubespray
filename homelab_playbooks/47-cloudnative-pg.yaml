@@ -6,6 +6,9 @@
     cnpg_version: "0.23.0"
     storage_class: rook-ceph-block
     pg_image: ghcr.io/cloudnative-pg/postgresql:16
+    homelab_domain: "thekor.eu"
+    vault_addr: "https://vault.{{ homelab_domain }}"
+    vault_init_json: "group_vars/all/vault_init.json"
 
     clusters:
       - name: grafana-pg
@@ -89,7 +92,37 @@
           monitoring:
             podMonitorEnabled: true
 
-    - name: Create ExternalSecrets
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+
+    - name: Write superuser credentials to Vault
+      community.hashi_vault.vault_kv2_write:
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+        path: "{{ item.vault_path }}"
+        engine_mount_point: "kv"
+        data:
+          superuser_username: postgres
+          superuser_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      loop: "{{ clusters }}"
+      no_log: true
+
+    - name: Write database credentials to Vault
+      community.hashi_vault.vault_kv2_write:
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+        path: "{{ item.vault_path }}"
+        engine_mount_point: "kv"
+        data:
+          superuser_username: "{{ item.owner }}"
+          superuser_password: "{{ lookup('password', '/dev/null length=32 chars=ascii_letters,digits') }}"
+      loop: "{{ clusters }}"
+      no_log: true
+
+
+    - name: Create ExternalSecrets for database credentials of the app users
       kubernetes.core.k8s:
         state: present
         definition:
@@ -119,9 +152,63 @@
                   property: password
       loop: "{{ clusters }}"
 
+    - name: Create ExternalSecret for backup user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: cnpg-backup-user
+            namespace: "{{ item.namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: cnpg-backup-user
+              creationPolicy: Owner
+            data:
+              - secretKey: setup.sql
+                remoteRef:
+                  key: secret/homelab/cnpg/backup_user
+                  property: setup.sql
+      loop: "{{ clusters }}"
+
+    - name: Create ExternalSecrets for superuser
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ item.name }}-superuser-vault-secret"
+            namespace: "{{ item.namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ item.name }}-superuser-vault-secret"
+              creationPolicy: Owner
+              template:
+                type: kubernetes.io/basic-auth
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ item.vault_path }}"
+                  property: superuser_username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ item.vault_path }}"
+                  property: superuser_password
+      loop: "{{ clusters }}"
+
     - name: Wait for ExternalSecrets to sync
       kubernetes.core.k8s_info:
-        api_version: external-secrets.io/v1beta1
+        api_version: external-secrets.io/v1
         kind: ExternalSecret
         name: "{{ item.name }}-vault-secret"
         namespace: "{{ item.namespace }}"
@@ -148,14 +235,18 @@
           spec:
             instances: 1
             imageName: "{{ pg_image }}"
-
+            superuserSecret:
+              name: "{{ item.name }}-superuser-vault-secret"
             bootstrap:
               initdb:
                 database: "{{ item.database }}"
                 owner: "{{ item.owner }}"
                 secret:
                   name: "{{ item.name }}-vault-secret"
-
+                postInitSQLRefs:
+                  secretRefs:
+                    - name: cnpg-backup-user
+                      key: setup.sql
             storage:
               size: "{{ item.storage }}"
               storageClass: "{{ storage_class }}"
