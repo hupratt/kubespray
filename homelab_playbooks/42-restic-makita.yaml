@@ -10,7 +10,7 @@
     vault_addr: "https://vault.{{ homelab_domain }}"
     # kv-v2 MOUNT only — no /data/ suffix. ESO injects that itself.
     vault_kv_mount: "kv"
-    vault_kv_path: "makita"           # path within the mount
+    vault_kv_path: "restic"           # path within the mount
     vault_init_json: "group_vars/all/vault_init.json"
     vault_policy_name: "eso-policy"
     vault_role_name: "eso-role"
@@ -33,17 +33,18 @@
     # -------------------------------------------------------------------------
     # seed the restic secret
     # -------------------------------------------------------------------------
-    - name: Write secrets to Vault KV
-      community.hashi_vault.vault_kv2_write:
-        engine_mount_point: "kv"
-        path: "{{ vault_kv_path }}"
-        data:
-          AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
-          AWS_SECRET_ACCESS_KEY: "{{ AWS_SECRET_ACCESS_KEY }}"
-          RESTIC_REPOSITORY: "s3://garage-s3.thekor.eu/backup/restic"
-          RESTIC_PASSWORD: "{{ RESTIC_PASSWORD }}"
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
+    # !!!! This bootstrap overwrites whatever existed on that path !!!!!!
+    # - name: Write secrets to Vault KV
+    #   community.hashi_vault.vault_kv2_write:
+    #     engine_mount_point: "kv"
+    #     path: "{{ vault_kv_path }}"
+    #     data:
+    #       AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
+    #       AWS_SECRET_ACCESS_KEY: "{{ AWS_SECRET_ACCESS_KEY }}"
+    #       RESTIC_REPOSITORY: "{{ RESTIC_REPOSITORY }}"
+    #       RESTIC_PASSWORD: "{{ RESTIC_PASSWORD }}"
+    #     token: "{{ vault_init.root_token }}"
+    #     url: "{{ vault_addr }}"
 
 
     # -------------------------------------------------------------------------

@@ -22,20 +22,21 @@
     # ------------------------------------------------------------------ #
     # Write secrets to HashiCorp Vault KV
     # ------------------------------------------------------------------ #
-    - name: Write PatchMon secrets to Vault KV
-      community.hashi_vault.vault_kv2_write:
-        engine_mount_point: kv
-        path: "{{ vault_kv_path }}"
-        data:
-          db-password: "{{ vault_patchmon_db_password }}"
-          redis-password: "{{ vault_patchmon_redis_password }}"
-          jwt-secret: "{{ vault_patchmon_jwt_secret }}"
-          ai-encryption-key: "{{ vault_patchmon_ai_encryption_key }}"
-          oidc-client-id: "{{ vault_patchmon_oidc_client_id }}"
-          oidc-client-secret: "{{ vault_patchmon_oidc_client_secret }}"
-        url: "{{ vault_addr }}"
-        auth_method: token
-        token: "{{ vault_token }}"
+    # !!!! This bootstrap overwrites whatever existed on that path !!!!!!
+    # - name: Write PatchMon secrets to Vault KV
+    #   community.hashi_vault.vault_kv2_write:
+    #     engine_mount_point: kv
+    #     path: "{{ vault_kv_path }}"
+    #     data:
+    #       db-password: "{{ vault_patchmon_db_password }}"
+    #       redis-password: "{{ vault_patchmon_redis_password }}"
+    #       jwt-secret: "{{ vault_patchmon_jwt_secret }}"
+    #       ai-encryption-key: "{{ vault_patchmon_ai_encryption_key }}"
+    #       oidc-client-id: "{{ vault_patchmon_oidc_client_id }}"
+    #       oidc-client-secret: "{{ vault_patchmon_oidc_client_secret }}"
+    #     url: "{{ vault_addr }}"
+    #     auth_method: token
+    #     token: "{{ vault_token }}"
 
     # ------------------------------------------------------------------ #
     # ExternalSecrets

@@ -92,11 +92,12 @@
           monitoring:
             podMonitorEnabled: true
 
+    # !!!! This bootstrap overwrites whatever existed on that path "{{ item.vault_path }}" !!!!!!
     # - name: Load vault_init.json
     #   ansible.builtin.set_fact:
     #     vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
 
-    # - name: Write superuser credentials to Vault
+    # - name: Write db credentials to Vault
     #   community.hashi_vault.vault_kv2_write:
     #     url: "{{ vault_addr }}"
     #     token: "{{ vault_init.root_token }}"
