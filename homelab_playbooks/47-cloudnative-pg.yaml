@@ -1,0 +1,165 @@
+- name: Deploy CloudNativePG Operator and Clusters
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cnpg_namespace: cn-postgres
+    cnpg_version: "0.23.0"
+    storage_class: rook-ceph-block
+    pg_image: ghcr.io/cloudnative-pg/postgresql:16
+
+    clusters:
+      - name: grafana-pg
+        namespace: monitoring
+        database: grafana
+        owner: grafana
+        vault_path: monitoring
+        storage: 2Gi
+
+      - name: linkwarden-pg
+        namespace: linkwarden
+        database: linkwarden
+        owner: linkwarden
+        vault_path: linkwarden
+        storage: 5Gi
+
+      - name: netbox-pg
+        namespace: netbox
+        database: netbox
+        owner: netbox
+        vault_path: netbox
+        storage: 5Gi
+
+      - name: authentik-pg
+        namespace: authentik
+        database: authentik
+        owner: authentik
+        vault_path: authentik
+        storage: 5Gi
+
+      - name: makita-pg
+        namespace: makita
+        database: makita
+        owner: ubuntu
+        vault_path: makita
+        storage: 5Gi
+
+      - name: paperless-pg
+        namespace: paperless
+        database: paperless
+        owner: paperless
+        vault_path: paperless
+        storage: 5Gi
+
+      - name: harbor-pg
+        namespace: harbor
+        database: harbor_core
+        owner: harbor
+        vault_path: harbor
+        storage: 10Gi
+        extra_databases:
+          - harbor_notary_server
+          - harbor_notary_signer
+          - harbor_trivy
+
+      - name: booking-pg
+        namespace: booking
+        database: booking
+        owner: ubuntu
+        vault_path: booking
+        storage: 5Gi
+
+      - name: patchmon-pg
+        namespace: patchmon
+        database: patchmon
+        owner: patchmon
+        vault_path: patchmon
+        storage: 2Gi
+
+  tasks:
+    - name: Deploy CNPG operator via Helm
+      kubernetes.core.helm:
+        name: cloudnative-pg
+        chart_ref: cloudnative-pg
+        chart_repo_url: https://cloudnative-pg.github.io/charts
+        chart_version: "{{ cnpg_version }}"
+        release_namespace: "{{ cnpg_namespace }}"
+        create_namespace: true
+        wait: true
+        values:
+          monitoring:
+            podMonitorEnabled: true
+
+    - name: Create ExternalSecrets
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ item.name }}-vault-secret"
+            namespace: "{{ item.namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ item.name }}-vault-secret"
+              creationPolicy: Owner
+              template:
+                type: kubernetes.io/basic-auth
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ item.vault_path }}"
+                  property: username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ item.vault_path }}"
+                  property: password
+      loop: "{{ clusters }}"
+
+    - name: Wait for ExternalSecrets to sync
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1beta1
+        kind: ExternalSecret
+        name: "{{ item.name }}-vault-secret"
+        namespace: "{{ item.namespace }}"
+      register: es_status
+      until: >
+        es_status.resources[0].status.conditions |
+        selectattr('type', 'eq', 'Ready') |
+        selectattr('status', 'eq', 'True') | list | length > 0
+      retries: 12
+      delay: 10
+      loop: "{{ clusters }}"
+
+    - name: Deploy CNPG Clusters
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Cluster
+          metadata:
+            name: "{{ item.name }}"
+            namespace: "{{ item.namespace }}"
+            annotations:
+              helm.sh/resource-policy: keep
+          spec:
+            instances: 1
+            imageName: "{{ pg_image }}"
+
+            bootstrap:
+              initdb:
+                database: "{{ item.database }}"
+                owner: "{{ item.owner }}"
+                secret:
+                  name: "{{ item.name }}-vault-secret"
+
+            storage:
+              size: "{{ item.storage }}"
+              storageClass: "{{ storage_class }}"
+
+            monitoring:
+              enablePodMonitor: true
+      loop: "{{ clusters }}"
