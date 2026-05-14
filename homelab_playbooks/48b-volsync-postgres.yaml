@@ -93,7 +93,8 @@
     # Per-database restore
     # -------------------------------------------------------------------------
 
-    # - name: Restore database from ns:{{ db.namespace }}
+    - name: Restore database
+      block:
     #   vars:
     #     _ns: "{{ db.namespace }}"
     #     _pg_host: "{{ db.postgres_host | default('localhost') }}"
@@ -107,111 +108,109 @@
     #     _snapshot: "{{ db.restic_snapshot | default('latest') }}"
     #     _rd_name: "restore-{{ db.name }}-{{ lookup('pipe', 'date +%s') }}"
     #     _secret_name: "volsync-restic-{{ db.name }}"
-    #   block:
 
-    - name: Read restic credentials secret
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        api_version: v1
-        kind: Secret
-        namespace: "{{ db.namespace }}"
-        name: restic-credentials
-      register: restic_secret
+        - name: Read restic credentials secret
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Secret
+            namespace: "{{ db.namespace }}"
+            name: restic-credentials
+          register: restic_secret
 
-    - name: Decode restic credentials
-      ansible.builtin.set_fact:
-        restic_credentials:
-          AWS_ACCESS_KEY_ID: >-
-            {{
-              restic_secret.resources[0].data.AWS_ACCESS_KEY_ID
-              | b64decode
-            }}
-          AWS_SECRET_ACCESS_KEY: >-
-            {{
-              restic_secret.resources[0].data.AWS_SECRET_ACCESS_KEY
-              | b64decode
-            }}
-          RESTIC_PASSWORD: >-
-            {{
-              restic_secret.resources[0].data.RESTIC_PASSWORD
-              | b64decode
-            }}
+        - name: Decode restic credentials
+          ansible.builtin.set_fact:
+            restic_credentials:
+              AWS_ACCESS_KEY_ID: >-
+                {{
+                  restic_secret.resources[0].data.AWS_ACCESS_KEY_ID
+                  | b64decode
+                }}
+              AWS_SECRET_ACCESS_KEY: >-
+                {{
+                  restic_secret.resources[0].data.AWS_SECRET_ACCESS_KEY
+                  | b64decode
+                }}
+              RESTIC_PASSWORD: >-
+                {{
+                  restic_secret.resources[0].data.RESTIC_PASSWORD
+                  | b64decode
+                }}
 
-    - name: Read database credentials
-      kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig }}"
-        api_version: v1
-        kind: Secret
-        namespace: "{{ db.namespace }}"
-        name: "{{ db.namespace }}-pg-vault-secret"
-      register: db_app_secret
+        - name: Read database credentials
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Secret
+            namespace: "{{ db.namespace }}"
+            name: "{{ db.namespace }}-pg-vault-secret"
+          register: db_app_secret
 
-    - name: Decode restic credentials
-      ansible.builtin.set_fact:
-        db_app_secret:
-          username: >-
-            {{
-              restic_secret.resources[0].data.username
-              | b64decode
-            }}
-          password: >-
-            {{
-              restic_secret.resources[0].data.password
-              | b64decode
-            }}
+        - name: Decode restic credentials
+          ansible.builtin.set_fact:
+            db_app_secret:
+              username: >-
+                {{
+                  restic_secret.resources[0].data.username
+                  | b64decode
+                }}
+              password: >-
+                {{
+                  restic_secret.resources[0].data.password
+                  | b64decode
+                }}
 
-    - name: "[{{ db.name }}] Count user tables via exec"
-      kubernetes.core.k8s_exec:
-        kubeconfig: "{{ kubeconfig }}"
-        namespace: "{{ db.namespace }}"
-        pod: "{{ db.namespace }}-pg-1"
-        command: >
-          PGPASSWORD='{{ db_app_secret.password }}' psql -U {{ db_app_secret.username }} -d {{ db.name }} -tAc
-          "SELECT COUNT(*) FROM information_schema.tables
-            WHERE table_schema NOT IN ('information_schema','pg_catalog')
-            AND table_type = 'BASE TABLE'"
-      register: _table_count
-      changed_when: false
-      when: _pods.resources | length > 0
+        - name: "[{{ db.name }}] Count user tables via exec"
+          kubernetes.core.k8s_exec:
+            namespace: "{{ db.namespace }}"
+            pod: "{{ db.namespace }}-pg-1"
+            command: >
+              PGPASSWORD='{{ db_app_secret.password }}' psql -U {{ db_app_secret.username }} -d {{ db.name }} -tAc
+              "SELECT COUNT(*) FROM information_schema.tables
+                WHERE table_schema NOT IN ('information_schema','pg_catalog')
+                AND table_type = 'BASE TABLE'"
+          register: _table_count
+          changed_when: false
+          when: _pods.resources | length > 0
 
-    - name: "[{{ db.name }}] Skip — DB has data ({{ _table_count.stdout.strip() }} tables)"
-      ansible.builtin.debug:
-        msg: "{{ db.name }} is not empty — skipping restore."
-      when:
-        - _pods.resources | length > 0
-        - _table_count.stdout.strip() | int > 0
+        - name: "[{{ db.name }}] Skip — DB has data ({{ _table_count.stdout.strip() }} tables)"
+          ansible.builtin.debug:
+            msg: "{{ db.name }} is not empty — skipping restore."
+          when:
+            - _pods.resources | length > 0
+            - _table_count.stdout.strip() | int > 0
 
-    - name: "[{{ db.name }}] Set restore_needed fact"
-      ansible.builtin.set_fact:
-        _restore_needed: >-
-          {{
-            _pods.resources | length == 0 or
-            _table_count.stdout.strip() | int == 0
-          }}
+        - name: "[{{ db.name }}] Set restore_needed fact"
+          ansible.builtin.set_fact:
+            _restore_needed: >-
+              {{
+                _pods.resources | length == 0 or
+                _table_count.stdout.strip() | int == 0
+              }}
 
-    - name: "[{{ db.name }}] Dry-run — would restore from {{ _repo }}"
-      ansible.builtin.debug:
-        msg: "dry_run=true — skipping restore of {{ db.name }}."
-      when:
-        - _restore_needed
-        - dry_run | bool
+        - name: "[{{ db.name }}] Dry-run — would restore from {{ _repo }}"
+          ansible.builtin.debug:
+            msg: "dry_run=true — skipping restore of {{ db.name }}."
+          when:
+            - _restore_needed
+            - dry_run | bool
 
-    # --- scale down ------------------------------------------------------
+        # --- scale down ------------------------------------------------------
 
-    - name: "[{{ db.name }}] Scale down StatefulSet"
-      kubernetes.core.k8s_scale:
-        kubeconfig: "{{ kubeconfig }}"
-        api_version: postgresql.cnpg.io/v1
-        kind: Cluster
-        name: "{{ db.statefulset }}"
-        namespace: "{{ db.namespace }}"
-        replicas: 0
-        wait: true
-        wait_timeout: 120
-      when:
-        - _restore_needed
-        - not dry_run | bool
+        - name: "[{{ db.name }}] Scale down StatefulSet"
+          kubernetes.core.k8s_scale:
+            api_version: postgresql.cnpg.io/v1
+            kind: Cluster
+            name: "{{ db.statefulset }}"
+            namespace: "{{ db.namespace }}"
+            replicas: 0
+            wait: true
+            wait_timeout: 120
+          when:
+            - _restore_needed
+            - not dry_run | bool
 
+        loop: "{{ restore_databases }}"
+        loop_control:
+          loop_var: db
     # --- ensure restic Secret exists -------------------------------------
     # VolSync ReplicationDestination reads credentials from a Secret.
     # Create/update it here so the playbook is self-contained.
@@ -399,7 +398,7 @@
     #     - _restore_needed
     #     - not dry_run | bool
 
-      loop: "{{ restore_databases }}"
-      loop_control:
-        loop_var: db
-        label: "{{ db.name }}"
+      # loop: "{{ restore_databases }}"
+      # loop_control:
+      #   loop_var: db
+      #   label: "{{ db.name }}"
