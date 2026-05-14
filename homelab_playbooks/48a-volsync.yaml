@@ -1,0 +1,47 @@
+---
+- name: Install VolSync with Helm
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    volsync_namespace: volsync
+    volsync_release_name: volsync
+    volsync_chart_version: "0.12.0"
+
+  tasks:
+    - name: Add VolSync Helm repository
+      kubernetes.core.helm_repository:
+        name: backube
+        repo_url: https://backube.github.io/helm-charts/
+
+    - name: Install VolSync Helm chart
+      kubernetes.core.helm:
+        name: "{{ volsync_release_name }}"
+        chart_ref: backube/volsync
+        chart_version: "{{ volsync_chart_version }}"
+        release_namespace: "{{ volsync_namespace }}"
+        create_namespace: true
+        wait: true
+        update_repo_cache: true
+        values:
+          manageCRDs: true
+
+          metrics:
+            disableAuth: true
+
+          kubeRBACProxy:
+            livenessProbe:
+              httpGet:
+                path: /metrics
+                port: https
+                scheme: HTTPS
+              initialDelaySeconds: 15
+              periodSeconds: 20
+
+            readinessProbe:
+              httpGet:
+                path: /metrics
+                port: https
+                scheme: HTTPS
+              initialDelaySeconds: 5
+              periodSeconds: 10

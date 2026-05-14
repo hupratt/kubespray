@@ -42,6 +42,7 @@
       - trellis
       - vault
       - vaultwarden
+      - volsync
       - www-portfolio
 
   tasks:
