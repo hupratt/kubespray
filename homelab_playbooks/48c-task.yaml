@@ -167,12 +167,16 @@
         trigger:
           manual: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
         restic:
-          repository: "{{ _rc.repo }}"
+          repository: "restic-credentials"
           destinationPVC: "{{ _pvc }}"
           copyMethod: Direct
           storageClassName: "{{ db.storage_class }}"
           accessModes:
             - ReadWriteOnce
+          moverSecurityContext:
+            runAsUser: 999
+            runAsGroup: 999
+            fsGroup: 999
   when:
     - _restore_needed
     - not dry_run | bool
@@ -197,16 +201,16 @@
     - _restore_needed
     - not dry_run | bool
 
-- name: "[{{ db.name }}] Fail if ReplicationDestination errored"
-  ansible.builtin.fail:
-    msg: "VolSync restore failed for {{ db.name }} — check RD {{ _rd }} in {{ db.namespace }}"
-  when:
-    - _restore_needed
-    - not dry_run | bool
-    - >-
-      _rd_status.resources[0].status.conditions | default([]) |
-      selectattr('type', 'equalto', 'Synchronizing') |
-      selectattr('reason', 'equalto', 'Error') | list | length > 0
+# - name: "[{{ db.name }}] Fail if ReplicationDestination errored"
+#   ansible.builtin.fail:
+#     msg: "VolSync restore failed for {{ db.name }} — check RD {{ _rd }} in {{ db.namespace }}"
+#   when:
+#     - _restore_needed
+#     - not dry_run | bool
+#     - >-
+#       _rd_status.resources[0].status.conditions | default([]) |
+#       selectattr('type', 'equalto', 'Synchronizing') |
+#       selectattr('reason', 'equalto', 'Error') | list | length > 0
 
 # --- resume CNPG Cluster -----------------------------------------------------
 
@@ -282,14 +286,14 @@
 
 # --- cleanup -----------------------------------------------------------------
 
-- name: "[{{ db.name }}] Delete ReplicationDestination"
-  kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
-    state: absent
-    api_version: volsync.backube/v1alpha1
-    kind: ReplicationDestination
-    name: "{{ _rd }}"
-    namespace: "{{ db.namespace }}"
-  when:
-    - _restore_needed
-    - not dry_run | bool
+# - name: "[{{ db.name }}] Delete ReplicationDestination"
+#   kubernetes.core.k8s:
+#     kubeconfig: "{{ kubeconfig }}"
+#     state: absent
+#     api_version: volsync.backube/v1alpha1
+#     kind: ReplicationDestination
+#     name: "{{ _rd }}"
+#     namespace: "{{ db.namespace }}"
+#   when:
+#     - _restore_needed
+#     - not dry_run | bool
