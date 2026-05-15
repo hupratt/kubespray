@@ -1,14 +1,73 @@
 ---
-- name: Install VolSync with Helm
+- name: Install CSI snapshot controller and VolSync
   hosts: localhost
   gather_facts: false
-
+  connection: local
   vars:
     volsync_namespace: volsync
     volsync_release_name: volsync
     volsync_chart_version: "0.12.0"
+    csi_snapshotter_version: "v8.2.0"
 
   tasks:
+
+    # -------------------------------------------------------------------------
+    # CSI Snapshot Controller (prerequisite for VolSync)
+    # -------------------------------------------------------------------------
+    - name: Apply CSI snapshot CRDs
+      kubernetes.core.k8s:
+        state: present
+        src: "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/{{ csi_snapshotter_version }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotclasses.yaml"
+
+    - name: Apply CSI VolumeSnapshotContent CRD
+      kubernetes.core.k8s:
+        state: present
+        src: "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/{{ csi_snapshotter_version }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshotcontents.yaml"
+
+    - name: Apply CSI VolumeSnapshot CRD
+      kubernetes.core.k8s:
+        state: present
+        src: "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/{{ csi_snapshotter_version }}/client/config/crd/snapshot.storage.k8s.io_volumesnapshots.yaml"
+
+    - name: Apply CSI snapshot controller RBAC
+      kubernetes.core.k8s:
+        state: present
+        src: "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/{{ csi_snapshotter_version }}/deploy/kubernetes/snapshot-controller/rbac-snapshot-controller.yaml"
+
+    - name: Apply CSI snapshot controller deployment
+      kubernetes.core.k8s:
+        state: present
+        src: "https://raw.githubusercontent.com/kubernetes-csi/external-snapshotter/{{ csi_snapshotter_version }}/deploy/kubernetes/snapshot-controller/setup-snapshot-controller.yaml"
+
+    - name: Wait for CSI snapshot controller to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: snapshot-controller
+        namespace: kube-system
+      register: snap_ctrl
+      until: >
+        snap_ctrl.resources | length > 0 and
+        (snap_ctrl.resources[0].status.readyReplicas | default(0)) >= 1
+      retries: 20
+      delay: 10
+
+    - name: Create Rook-Ceph RBD VolumeSnapshotClass
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: snapshot.storage.k8s.io/v1
+          kind: VolumeSnapshotClass
+          metadata:
+            name: ceph-rbd-snapclass
+            annotations:
+              snapshot.storage.kubernetes.io/is-default-class: "true"
+          driver: rook-ceph.rbd.csi.ceph.com
+          deletionPolicy: Delete
+
+    # -------------------------------------------------------------------------
+    # VolSync
+    # -------------------------------------------------------------------------
     - name: Add VolSync Helm repository
       kubernetes.core.helm_repository:
         name: backube
@@ -25,10 +84,8 @@
         update_repo_cache: true
         values:
           manageCRDs: true
-
           metrics:
             disableAuth: true
-
           kubeRBACProxy:
             livenessProbe:
               httpGet:
@@ -37,7 +94,6 @@
                 scheme: HTTPS
               initialDelaySeconds: 15
               periodSeconds: 20
-
             readinessProbe:
               httpGet:
                 path: /metrics

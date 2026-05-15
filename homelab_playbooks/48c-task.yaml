@@ -167,7 +167,7 @@
         trigger:
           manual: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
         restic:
-          repository: restic-credentials
+          repository: "{{ _rc.repo }}"
           destinationPVC: "{{ _pvc }}"
           copyMethod: Direct
           storageClassName: "{{ db.storage_class }}"

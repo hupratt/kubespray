@@ -49,23 +49,23 @@
     restore_databases:
       - name: paperless
         namespace: paperless
-        storage_class: ceph-block
+        storage_class: rook-ceph-block
         storage_size: 5Gi
 
-      - name: authentik
-        namespace: authentik
-        storage_class: ceph-block
-        storage_size: 5Gi
+      # - name: authentik
+      #   namespace: authentik
+      #   storage_class: rook-ceph-block
+      #   storage_size: 5Gi
 
-      - name: vaultwarden
-        namespace: vaultwarden
-        storage_class: ceph-block
-        storage_size: 2Gi
+      # - name: vaultwarden
+      #   namespace: vaultwarden
+      #   storage_class: rook-ceph-block
+      #   storage_size: 2Gi
 
-      - name: netbox
-        namespace: netbox
-        storage_class: ceph-block
-        storage_size: 5Gi
+      # - name: netbox
+      #   namespace: netbox
+      #   storage_class: rook-ceph-block
+      #   storage_size: 5Gi
 
   tasks:
 
