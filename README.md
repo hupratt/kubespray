@@ -23,11 +23,10 @@
 
 ### What is this repo?
 
-This is the repository I use to version control the kubernetes cluster I deploy and maintain at home & at work. I currently use [terraform](https://developer.hashicorp.com/terraform), [fedora core OS](https://fedoraproject.org/coreos/) and [kubespray](https://github.com/kubernetes-sigs/kubespray) to provide a secure, lightweight, reproducible and immutable environment so that I can avoid drift and force everyone to have everything run in containers. 
+This is the repository I use to version control the kubernetes cluster I deploy and maintain at home & at work. I currently use [terraform](https://developer.hashicorp.com/terraform), [fedora core OS](https://fedoraproject.org/coreos/) and [kubespray](https://github.com/kubernetes-sigs/kubespray) to provide a secure, lightweight, reproducible and immutable environment so that I can avoid drift and force everyone to have everything run in containers. I have a total of [4 virtual machines](https://github.com/hupratt/kubespray/blob/homelab/inventory/homelab-prod/inventory.ini) in my homelab, 3 of which are master/worker hybrids and the 4th one is a worker node running on my slower HDD's to host applications that don't need low latency. 
 
 ### Core Components
 
-- **4 node k8s cluster**: I have a total of [4 virtual machines](https://github.com/hupratt/kubespray/blob/homelab/inventory/homelab-prod/inventory.ini), 3 of which are master/worker hybrids and the 4th one is a worker node running on my slower HDD's to host applications that don't need low latency. 
 - **Networking**: [cilium](https://github.com/cilium/cilium) provides eBPF-based (kernel-based) networking replacing kube-proxy, [haproxy](https://www.haproxy.com/) is the cluster's ingress and [harbor](https://goharbor.io/) works as a cluster-local proxy-cache (egress) and scan for vulnerabilities. [Containerd is configured here to use a fallback mirror in case harbor is unavailable](https://github.com/hupratt/kubespray/blob/homelab/inventory/homelab-prod/group_vars/all/offline.yml)
 - **HTTPS**: [cert-manager](https://github.com/cert-manager/cert-manager) is in charge of TLS certificates and i have [DNS acme challenge with hetzner](https://github.com/hetzner/cert-manager-webhook-hetzner/blob/main/docs/guides/quickstart.md) in order to issue and update my wildcard certificate. Gitlab and ansible read the secrets from a local [ansible-vault](https://docs.ansible.com/projects/ansible/latest/cli/ansible-vault.html) for continuous delivery. And i use a handy helper function to soft link the secret in the cert-manager namespace to other namespaces.
 - **Storage & Data Protection**: [rook](https://github.com/rook/rook) provides distributed block storage with Ceph. I have an hourly bash script that does an pull-based sql dump of all databases and stores it in an S3 storage hosted at hetzner on an ext4 luks encrypted partition. CephFS and RBD volumes are backed up once a week and stored in the same S3 storage as well.
@@ -57,6 +56,8 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 | <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
 | <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
 | <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain |
+| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO  |
+
 
 ### 2. Identity & Security
 
