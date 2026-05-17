@@ -89,7 +89,7 @@
 
     # loop goes on include_tasks — blocks cannot loop directly
     - name: Restore database 
-      ansible.builtin.include_tasks: tasks/21-restore-task.yaml
+      ansible.builtin.include_tasks: tasks/50-restore-task.yaml
       loop: "{{ restore_databases }}"
       loop_control:
         loop_var: db

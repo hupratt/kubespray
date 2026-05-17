@@ -28,7 +28,7 @@
 
     # loop goes on include_tasks — blocks cannot loop directly
     - name: Backup database {{ db.name }}
-      ansible.builtin.include_tasks: tasks/20-backup-task.yaml
+      ansible.builtin.include_tasks: tasks/49-backup-task.yaml
       loop: "{{ backup_databases }}"
       loop_control:
         loop_var: db
