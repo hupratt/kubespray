@@ -47,25 +47,25 @@
     restic_repo_prefix: "postgres"
 
     restore_databases:
-      - name: paperless
-        namespace: paperless
+      - name: harbor
+        namespace: harbor
         storage_class: rook-ceph-block
         storage_size: 5Gi
 
-      # - name: authentik
-      #   namespace: authentik
-      #   storage_class: rook-ceph-block
-      #   storage_size: 5Gi
+      - name: grafana
+        namespace: monitoring
+        storage_class: rook-ceph-block
+        storage_size: 5Gi
 
-      # - name: vaultwarden
-      #   namespace: vaultwarden
-      #   storage_class: rook-ceph-block
-      #   storage_size: 2Gi
+      - name: netbox
+        namespace: netbox
+        storage_class: rook-ceph-block
+        storage_size: 5Gi
 
-      # - name: netbox
-      #   namespace: netbox
-      #   storage_class: rook-ceph-block
-      #   storage_size: 5Gi
+      - name: patchmon
+        namespace: patchmon
+        storage_class: rook-ceph-block
+        storage_size: 5Gi
 
   tasks:
 
@@ -88,8 +88,8 @@
       failed_when: _cnpg_crd.resources | length == 0
 
     # loop goes on include_tasks — blocks cannot loop directly
-    - name: Restore database {{ db.name }}
-      ansible.builtin.include_tasks: 48c-task.yaml
+    - name: Restore database 
+      ansible.builtin.include_tasks: tasks/21-restore-task.yaml
       loop: "{{ restore_databases }}"
       loop_control:
         loop_var: db

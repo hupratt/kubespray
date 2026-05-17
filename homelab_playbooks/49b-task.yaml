@@ -25,7 +25,7 @@
           template:
             data:
               # VolSync restic mover expects these exact key names
-              RESTIC_REPOSITORY: "{{ '{{' }} .RESTIC_DB_REPOSITORY {{ '}}' }}"
+              RESTIC_REPOSITORY: "{{ '{{' }} .RESTIC_DB_REPOSITORY {{ '}}' }}/{{ db.name }}"
               RESTIC_PASSWORD: "{{ '{{' }} .RESTIC_PASSWORD {{ '}}' }}"
               AWS_ACCESS_KEY_ID: "{{ '{{' }} .AWS_ACCESS_KEY_ID {{ '}}' }}"
               AWS_SECRET_ACCESS_KEY: "{{ '{{' }} .AWS_SECRET_ACCESS_KEY {{ '}}' }}"
@@ -73,17 +73,27 @@
       apiVersion: volsync.backube/v1alpha1
       kind: ReplicationSource
       metadata:
-        name: postgres-backup
+        name: "postgres-{{ db.name }}"
         namespace: "{{ db.namespace }}"
       spec:
         sourcePVC: "{{ db.pvc_name }}"
         trigger:
           schedule: "0 * * * *"
         restic:
+          # moverPodLabels:
+          #   volsync.backube/identity: "{{ db.name }}"
           moverSecurityContext:
             runAsUser: 0
             runAsGroup: 0
             fsGroup: 0
+
+          # moverPodTemplate:
+          #   spec:
+          #     containers:
+          #       - name: restic
+          #         env:
+          #           - name: RESTIC_HOST
+          #             value: "{{ db.name }}"
           pruneIntervalDays: 7
           repository: "{{ _secret_name }}"
           volumeSnapshotClassName: ceph-rbd-snapclass
@@ -95,3 +105,8 @@
             daily: 7
             weekly: 4
             monthly: 6
+        # env:
+        #   - name: RESTIC_HOST
+        #     value: "{{ db.name }}"
+        #   - name: RESTIC_TAG
+        #     value: "database-{{ db.name }}"

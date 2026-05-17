@@ -6,17 +6,29 @@
   vars_files:
     - group_vars/all/vault.yml
   vars:
-    homelab_domain: "thekor.eu"
     vault_kv_path: "restic"
     backup_databases:
-      - name: paperless
-        namespace: paperless
-        pvc_name: paperless-pg-1
+      - name: grafana
+        namespace: monitoring
+        pvc_name: grafana-pg-1
+
+      - name: netbox
+        namespace: netbox
+        pvc_name: netbox-pg-1
+
+      - name: harbor
+        namespace: harbor
+        pvc_name: harbor-pg-1     
+
+      - name: patchmon
+        namespace: patchmon
+        pvc_name: patchmon-pg-1 
+
   tasks:
 
     # loop goes on include_tasks — blocks cannot loop directly
-    - name: Restore database {{ db.name }}
-      ansible.builtin.include_tasks: 49b-task.yaml
+    - name: Backup database {{ db.name }}
+      ansible.builtin.include_tasks: tasks/20-backup-task.yaml
       loop: "{{ backup_databases }}"
       loop_control:
         loop_var: db
