@@ -354,7 +354,19 @@ fi)
       overwrite: true
       contents:
         inline: ${hostname}
-    
+
+    - path: /etc/zincati/config.d/50-updates.toml
+      mode: 0600
+      contents:
+        inline: |
+          [updates]
+          strategy = "periodic"
+
+          [[updates.periodic.window]]
+          days = [ "Saturday" ]
+          start_time = "18:29"
+          length_minutes = 60
+
     # Network configuration
     - path: /etc/NetworkManager/system-connections/private.nmconnection
       mode: 0600

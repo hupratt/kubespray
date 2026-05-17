@@ -8,105 +8,19 @@
   vars:
     homelab_domain: "thekor.eu"
     vault_kv_path: "restic"
-    external_secret_namespace: "postgres"
-    external_secret_name: "postgres-volsync-secrets"
-    pvc_name: "postgres-ss-storage-postgres-0"
-
+    backup_databases:
+      - name: paperless
+        namespace: paperless
+        pvc_name: paperless-pg-1
   tasks:
 
-    # -------------------------------------------------------------------------
-    # ExternalSecret
-    # -------------------------------------------------------------------------
-    - name: Deploy ExternalSecret for VolSync restic credentials
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: external-secrets.io/v1
-          kind: ExternalSecret
-          metadata:
-            name: "{{ external_secret_name }}"
-            namespace: "{{ external_secret_namespace }}"
-          spec:
-            refreshInterval: "1h"
-            secretStoreRef:
-              name: vault-backend
-              kind: ClusterSecretStore
-            target:
-              name: "{{ external_secret_name }}"
-              creationPolicy: Owner
-              template:
-                data:
-                  # VolSync restic mover expects these exact key names
-                  RESTIC_REPOSITORY: "{{ '{{' }} .RESTIC_DB_REPOSITORY {{ '}}' }}"
-                  RESTIC_PASSWORD: "{{ '{{' }} .RESTIC_PASSWORD {{ '}}' }}"
-                  AWS_ACCESS_KEY_ID: "{{ '{{' }} .AWS_ACCESS_KEY_ID {{ '}}' }}"
-                  AWS_SECRET_ACCESS_KEY: "{{ '{{' }} .AWS_SECRET_ACCESS_KEY {{ '}}' }}"
-            data:
-              - secretKey: RESTIC_DB_REPOSITORY
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: RESTIC_DB_REPOSITORY
-              - secretKey: RESTIC_PASSWORD
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: RESTIC_PASSWORD
-              - secretKey: AWS_ACCESS_KEY_ID
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: AWS_ACCESS_KEY_ID
-              - secretKey: AWS_SECRET_ACCESS_KEY
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: AWS_SECRET_ACCESS_KEY
-
-    - name: Wait for ExternalSecret to sync
-      kubernetes.core.k8s_info:
-        api_version: external-secrets.io/v1
-        kind: ExternalSecret
-        name: "{{ external_secret_name }}"
-        namespace: "{{ external_secret_namespace }}"
-      register: es_status
-      until: >
-        es_status.resources | length > 0 and
-        (es_status.resources[0].status.conditions | default([])
-        | selectattr('type', 'equalto', 'Ready')
-        | selectattr('status', 'equalto', 'True')
-        | list | length) > 0
-      retries: 12
-      delay: 5
-
-    # -------------------------------------------------------------------------
-    # ReplicationSource
-    # -------------------------------------------------------------------------
-    - name: Deploy VolSync ReplicationSource for postgres
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: volsync.backube/v1alpha1
-          kind: ReplicationSource
-          metadata:
-            name: postgres-backup
-            namespace: "{{ external_secret_namespace }}"
-          spec:
-            sourcePVC: "{{ pvc_name }}"
-            trigger:
-              schedule: "0 * * * *"
-            restic:
-              moverSecurityContext:
-                runAsUser: 0
-                runAsGroup: 0
-                fsGroup: 0
-              pruneIntervalDays: 7
-              repository: "{{ external_secret_name }}"
-              volumeSnapshotClassName: ceph-rbd-snapclass
-              storageClassName: rook-ceph-block
-              copyMethod: Snapshot
-              cacheStorageClassName: rook-ceph-block
-              cacheCapacity: 1Gi
-              retain:
-                daily: 7
-                weekly: 4
-                monthly: 6
+    # loop goes on include_tasks — blocks cannot loop directly
+    - name: Restore database {{ db.name }}
+      ansible.builtin.include_tasks: 49b-task.yaml
+      loop: "{{ backup_databases }}"
+      loop_control:
+        loop_var: db
+        label: "{{ db.name }}"
 
 
 # kubectl describe replicationsource postgres-backup -n postgres
