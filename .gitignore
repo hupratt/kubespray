@@ -117,3 +117,8 @@ ansible_collections
 .ansible
 harbor_nosync.md
 script.sh
+
+terraform.tfvars
+*.bu
+*.env
+*.json
