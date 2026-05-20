@@ -1,0 +1,282 @@
+---
+# deploy_immich.yml
+# Deploys Immich via Helm, wires secrets from HashiCorp Vault via ExternalSecret,
+# and configures a VolSync ReplicationSource for database backup.
+#
+# Prerequisites:
+#   - External Secrets Operator installed with a ClusterSecretStore pointing at Vault
+#   - VolSync operator installed
+#   - Rook-Ceph (or other CSI) providing the storage classes referenced below
+#   - Harbor proxy cache or direct chart repo access
+#
+# Vault paths expected (adjust to your kv mount):
+#   secret/immich/db          → { username, password, name }
+#   secret/immich/app         → { database_url, redis_url }
+#   secret/volsync/restic     → { repository, password, aws_access_key_id, aws_secret_access_key }
+
+- name: Deploy Immich
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    immich_namespace: immich
+    immich_chart_version: "0.9.3"           # pin to a known-good chart version
+    immich_chart_repo: https://immich-app.github.io/immich-charts
+    immich_release_name: immich
+
+    # Storage classes — adjust to your Rook-Ceph setup
+    immich_library_storage_class: ceph-filesystem
+    immich_library_storage_size: 200Gi
+    immich_db_storage_class: ceph-block
+    immich_db_storage_size: 20Gi
+
+    # ClusterSecretStore name (your existing ESO store pointing at Vault)
+    vault_secret_store: vault-cluster-store
+    vault_kv_mount: secret          # KV v2 mount name
+
+    # VolSync / restic backup settings
+    volsync_schedule: "0 2 * * *"   # 02:00 every night
+    volsync_retain_hourly: 24
+    volsync_retain_daily: 7
+    volsync_retain_weekly: 4
+    volsync_retain_monthly: 3
+
+  tasks:
+
+    # ── Namespace ────────────────────────────────────────────────────────────
+
+    - name: Ensure immich namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ immich_namespace }}"
+            labels:
+              app.kubernetes.io/managed-by: ansible
+
+    # ── ExternalSecrets ──────────────────────────────────────────────────────
+
+    - name: Deploy ExternalSecret for Immich DB credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: immich-db-secret
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: immich-db-secret
+              creationPolicy: Owner
+              template:
+                engineVersion: v2
+                data:
+                  POSTGRES_USER: "{{ '{{' }} .username {{ '}}' }}"
+                  POSTGRES_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
+                  POSTGRES_DB: "{{ '{{' }} .name {{ '}}' }}"
+                  # cnpg-style superuser DSN used by the Immich chart's built-in CNPG cluster
+                  uri: "postgresql://{{ '{{' }} .username {{ '}}' }}:{{ '{{' }} .password {{ '}}' }}@immich-cnpg-rw.{{ immich_namespace }}.svc/{{ '{{' }} .name {{ '}}' }}"
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/immich/db"
+                  property: username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/immich/db"
+                  property: password
+              - secretKey: name
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/immich/db"
+                  property: name
+
+    - name: Deploy ExternalSecret for Immich application secrets
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: immich-app-secret
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: immich-app-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: DATABASE_URL
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/immich/app"
+                  property: database_url
+              - secretKey: REDIS_URL
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/immich/app"
+                  property: redis_url
+
+    - name: Deploy ExternalSecret for VolSync restic repository
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: volsync-restic-secret
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: volsync-restic-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  property: repository
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  property: password
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  property: aws_access_key_id
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  property: aws_secret_access_key
+
+    - name: Wait for ExternalSecrets to sync
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1beta1
+        kind: ExternalSecret
+        namespace: "{{ immich_namespace }}"
+        name: "{{ item }}"
+      register: es_status
+      until: >-
+        es_status.resources | length > 0 and
+        (es_status.resources[0].status.conditions | selectattr('type','equalto','Ready') |
+         selectattr('status','equalto','True') | list | length > 0)
+      retries: 20
+      delay: 10
+      loop:
+        - immich-db-secret
+        - immich-app-secret
+        - volsync-restic-secret
+
+    # ── Helm release ─────────────────────────────────────────────────────────
+
+    - name: Add Immich Helm repository
+      kubernetes.core.helm_repository:
+        name: immich
+        repo_url: "{{ immich_chart_repo }}"
+
+    - name: Deploy Immich via Helm
+      kubernetes.core.helm:
+        name: "{{ immich_release_name }}"
+        chart_ref: immich/immich
+        chart_version: "{{ immich_chart_version }}"
+        release_namespace: "{{ immich_namespace }}"
+        create_namespace: false
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        timeout: 10m0s
+        values: "{{ lookup('template', 'charts/immich/immich-values.yml.j2') | from_yaml }}"
+
+    # ── VolSync ReplicationSource ────────────────────────────────────────────
+    # Backs up the CNPG database PVC that the chart provisions.
+    # The PVC name follows the CNPG convention: <cluster>-<role>-<ordinal>
+    # Adjust if you renamed the embedded CNPG cluster in the chart values.
+
+    - name: Deploy VolSync ReplicationSource for Immich DB
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: volsync.backube/v1alpha1
+          kind: ReplicationSource
+          metadata:
+            name: immich-db-backup
+            namespace: "{{ immich_namespace }}"
+          spec:
+            sourcePVC: immich-cnpg-1       # PVC created by the CNPG cluster inside the chart
+            trigger:
+              schedule: "{{ volsync_schedule }}"
+            restic:
+              pruneIntervalDays: 7
+              repository: volsync-restic-secret
+              retain:
+                hourly: "{{ volsync_retain_hourly }}"
+                daily: "{{ volsync_retain_daily }}"
+                weekly: "{{ volsync_retain_weekly }}"
+                monthly: "{{ volsync_retain_monthly }}"
+              copyMethod: Snapshot
+              storageClassName: "{{ immich_db_storage_class }}"
+              volumeSnapshotClassName: ceph-block-snapclass   # adjust to your VolumeSnapshotClass
+              moverSecurityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                fsGroup: 1000
+
+    - name: Deploy VolSync ReplicationSource for Immich library (upload data)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: volsync.backube/v1alpha1
+          kind: ReplicationSource
+          metadata:
+            name: immich-library-backup
+            namespace: "{{ immich_namespace }}"
+          spec:
+            sourcePVC: immich-library        # PVC name from Helm values below
+            trigger:
+              schedule: "{{ volsync_schedule }}"
+            restic:
+              pruneIntervalDays: 7
+              repository: volsync-restic-secret
+              retain:
+                hourly: "{{ volsync_retain_hourly }}"
+                daily: "{{ volsync_retain_daily }}"
+                weekly: "{{ volsync_retain_weekly }}"
+                monthly: "{{ volsync_retain_monthly }}"
+              copyMethod: Snapshot
+              storageClassName: "{{ immich_library_storage_class }}"
+              volumeSnapshotClassName: ceph-fs-snapclass      # adjust to your VolumeSnapshotClass
+              moverSecurityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                fsGroup: 1000
+
+    # ── Verification ─────────────────────────────────────────────────────────
+
+    - name: Show ReplicationSource status
+      kubernetes.core.k8s_info:
+        api_version: volsync.backube/v1alpha1
+        kind: ReplicationSource
+        namespace: "{{ immich_namespace }}"
+      register: rs_info
+
+    - name: Print ReplicationSource last sync times
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.metadata.name }}:
+          lastSyncTime={{ item.status.lastSyncTime | default('not yet synced') }}
+          lastSyncDuration={{ item.status.lastSyncDuration | default('n/a') }}
+      loop: "{{ rs_info.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"

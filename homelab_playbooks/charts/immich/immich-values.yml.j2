@@ -1,0 +1,104 @@
+{# templates/immich-values.yml.j2 #}
+{# Helm values for the immich/immich chart.                                   #}
+{# Secrets are NOT embedded here — they are injected via envFrom referencing  #}
+{# the ExternalSecret-managed Kubernetes secrets.                             #}
+
+image:
+  tag: ""   # leave empty to follow chart appVersion
+
+immich:
+  metrics:
+    enabled: true
+  persistence:
+    library:
+      existingClaim: ""   # leave empty; chart creates the PVC below
+
+# ── Server ──────────────────────────────────────────────────────────────────
+server:
+  enabled: true
+  replicaCount: 1
+
+  envFrom:
+    - secretRef:
+        name: immich-app-secret   # DATABASE_URL, REDIS_URL from Vault via ESO
+
+  env:
+    IMMICH_LOG_LEVEL: log
+    # Immich reads DB creds from DATABASE_URL in the secret above.
+    # The variables below are still needed by the chart's initContainers.
+    DB_HOSTNAME: immich-cnpg-rw.{{ immich_namespace }}.svc
+    DB_PORT: "5432"
+
+  persistence:
+    library:
+      enabled: true
+      storageClass: "{{ immich_library_storage_class }}"
+      accessMode: ReadWriteMany
+      size: "{{ immich_library_storage_size }}"
+      existingClaim: ""
+      # The chart names this PVC "immich-library" — referenced in ReplicationSource.
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+
+# ── Machine Learning ─────────────────────────────────────────────────────────
+machine-learning:
+  enabled: true
+  replicaCount: 1
+
+  resources:
+    requests:
+      cpu: 200m
+      memory: 2Gi
+    limits:
+      memory: 4Gi
+
+  persistence:
+    cache:
+      enabled: true
+      storageClass: "{{ immich_library_storage_class }}"
+      accessMode: ReadWriteMany
+      size: 10Gi
+
+# ── PostgreSQL via CloudNativePG ─────────────────────────────────────────────
+postgresql:
+  enabled: true
+  global:
+    postgresql:
+      auth:
+        existingSecret: immich-db-secret   # POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB
+
+  primary:
+    persistence:
+      enabled: true
+      storageClass: "{{ immich_db_storage_class }}"
+      size: "{{ immich_db_storage_size }}"
+
+# ── Redis ────────────────────────────────────────────────────────────────────
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false   # internal cluster traffic; lock down at network-policy level
+
+# ── Ingress ──────────────────────────────────────────────────────────────────
+# Adjust host / TLS secret to match your HAProxy + cert-manager setup.
+ingress:
+  main:
+    enabled: true
+    ingressClassName: haproxy
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: immich.example.internal
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: immich-tls
+        hosts:
+          - immich.example.internal
