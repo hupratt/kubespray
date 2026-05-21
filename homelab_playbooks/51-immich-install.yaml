@@ -1,19 +1,5 @@
 ---
 # deploy_immich.yml
-# Deploys Immich via Helm, wires secrets from HashiCorp Vault via ExternalSecret,
-# and configures a VolSync ReplicationSource for database backup.
-#
-# Prerequisites:
-#   - External Secrets Operator installed with a ClusterSecretStore pointing at Vault
-#   - VolSync operator installed
-#   - Rook-Ceph (or other CSI) providing the storage classes referenced below
-#   - Harbor proxy cache or direct chart repo access
-#
-# Vault paths expected (adjust to your kv mount):
-#   secret/immich/db          → { username, password, name }
-#   secret/immich/app         → { database_url, redis_url }
-#   secret/volsync/restic     → { repository, password, aws_access_key_id, aws_secret_access_key }
-
 - name: Deploy Immich
   hosts: localhost
   connection: local
@@ -21,22 +7,22 @@
 
   vars:
     immich_namespace: immich
-    immich_chart_version: "0.9.3"           # pin to a known-good chart version
+    immich_chart_version: "0.12.0"
     immich_chart_repo: https://immich-app.github.io/immich-charts
     immich_release_name: immich
 
-    # Storage classes — adjust to your Rook-Ceph setup
-    immich_library_storage_class: ceph-filesystem
+    immich_node_selector:
+      node-role: slow-services
+
+    immich_library_storage_class: rook-cephfs
     immich_library_storage_size: 200Gi
-    immich_db_storage_class: ceph-block
-    immich_db_storage_size: 20Gi
+    immich_db_storage_class: rook-ceph-block
+    immich_db_storage_size: 2000Gi
 
-    # ClusterSecretStore name (your existing ESO store pointing at Vault)
-    vault_secret_store: vault-cluster-store
-    vault_kv_mount: secret          # KV v2 mount name
+    vault_secret_store: vault-backend
+    vault_kv_mount: immich
 
-    # VolSync / restic backup settings
-    volsync_schedule: "0 2 * * *"   # 02:00 every night
+    volsync_schedule: "0 2 * * *"
     volsync_retain_hourly: 24
     volsync_retain_daily: 7
     volsync_retain_weekly: 4
@@ -82,20 +68,19 @@
                   POSTGRES_USER: "{{ '{{' }} .username {{ '}}' }}"
                   POSTGRES_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
                   POSTGRES_DB: "{{ '{{' }} .name {{ '}}' }}"
-                  # cnpg-style superuser DSN used by the Immich chart's built-in CNPG cluster
                   uri: "postgresql://{{ '{{' }} .username {{ '}}' }}:{{ '{{' }} .password {{ '}}' }}@immich-cnpg-rw.{{ immich_namespace }}.svc/{{ '{{' }} .name {{ '}}' }}"
             data:
               - secretKey: username
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/immich/db"
+                  key: "{{ vault_kv_mount }}"
                   property: username
               - secretKey: password
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/immich/db"
+                  key: "{{ vault_kv_mount }}"
                   property: password
               - secretKey: name
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/immich/db"
+                  key: "{{ vault_kv_mount }}"
                   property: name
 
     - name: Deploy ExternalSecret for Immich application secrets
@@ -115,15 +100,25 @@
             target:
               name: immich-app-secret
               creationPolicy: Owner
+              template:
+                engineVersion: v2
+                data:
+                  DB_USERNAME: "{{ '{{' }} .username {{ '}}' }}"
+                  DB_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
+                  DB_DATABASE_NAME: "{{ '{{' }} .name {{ '}}' }}"
             data:
-              - secretKey: DATABASE_URL
+              - secretKey: username
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/immich/app"
-                  property: database_url
-              - secretKey: REDIS_URL
+                  key: "{{ vault_kv_mount }}"
+                  property: username
+              - secretKey: password
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/immich/app"
-                  property: redis_url
+                  key: "{{ vault_kv_mount }}"
+                  property: password
+              - secretKey: name
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: name
 
     - name: Deploy ExternalSecret for VolSync restic repository
       kubernetes.core.k8s:
@@ -145,19 +140,19 @@
             data:
               - secretKey: RESTIC_REPOSITORY
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  key: "{{ vault_kv_mount }}"
                   property: repository
               - secretKey: RESTIC_PASSWORD
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  key: "{{ vault_kv_mount }}"
                   property: password
               - secretKey: AWS_ACCESS_KEY_ID
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  key: "{{ vault_kv_mount }}"
                   property: aws_access_key_id
               - secretKey: AWS_SECRET_ACCESS_KEY
                 remoteRef:
-                  key: "{{ vault_kv_mount }}/volsync/restic"
+                  key: "{{ vault_kv_mount }}"
                   property: aws_secret_access_key
 
     - name: Wait for ExternalSecrets to sync
@@ -178,6 +173,65 @@
         - immich-app-secret
         - volsync-restic-secret
 
+    # ── Library PVC ──────────────────────────────────────────────────────────
+    # Chart requires existingClaim — we pre-create it here.
+
+    - name: Create Immich library PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: immich-library
+            namespace: "{{ immich_namespace }}"
+          spec:
+            accessModes: [ReadWriteMany]
+            storageClassName: "{{ immich_library_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ immich_library_storage_size }}"
+
+    # ── CNPG Cluster ─────────────────────────────────────────────────────────
+
+    - name: Deploy CNPG Cluster for Immich
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Cluster
+          metadata:
+            name: immich-cnpg
+            namespace: "{{ immich_namespace }}"
+          spec:
+            instances: 1
+            imageName: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+            affinity:
+              nodeSelector: "{{ immich_node_selector }}"
+            bootstrap:
+              initdb:
+                database: immich
+                owner: immich
+                secret:
+                  name: immich-db-secret
+            storage:
+              storageClass: "{{ immich_db_storage_class }}"
+              size: "{{ immich_db_storage_size }}"
+
+    - name: Wait for CNPG cluster to be ready
+      kubernetes.core.k8s_info:
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        namespace: "{{ immich_namespace }}"
+        name: immich-cnpg
+      register: cnpg_status
+      until: >-
+        cnpg_status.resources | length > 0 and
+        (cnpg_status.resources[0].status.conditions | selectattr('type','equalto','Ready') |
+         selectattr('status','equalto','True') | list | length > 0)
+      retries: 30
+      delay: 15
+
     # ── Helm release ─────────────────────────────────────────────────────────
 
     - name: Add Immich Helm repository
@@ -193,47 +247,12 @@
         release_namespace: "{{ immich_namespace }}"
         create_namespace: false
         wait: true
-        wait_condition:
-          type: Ready
-          status: "True"
         timeout: 10m0s
         values: "{{ lookup('template', 'charts/immich/immich-values.yml.j2') | from_yaml }}"
 
     # ── VolSync ReplicationSource ────────────────────────────────────────────
-    # Backs up the CNPG database PVC that the chart provisions.
-    # The PVC name follows the CNPG convention: <cluster>-<role>-<ordinal>
-    # Adjust if you renamed the embedded CNPG cluster in the chart values.
 
-    - name: Deploy VolSync ReplicationSource for Immich DB
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: volsync.backube/v1alpha1
-          kind: ReplicationSource
-          metadata:
-            name: immich-db-backup
-            namespace: "{{ immich_namespace }}"
-          spec:
-            sourcePVC: immich-cnpg-1       # PVC created by the CNPG cluster inside the chart
-            trigger:
-              schedule: "{{ volsync_schedule }}"
-            restic:
-              pruneIntervalDays: 7
-              repository: volsync-restic-secret
-              retain:
-                hourly: "{{ volsync_retain_hourly }}"
-                daily: "{{ volsync_retain_daily }}"
-                weekly: "{{ volsync_retain_weekly }}"
-                monthly: "{{ volsync_retain_monthly }}"
-              copyMethod: Snapshot
-              storageClassName: "{{ immich_db_storage_class }}"
-              volumeSnapshotClassName: ceph-block-snapclass   # adjust to your VolumeSnapshotClass
-              moverSecurityContext:
-                runAsUser: 1000
-                runAsGroup: 1000
-                fsGroup: 1000
-
-    - name: Deploy VolSync ReplicationSource for Immich library (upload data)
+    - name: Deploy VolSync ReplicationSource for Immich library
       kubernetes.core.k8s:
         state: present
         definition:
@@ -243,7 +262,7 @@
             name: immich-library-backup
             namespace: "{{ immich_namespace }}"
           spec:
-            sourcePVC: immich-library        # PVC name from Helm values below
+            sourcePVC: immich-library
             trigger:
               schedule: "{{ volsync_schedule }}"
             restic:
@@ -256,7 +275,36 @@
                 monthly: "{{ volsync_retain_monthly }}"
               copyMethod: Snapshot
               storageClassName: "{{ immich_library_storage_class }}"
-              volumeSnapshotClassName: ceph-fs-snapclass      # adjust to your VolumeSnapshotClass
+              volumeSnapshotClassName: ceph-fs-snapclass
+              moverSecurityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                fsGroup: 1000
+
+    - name: Deploy VolSync ReplicationSource for Immich DB
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: volsync.backube/v1alpha1
+          kind: ReplicationSource
+          metadata:
+            name: immich-db-backup
+            namespace: "{{ immich_namespace }}"
+          spec:
+            sourcePVC: immich-cnpg-1
+            trigger:
+              schedule: "{{ volsync_schedule }}"
+            restic:
+              pruneIntervalDays: 7
+              repository: volsync-restic-secret
+              retain:
+                hourly: "{{ volsync_retain_hourly }}"
+                daily: "{{ volsync_retain_daily }}"
+                weekly: "{{ volsync_retain_weekly }}"
+                monthly: "{{ volsync_retain_monthly }}"
+              copyMethod: Snapshot
+              storageClassName: "{{ immich_db_storage_class }}"
+              volumeSnapshotClassName: ceph-block-snapclass
               moverSecurityContext:
                 runAsUser: 1000
                 runAsGroup: 1000
