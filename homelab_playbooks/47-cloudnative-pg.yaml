@@ -13,54 +13,49 @@
     shared_cluster_name: shared-pg
     shared_cluster_storage: 50Gi
 
+    db_owners:
+      - owner: grafana
+        vault_path: monitoring
+      - owner: netbox
+        vault_path: netbox
+      - owner: authentik
+        vault_path: authentik
+      - owner: patchmon
+        vault_path: patchmon
+      - owner: harbor
+        vault_path: harbor
+      - owner: paperless
+        vault_path: paperless
+      - owner: ubuntu
+        vault_path: makita-booking
+      - owner: linkwarden
+        vault_path: linkwarden                
     databases:
       - name: grafana
         owner: grafana
-        vault_path: monitoring
-
-      - name: linkwarden
-        owner: linkwarden
-        vault_path: linkwarden
-
       - name: netbox
         owner: netbox
-        vault_path: netbox
-
       - name: authentik
         owner: authentik
-        vault_path: authentik
-
-      - name: makita
-        owner: ubuntu
-        vault_path: makita
-
-      - name: paperless
-        owner: paperless
-        vault_path: paperless
-
-      - name: booking
-        owner: ubuntu
-        vault_path: booking
-
       - name: patchmon
         owner: patchmon
-        vault_path: patchmon
-
       - name: harbor-core
         owner: harbor
-        vault_path: harbor
-
       - name: harbor-notary-server
         owner: harbor
-        vault_path: harbor
-
       - name: harbor-notary-signer
         owner: harbor
-        vault_path: harbor
-
       - name: harbor-trivy
         owner: harbor
-        vault_path: harbor
+      - name: booking
+        owner: ubuntu
+      - name: paperless
+        owner: paperless
+      - name: makita
+        owner: ubuntu
+      - name: linkwarden
+        owner: linkwarden
+
 
   tasks:
     - name: Deploy CNPG operator via Helm
@@ -135,7 +130,7 @@
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: "{{ item.name }}-pg-secret"
+            name: "{{ item.owner }}-pg-secret"
             namespace: "{{ cnpg_namespace }}"
           spec:
             refreshInterval: 1h
@@ -143,7 +138,7 @@
               name: vault-backend
               kind: ClusterSecretStore
             target:
-              name: "{{ item.name }}-pg-secret"
+              name: "{{ item.owner }}-pg-secret"
               creationPolicy: Owner
               template:
                 type: kubernetes.io/basic-auth
@@ -156,16 +151,16 @@
                 remoteRef:
                   key: "{{ item.vault_path }}"
                   property: pg_password
-      loop: "{{ databases }}"
+      loop: "{{ db_owners }}"
 
     - name: Wait for app ExternalSecrets to sync
       kubernetes.core.k8s_info:
         api_version: external-secrets.io/v1
         kind: ExternalSecret
-        name: "{{ item.name }}-pg-secret"
+        name: "{{ item.owner }}-pg-secret"
         namespace: "{{ cnpg_namespace }}"
       register: es_status
-      until: >
+      until: >-
         (es_status.resources | default([])) | length > 0
         and (
           es_status.resources[0].status.conditions | default([])
@@ -175,7 +170,20 @@
         ) > 0
       retries: 12
       delay: 10
-      loop: "{{ databases }}"
+      loop: "{{ db_owners }}"
+
+    - name: Build CNPG managed roles
+      set_fact:
+        cnpg_managed_roles: >-
+          {{
+            cnpg_managed_roles | default([]) + [{
+              'name': item.owner,
+              'ensure': 'present',
+              'login': true,
+              'passwordSecret': {'name': item.owner + '-pg-secret'}
+            }]
+          }}
+      loop: "{{ db_owners }}"
 
     - name: Deploy shared CNPG Cluster
       kubernetes.core.k8s:
@@ -195,15 +203,7 @@
             superuserSecret:
               name: "{{ shared_cluster_name }}-superuser-vault-secret"
             managed:
-              roles: >-
-                {{
-                  databases
-                  | map(attribute='owner')
-                  | unique
-                  | map('community.general.dict_kv', 'name')
-                  | map('combine', {'ensure': 'present', 'login': true})
-                  | list
-                }}
+              roles: "{{ cnpg_managed_roles }}"
             bootstrap:
               initdb:
                 database: postgres
@@ -225,10 +225,13 @@
         name: "{{ shared_cluster_name }}"
         namespace: "{{ cnpg_namespace }}"
       register: cluster_status
-      until: >
+      until: >-
+        cluster_status.resources | length > 0 and
+        cluster_status.resources[0].status is defined and
+        cluster_status.resources[0].status.conditions is defined and
         cluster_status.resources[0].status.conditions |
-        selectattr('type', 'eq', 'Ready') |
-        selectattr('status', 'eq', 'True') | list | length > 0
+          selectattr('type', 'eq', 'Ready') |
+          selectattr('status', 'eq', 'True') | list | length > 0
       retries: 24
       delay: 10
 
