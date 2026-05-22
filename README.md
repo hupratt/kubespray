@@ -334,14 +334,14 @@ If I ever want to get fewer kubeapi errors due to my storage latency (long fsync
 | Device                    | Count | OS Disk Size | Data Disk Size                               | Ram           | Operating System | Purpose                           |
 |---------------------------|-------|--------------|----------------------------------------------|---------------|------------------|-----------------------------------|
 | 1U Sophos SG 135          | 1     | -            | 100Gb SSD                                    | -             | pfsense          | Router, DHCP, DHCP relay and PXE  |
-| 2U HP Proliant DL380 Gen9 | 1     | -            | 4x600Gb (raidz1) + 3x2Tb VM passthrough      | 64 Gb DDR4    | debian           | k8s Worker/CP prod                |
+| 2U HP Proliant DL380 Gen9 | 1     | -            | 3x240Gb (Samsung PM883) + 3x2Tb VM passthrough for ceph storage      | 64 Gb DDR4    | debian           | k8s Worker/CP prod                |
 | 2U Dell PowerEdge R720    | 1     | -            | 4x2Tb VM passthrough                         | 64 Gb DDR3    | proxmox VE       | k8s Worker/CP staging             |
 | 2U Fujitsu RX2540 M2 R6   | 1     | -            |                                              | 96 Gb DDR3    | debian           |                                   |
 | 2U HP Proliant DL380 G7   | 1     | -            |                                              |               | debian           |                                   |
 | Sophos UTM 220            | 1     | -            |                                              |               |                  | 2 x L2 Netgear switches           |
 | 1U Cisco catalyst switch  | 1     | -            |                                              |               |                  |                                   |
 | 2U Dell PowerEdge R510    | 1     | -            |                                              | 32 Gb DDR3    | debian           | main backup server                |
-| 2U HP Proliant DL380 Gen9 | 1     | -            | 7x600Gb (raidz1) + 1 500Gb raid0             | 64 Gb DDR4    | debian           | Docker compose stack              |
+| 2U HP Proliant DL380 Gen9 | 1     | -            | 7x600Gb (raidz1) + 1 500Gb raid0             | 64 Gb DDR4    | debian           | Docker compose stack + k8s Worker             |
 | 2U Dell PowerEdge R510    | 1     | -            |                                              | 32 Gb DDR3    | debian           | secondary backup server           |
 | 1U QLogic 8Gbit/s         | 1     | -            |                                              |               |                  |                                   |
 

@@ -48,15 +48,15 @@ server:
         nginx.ingress.kubernetes.io/proxy-body-size: "0"
       ingressClassName: haproxy
       hosts:
-        - host: immich.example.internal
+        - host: immich2.thekor.eu
           paths:
             - path: /
               service:
                 identifier: main
       tls:
-        - secretName: immich-tls
+        - secretName: wildcard-thekor
           hosts:
-            - immich.example.internal
+            - immich2.thekor.eu
 
 # ── Machine Learning ──────────────────────────────────────────────────────────
 machine-learning:
