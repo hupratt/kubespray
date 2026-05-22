@@ -29,7 +29,7 @@
     immich_db_storage_size: 100Gi
 
     # TensorChord image — built on CNPG base (UID 26), includes vectorchord
-    immich_db_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3
+    immich_db_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
 
     vault_secret_store: vault-backend
     vault_kv_mount: immich
@@ -175,6 +175,34 @@
         - immich-app-secret
         - volsync-restic-secret
 
+    - name: Create ExternalSecret for shared cluster superuser
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "superuser-vault-secret"
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "superuser-vault-secret"
+              creationPolicy: Owner
+              template:
+                type: kubernetes.io/basic-auth
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ immich_namespace }}"
+                  property: username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ immich_namespace }}"
+                  property: password
     # ── PVCs ─────────────────────────────────────────────────────────────────
 
     - name: Create Immich library PVC
@@ -194,22 +222,28 @@
               requests:
                 storage: "{{ immich_library_storage_size }}"
 
-    # - name: Create Immich DB PVC
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: v1
-    #       kind: PersistentVolumeClaim
-    #       metadata:
-    #         name: immich-cnpg-1
-    #         namespace: "{{ immich_namespace }}"
-    #       spec:
-    #         accessModes: [ReadWriteOnce]
-    #         volumeName: "{{ immich_db_pv }}"
-    #         storageClassName: "{{ immich_db_storage_class }}"
-    #         resources:
-    #           requests:
-    #             storage: "{{ immich_db_storage_size }}"
+    - name: Create ExternalSecret for backup user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: cnpg-backup-user
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: cnpg-backup-user
+              creationPolicy: Owner
+            data:
+              - secretKey: setup.sql
+                remoteRef:
+                  key: cn-postgres
+                  property: setup.sql
 
     # ── CNPG Cluster ─────────────────────────────────────────────────────────
 
@@ -224,6 +258,7 @@
             namespace: "{{ immich_namespace }}"
           spec:
             instances: 1
+            enableSuperuserAccess: true
             imageName: "{{ immich_db_image }}"
             affinity:
               nodeSelector: "{{ immich_node_selector }}"
@@ -231,12 +266,18 @@
             postgresql:
               shared_preload_libraries:
                 - vchord.so
+            superuserSecret:
+              name: superuser-vault-secret
             bootstrap:
               initdb:
                 database: immich
                 owner: immich
                 secret:
                   name: immich-db-secret
+                postInitSQLRefs:
+                  secretRefs:
+                    - name: cnpg-backup-user
+                      key: setup.sql
                 postInitSQL:
                   - CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
                   - CREATE EXTENSION IF NOT EXISTS cube CASCADE;
