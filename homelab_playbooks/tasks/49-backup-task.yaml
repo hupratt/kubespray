@@ -78,7 +78,7 @@
       spec:
         sourcePVC: "{{ db.pvc_name }}"
         trigger:
-          schedule: "0 * * * *"
+          schedule: "3 * * * *"
         restic:
           # moverPodLabels:
           #   volsync.backube/identity: "{{ db.name }}"

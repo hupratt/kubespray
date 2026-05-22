@@ -9,20 +9,20 @@
     vault_kv_path: "restic"
     backup_databases:
       - name: grafana
-        namespace: monitoring
-        pvc_name: grafana-pg-1
+        namespace: cn-postgres
+        pvc_name: shared-pg-1
 
       - name: netbox
-        namespace: netbox
-        pvc_name: netbox-pg-1
+        namespace: cn-postgres
+        pvc_name: shared-pg-1
 
       - name: harbor
-        namespace: harbor
-        pvc_name: harbor-pg-1     
+        namespace: cn-postgres
+        pvc_name: shared-pg-1
 
       - name: patchmon
-        namespace: patchmon
-        pvc_name: patchmon-pg-1 
+        namespace: cn-postgres
+        pvc_name: shared-pg-1
 
   tasks:
 

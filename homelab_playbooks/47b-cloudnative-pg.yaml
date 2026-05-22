@@ -4,15 +4,7 @@
   vars:
     vault_kv_restic_path: "restic"
     namespaces:
-      - name: monitoring
-      - name: linkwarden
-      - name: netbox
-      - name: authentik
-      - name: makita
-      - name: paperless
-      - name: harbor
-      - name: booking
-      - name: patchmon
+      - name: cn-postgres
 
   tasks:
     - name: ExternalSecret for backup credentials
