@@ -113,3 +113,8 @@
 #                 - coreos-wk-4
 # '
 # done
+
+# ALLOW NODE4 ACCESS TO ITS OWN DNS
+
+# kubectl patch svc -n technitium technitium-technitium-dnsserver \
+#   -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'

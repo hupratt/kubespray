@@ -132,7 +132,7 @@ enable_dns_autoscaler: true
 
 # DNS servers added after the cluster DNS
 # These will also be used as upstream by Coredns for out-cluster queries
-upstream_dns_servers: [10.10.85.105]
+upstream_dns_servers: [10.10.85.24]
 
 # Enable nodelocal dns cache
 enable_nodelocaldns: true

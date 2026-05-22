@@ -172,7 +172,7 @@ enable_nodelocaldns: true
 enable_nodelocaldns_secondary: false
 nodelocaldns_ip: 10.233.0.10
 cluster_dns: 10.233.0.3
-upstream_dns_servers: [10.10.85.105]
+upstream_dns_servers: [10.10.85.24]
 
 
 nodelocaldns_health_port: 9254

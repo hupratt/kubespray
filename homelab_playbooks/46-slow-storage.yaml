@@ -9,10 +9,10 @@
     pvs:
       - name: slow-pv-01
         size: 50Gi
-      # - name: slow-pv-02
-      #   size: 100Gi
-      # - name: slow-pv-03
-      #   size: 50Gi
+      - name: slow-pv-02
+        size: 2000Gi
+      - name: slow-pv-03
+        size: 100Gi
 
   tasks:
 

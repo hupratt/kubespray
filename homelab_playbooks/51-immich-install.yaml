@@ -14,13 +14,14 @@
     immich_node_selector:
       node-role: slow-services
 
-    immich_library_storage_class: rook-cephfs
-    immich_library_storage_size: 200Gi
-    immich_db_storage_class: rook-ceph-block
-    immich_db_storage_size: 2000Gi
+    immich_library_storage_class: slow-local
+    immich_library_storage_size: 2000Gi
+    immich_db_storage_class: slow-local
+    immich_db_storage_size: 100Gi
 
     vault_secret_store: vault-backend
     vault_kv_mount: immich
+    vault_kv_restic_mount: restic
 
     volsync_schedule: "0 2 * * *"
     volsync_retain_hourly: 24
@@ -30,26 +31,13 @@
 
   tasks:
 
-    # ── Namespace ────────────────────────────────────────────────────────────
-
-    - name: Ensure immich namespace exists
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ immich_namespace }}"
-            labels:
-              app.kubernetes.io/managed-by: ansible
-
     # ── ExternalSecrets ──────────────────────────────────────────────────────
 
     - name: Deploy ExternalSecret for Immich DB credentials
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: immich-db-secret
@@ -87,7 +75,7 @@
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: immich-app-secret
@@ -124,7 +112,7 @@
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: volsync-restic-secret
@@ -140,32 +128,33 @@
             data:
               - secretKey: RESTIC_REPOSITORY
                 remoteRef:
-                  key: "{{ vault_kv_mount }}"
-                  property: repository
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: RESTIC_REPOSITORY
               - secretKey: RESTIC_PASSWORD
                 remoteRef:
-                  key: "{{ vault_kv_mount }}"
-                  property: password
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: RESTIC_PASSWORD
               - secretKey: AWS_ACCESS_KEY_ID
                 remoteRef:
-                  key: "{{ vault_kv_mount }}"
-                  property: aws_access_key_id
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_ACCESS_KEY_ID
               - secretKey: AWS_SECRET_ACCESS_KEY
                 remoteRef:
-                  key: "{{ vault_kv_mount }}"
-                  property: aws_secret_access_key
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_SECRET_ACCESS_KEY
 
     - name: Wait for ExternalSecrets to sync
       kubernetes.core.k8s_info:
-        api_version: external-secrets.io/v1beta1
+        api_version: external-secrets.io/v1
         kind: ExternalSecret
         namespace: "{{ immich_namespace }}"
         name: "{{ item }}"
       register: es_status
       until: >-
         es_status.resources | length > 0 and
+        es_status.resources[0].status is defined and
         (es_status.resources[0].status.conditions | selectattr('type','equalto','Ready') |
-         selectattr('status','equalto','True') | list | length > 0)
+        selectattr('status','equalto','True') | list | length > 0)
       retries: 20
       delay: 10
       loop:
@@ -186,12 +175,29 @@
             name: immich-library
             namespace: "{{ immich_namespace }}"
           spec:
-            accessModes: [ReadWriteMany]
+            accessModes: [ReadWriteOnce]
+            volumeName: slow-pv-02
             storageClassName: "{{ immich_library_storage_class }}"
             resources:
               requests:
                 storage: "{{ immich_library_storage_size }}"
 
+    - name: Create Immich db PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: immich-cnpg-1
+            namespace: "{{ immich_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            volumeName: slow-pv-03
+            storageClassName: "{{ immich_db_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ immich_db_storage_size }}"
     # ── CNPG Cluster ─────────────────────────────────────────────────────────
 
     - name: Deploy CNPG Cluster for Immich
@@ -204,10 +210,15 @@
             name: immich-cnpg
             namespace: "{{ immich_namespace }}"
           spec:
-            instances: 1
-            imageName: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
             affinity:
               nodeSelector: "{{ immich_node_selector }}"
+              tolerations:
+                - key: dedicated
+                  operator: Equal
+                  value: slow-services
+                  effect: NoSchedule
+            instances: 1
+            imageName: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
             bootstrap:
               initdb:
                 database: immich
@@ -252,79 +263,79 @@
 
     # ── VolSync ReplicationSource ────────────────────────────────────────────
 
-    - name: Deploy VolSync ReplicationSource for Immich library
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: volsync.backube/v1alpha1
-          kind: ReplicationSource
-          metadata:
-            name: immich-library-backup
-            namespace: "{{ immich_namespace }}"
-          spec:
-            sourcePVC: immich-library
-            trigger:
-              schedule: "{{ volsync_schedule }}"
-            restic:
-              pruneIntervalDays: 7
-              repository: volsync-restic-secret
-              retain:
-                hourly: "{{ volsync_retain_hourly }}"
-                daily: "{{ volsync_retain_daily }}"
-                weekly: "{{ volsync_retain_weekly }}"
-                monthly: "{{ volsync_retain_monthly }}"
-              copyMethod: Snapshot
-              storageClassName: "{{ immich_library_storage_class }}"
-              volumeSnapshotClassName: ceph-fs-snapclass
-              moverSecurityContext:
-                runAsUser: 1000
-                runAsGroup: 1000
-                fsGroup: 1000
+    # - name: Deploy VolSync ReplicationSource for Immich library
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: volsync.backube/v1alpha1
+    #       kind: ReplicationSource
+    #       metadata:
+    #         name: immich-library-backup
+    #         namespace: "{{ immich_namespace }}"
+    #       spec:
+    #         sourcePVC: immich-library
+    #         trigger:
+    #           schedule: "{{ volsync_schedule }}"
+    #         restic:
+    #           pruneIntervalDays: 7
+    #           repository: volsync-restic-secret
+    #           retain:
+    #             hourly: "{{ volsync_retain_hourly }}"
+    #             daily: "{{ volsync_retain_daily }}"
+    #             weekly: "{{ volsync_retain_weekly }}"
+    #             monthly: "{{ volsync_retain_monthly }}"
+    #           copyMethod: Snapshot
+    #           storageClassName: "{{ immich_library_storage_class }}"
+    #           volumeSnapshotClassName: ceph-fs-snapclass
+    #           moverSecurityContext:
+    #             runAsUser: 1000
+    #             runAsGroup: 1000
+    #             fsGroup: 1000
 
-    - name: Deploy VolSync ReplicationSource for Immich DB
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: volsync.backube/v1alpha1
-          kind: ReplicationSource
-          metadata:
-            name: immich-db-backup
-            namespace: "{{ immich_namespace }}"
-          spec:
-            sourcePVC: immich-cnpg-1
-            trigger:
-              schedule: "{{ volsync_schedule }}"
-            restic:
-              pruneIntervalDays: 7
-              repository: volsync-restic-secret
-              retain:
-                hourly: "{{ volsync_retain_hourly }}"
-                daily: "{{ volsync_retain_daily }}"
-                weekly: "{{ volsync_retain_weekly }}"
-                monthly: "{{ volsync_retain_monthly }}"
-              copyMethod: Snapshot
-              storageClassName: "{{ immich_db_storage_class }}"
-              volumeSnapshotClassName: ceph-block-snapclass
-              moverSecurityContext:
-                runAsUser: 1000
-                runAsGroup: 1000
-                fsGroup: 1000
+    # - name: Deploy VolSync ReplicationSource for Immich DB
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: volsync.backube/v1alpha1
+    #       kind: ReplicationSource
+    #       metadata:
+    #         name: immich-db-backup
+    #         namespace: "{{ immich_namespace }}"
+    #       spec:
+    #         sourcePVC: immich-cnpg-1
+    #         trigger:
+    #           schedule: "{{ volsync_schedule }}"
+    #         restic:
+    #           pruneIntervalDays: 7
+    #           repository: volsync-restic-secret
+    #           retain:
+    #             hourly: "{{ volsync_retain_hourly }}"
+    #             daily: "{{ volsync_retain_daily }}"
+    #             weekly: "{{ volsync_retain_weekly }}"
+    #             monthly: "{{ volsync_retain_monthly }}"
+    #           copyMethod: Snapshot
+    #           storageClassName: "{{ immich_db_storage_class }}"
+    #           volumeSnapshotClassName: ceph-block-snapclass
+    #           moverSecurityContext:
+    #             runAsUser: 1000
+    #             runAsGroup: 1000
+    #             fsGroup: 1000
 
-    # ── Verification ─────────────────────────────────────────────────────────
+    # # ── Verification ─────────────────────────────────────────────────────────
 
-    - name: Show ReplicationSource status
-      kubernetes.core.k8s_info:
-        api_version: volsync.backube/v1alpha1
-        kind: ReplicationSource
-        namespace: "{{ immich_namespace }}"
-      register: rs_info
+    # - name: Show ReplicationSource status
+    #   kubernetes.core.k8s_info:
+    #     api_version: volsync.backube/v1alpha1
+    #     kind: ReplicationSource
+    #     namespace: "{{ immich_namespace }}"
+    #   register: rs_info
 
-    - name: Print ReplicationSource last sync times
-      ansible.builtin.debug:
-        msg: >-
-          {{ item.metadata.name }}:
-          lastSyncTime={{ item.status.lastSyncTime | default('not yet synced') }}
-          lastSyncDuration={{ item.status.lastSyncDuration | default('n/a') }}
-      loop: "{{ rs_info.resources }}"
-      loop_control:
-        label: "{{ item.metadata.name }}"
+    # - name: Print ReplicationSource last sync times
+    #   ansible.builtin.debug:
+    #     msg: >-
+    #       {{ item.metadata.name }}:
+    #       lastSyncTime={{ item.status.lastSyncTime | default('not yet synced') }}
+    #       lastSyncDuration={{ item.status.lastSyncDuration | default('n/a') }}
+    #   loop: "{{ rs_info.resources }}"
+    #   loop_control:
+    #     label: "{{ item.metadata.name }}"

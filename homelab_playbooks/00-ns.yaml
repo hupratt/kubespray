@@ -21,6 +21,7 @@
       - frigate
       - haproxy
       - harbor
+      - immich
       - kubewarden
       - kyverno
       - linkwarden
