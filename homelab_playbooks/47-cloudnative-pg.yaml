@@ -46,20 +46,19 @@
         owner: patchmon
         vault_path: patchmon
 
-    # Harbor kept separate: multiple DBs, distinct ownership
-    harbor_cluster_name: harbor-pg
-    harbor_cluster_storage: 10Gi
-    harbor_databases:
-      - name: harbor_core
+      - name: harbor-core
         owner: harbor
         vault_path: harbor
-      - name: harbor_notary_server
+
+      - name: harbor-notary-server
         owner: harbor
         vault_path: harbor
-      - name: harbor_notary_signer
+
+      - name: harbor-notary-signer
         owner: harbor
         vault_path: harbor
-      - name: harbor_trivy
+
+      - name: harbor-trivy
         owner: harbor
         vault_path: harbor
 
@@ -76,8 +75,6 @@
         values:
           monitoring:
             podMonitorEnabled: true
-
-    # --- Shared cluster secrets ---
 
     - name: Create ExternalSecret for shared cluster superuser
       kubernetes.core.k8s:
@@ -108,7 +105,7 @@
                   key: "{{ cnpg_namespace }}"
                   property: superuser_password
 
-    - name: Create ExternalSecret for backup user (shared cluster)
+    - name: Create ExternalSecret for backup user
       kubernetes.core.k8s:
         state: present
         definition:
@@ -130,8 +127,6 @@
                 remoteRef:
                   key: "{{ cnpg_namespace }}"
                   property: setup.sql
-
-    # --- Per-app secrets (still in cn-postgres namespace, apps reference via cross-ns or you adjust) ---
 
     - name: Create ExternalSecrets for app database credentials
       kubernetes.core.k8s:
@@ -170,24 +165,17 @@
         name: "{{ item.name }}-pg-secret"
         namespace: "{{ cnpg_namespace }}"
       register: es_status
-
       until: >
-        (
-          es_status.resources | default([])
-        ) | length > 0
-        and
-        (
+        (es_status.resources | default([])) | length > 0
+        and (
           es_status.resources[0].status.conditions | default([])
           | selectattr('type', 'eq', 'Ready')
           | selectattr('status', 'eq', 'True')
-          | list
-          | length
+          | list | length
         ) > 0
-
       retries: 12
       delay: 10
       loop: "{{ databases }}"
-    # --- Shared CNPG Cluster ---
 
     - name: Deploy shared CNPG Cluster
       kubernetes.core.k8s:
@@ -200,30 +188,22 @@
             namespace: "{{ cnpg_namespace }}"
             annotations:
               helm.sh/resource-policy: keep
-
           spec:
             instances: 1
             imageName: "{{ pg_image }}"
-
             enableSuperuserAccess: true
-
             superuserSecret:
               name: "{{ shared_cluster_name }}-superuser-vault-secret"
-
             managed:
               roles: >-
-                {{ databases
+                {{
+                  databases
                   | map(attribute='owner')
                   | unique
-                  | list
                   | map('community.general.dict_kv', 'name')
-                  | map('combine', {
-                        'ensure': 'present',
-                        'login': true,
-                        'passwordSecret': {'name': ''} })
+                  | map('combine', {'ensure': 'present', 'login': true})
                   | list
                 }}
-
             bootstrap:
               initdb:
                 database: postgres
@@ -232,11 +212,9 @@
                   secretRefs:
                     - name: cnpg-backup-user
                       key: setup.sql
-
             storage:
               size: "{{ shared_cluster_storage }}"
               storageClass: "{{ storage_class }}"
-
             monitoring:
               enablePodMonitor: true
 
@@ -254,9 +232,7 @@
       retries: 24
       delay: 10
 
-    # --- Database CRDs ---
-
-    - name: Deploy Database CRDs for shared cluster
+    - name: Deploy Database CRDs
       kubernetes.core.k8s:
         state: present
         definition:
@@ -271,149 +247,3 @@
             cluster:
               name: "{{ shared_cluster_name }}"
       loop: "{{ databases }}"
-
-    # --- Harbor cluster (isolated) ---
-
-    # - name: Create ExternalSecret for Harbor superuser
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: external-secrets.io/v1
-    #       kind: ExternalSecret
-    #       metadata:
-    #         name: "{{ harbor_cluster_name }}-superuser-vault-secret"
-    #         namespace: harbor
-    #       spec:
-    #         refreshInterval: 1h
-    #         secretStoreRef:
-    #           name: vault-backend
-    #           kind: ClusterSecretStore
-    #         target:
-    #           name: "{{ harbor_cluster_name }}-superuser-vault-secret"
-    #           creationPolicy: Owner
-    #           template:
-    #             type: kubernetes.io/basic-auth
-    #         data:
-    #           - secretKey: username
-    #             remoteRef:
-    #               key: harbor
-    #               property: superuser_username
-    #           - secretKey: password
-    #             remoteRef:
-    #               key: harbor
-    #               property: superuser_password
-
-    # - name: Create ExternalSecret for Harbor backup user
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: external-secrets.io/v1
-    #       kind: ExternalSecret
-    #       metadata:
-    #         name: cnpg-backup-user
-    #         namespace: harbor
-    #       spec:
-    #         refreshInterval: 1h
-    #         secretStoreRef:
-    #           name: vault-backend
-    #           kind: ClusterSecretStore
-    #         target:
-    #           name: cnpg-backup-user
-    #           creationPolicy: Owner
-    #         data:
-    #           - secretKey: setup.sql
-    #             remoteRef:
-    #               key: "{{ cnpg_namespace }}"
-    #               property: setup.sql
-
-    # - name: Create ExternalSecret for Harbor app credentials
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: external-secrets.io/v1
-    #       kind: ExternalSecret
-    #       metadata:
-    #         name: harbor-pg-secret
-    #         namespace: harbor
-    #       spec:
-    #         refreshInterval: 1h
-    #         secretStoreRef:
-    #           name: vault-backend
-    #           kind: ClusterSecretStore
-    #         target:
-    #           name: harbor-pg-secret
-    #           creationPolicy: Owner
-    #           template:
-    #             type: kubernetes.io/basic-auth
-    #         data:
-    #           - secretKey: username
-    #             remoteRef:
-    #               key: harbor
-    #               property: pg_username
-    #           - secretKey: password
-    #             remoteRef:
-    #               key: harbor
-    #               property: pg_password
-
-    # - name: Deploy Harbor CNPG Cluster
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: postgresql.cnpg.io/v1
-    #       kind: Cluster
-    #       metadata:
-    #         name: "{{ harbor_cluster_name }}"
-    #         namespace: harbor
-    #         annotations:
-    #           helm.sh/resource-policy: keep
-    #       spec:
-    #         instances: 1
-    #         imageName: "{{ pg_image }}"
-    #         enableSuperuserAccess: true
-    #         superuserSecret:
-    #           name: "{{ harbor_cluster_name }}-superuser-vault-secret"
-    #         bootstrap:
-    #           initdb:
-    #             database: harbor_core
-    #             owner: harbor
-    #             secret:
-    #               name: harbor-pg-secret
-    #             postInitSQLRefs:
-    #               secretRefs:
-    #                 - name: cnpg-backup-user
-    #                   key: setup.sql
-    #         storage:
-    #           size: "{{ harbor_cluster_storage }}"
-    #           storageClass: "{{ storage_class }}"
-    #         monitoring:
-    #           enablePodMonitor: true
-
-    # - name: Wait for Harbor cluster to be ready
-    #   kubernetes.core.k8s_info:
-    #     api_version: postgresql.cnpg.io/v1
-    #     kind: Cluster
-    #     name: "{{ harbor_cluster_name }}"
-    #     namespace: harbor
-    #   register: harbor_cluster_status
-    #   until: >
-    #     harbor_cluster_status.resources[0].status.conditions |
-    #     selectattr('type', 'eq', 'Ready') |
-    #     selectattr('status', 'eq', 'True') | list | length > 0
-    #   retries: 24
-    #   delay: 10
-
-    # - name: Deploy Database CRDs for Harbor cluster
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: postgresql.cnpg.io/v1
-    #       kind: Database
-    #       metadata:
-    #         name: "{{ item.name }}-db"
-    #         namespace: harbor
-    #       spec:
-    #         name: "{{ item.name }}"
-    #         owner: "{{ item.owner }}"
-    #         cluster:
-    #           name: "{{ harbor_cluster_name }}"
-    #   loop: "{{ harbor_databases }}"
