@@ -14,10 +14,22 @@
     immich_node_selector:
       node-role: slow-services
 
+    immich_tolerations:
+      - key: dedicated
+        operator: Equal
+        value: slow-services
+        effect: NoSchedule
+
+    immich_library_pv: slow-pv-02
     immich_library_storage_class: slow-local
     immich_library_storage_size: 2000Gi
+
+    immich_db_pv: slow-pv-03
     immich_db_storage_class: slow-local
     immich_db_storage_size: 100Gi
+
+    # TensorChord image — built on CNPG base (UID 26), includes vectorchord
+    immich_db_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3
 
     vault_secret_store: vault-backend
     vault_kv_mount: immich
@@ -153,8 +165,9 @@
       until: >-
         es_status.resources | length > 0 and
         es_status.resources[0].status is defined and
-        (es_status.resources[0].status.conditions | selectattr('type','equalto','Ready') |
-        selectattr('status','equalto','True') | list | length > 0)
+        (es_status.resources[0].status.conditions |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length > 0)
       retries: 20
       delay: 10
       loop:
@@ -162,8 +175,7 @@
         - immich-app-secret
         - volsync-restic-secret
 
-    # ── Library PVC ──────────────────────────────────────────────────────────
-    # Chart requires existingClaim — we pre-create it here.
+    # ── PVCs ─────────────────────────────────────────────────────────────────
 
     - name: Create Immich library PVC
       kubernetes.core.k8s:
@@ -176,28 +188,29 @@
             namespace: "{{ immich_namespace }}"
           spec:
             accessModes: [ReadWriteOnce]
-            volumeName: slow-pv-02
+            volumeName: "{{ immich_library_pv }}"
             storageClassName: "{{ immich_library_storage_class }}"
             resources:
               requests:
                 storage: "{{ immich_library_storage_size }}"
 
-    - name: Create Immich db PVC
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: PersistentVolumeClaim
-          metadata:
-            name: immich-cnpg-1
-            namespace: "{{ immich_namespace }}"
-          spec:
-            accessModes: [ReadWriteOnce]
-            volumeName: slow-pv-03
-            storageClassName: "{{ immich_db_storage_class }}"
-            resources:
-              requests:
-                storage: "{{ immich_db_storage_size }}"
+    # - name: Create Immich DB PVC
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: PersistentVolumeClaim
+    #       metadata:
+    #         name: immich-cnpg-1
+    #         namespace: "{{ immich_namespace }}"
+    #       spec:
+    #         accessModes: [ReadWriteOnce]
+    #         volumeName: "{{ immich_db_pv }}"
+    #         storageClassName: "{{ immich_db_storage_class }}"
+    #         resources:
+    #           requests:
+    #             storage: "{{ immich_db_storage_size }}"
+
     # ── CNPG Cluster ─────────────────────────────────────────────────────────
 
     - name: Deploy CNPG Cluster for Immich
@@ -210,24 +223,32 @@
             name: immich-cnpg
             namespace: "{{ immich_namespace }}"
           spec:
+            instances: 1
+            imageName: "{{ immich_db_image }}"
             affinity:
               nodeSelector: "{{ immich_node_selector }}"
-              tolerations:
-                - key: dedicated
-                  operator: Equal
-                  value: slow-services
-                  effect: NoSchedule
-            instances: 1
-            imageName: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+              tolerations: "{{ immich_tolerations }}"
+            postgresql:
+              shared_preload_libraries:
+                - vchord.so
             bootstrap:
               initdb:
                 database: immich
                 owner: immich
                 secret:
                   name: immich-db-secret
+                postInitSQL:
+                  - CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
+                  - CREATE EXTENSION IF NOT EXISTS cube CASCADE;
+                  - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
             storage:
-              storageClass: "{{ immich_db_storage_class }}"
-              size: "{{ immich_db_storage_size }}"
+              pvcTemplate:
+                accessModes: [ReadWriteOnce]
+                volumeName: "{{ immich_db_pv }}"
+                storageClassName: "{{ immich_db_storage_class }}"
+                resources:
+                  requests:
+                    storage: "{{ immich_db_storage_size }}"
 
     - name: Wait for CNPG cluster to be ready
       kubernetes.core.k8s_info:
@@ -238,8 +259,10 @@
       register: cnpg_status
       until: >-
         cnpg_status.resources | length > 0 and
-        (cnpg_status.resources[0].status.conditions | selectattr('type','equalto','Ready') |
-         selectattr('status','equalto','True') | list | length > 0)
+        cnpg_status.resources[0].status is defined and
+        (cnpg_status.resources[0].status.conditions |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length > 0)
       retries: 30
       delay: 15
 
@@ -261,7 +284,7 @@
         timeout: 10m0s
         values: "{{ lookup('template', 'charts/immich/immich-values.yml.j2') | from_yaml }}"
 
-    # ── VolSync ReplicationSource ────────────────────────────────────────────
+    # ── VolSync ReplicationSources ───────────────────────────────────────────
 
     # - name: Deploy VolSync ReplicationSource for Immich library
     #   kubernetes.core.k8s:
@@ -284,9 +307,8 @@
     #             daily: "{{ volsync_retain_daily }}"
     #             weekly: "{{ volsync_retain_weekly }}"
     #             monthly: "{{ volsync_retain_monthly }}"
-    #           copyMethod: Snapshot
+    #           copyMethod: Direct
     #           storageClassName: "{{ immich_library_storage_class }}"
-    #           volumeSnapshotClassName: ceph-fs-snapclass
     #           moverSecurityContext:
     #             runAsUser: 1000
     #             runAsGroup: 1000
@@ -313,9 +335,8 @@
     #             daily: "{{ volsync_retain_daily }}"
     #             weekly: "{{ volsync_retain_weekly }}"
     #             monthly: "{{ volsync_retain_monthly }}"
-    #           copyMethod: Snapshot
+    #           copyMethod: Direct
     #           storageClassName: "{{ immich_db_storage_class }}"
-    #           volumeSnapshotClassName: ceph-block-snapclass
     #           moverSecurityContext:
     #             runAsUser: 1000
     #             runAsGroup: 1000

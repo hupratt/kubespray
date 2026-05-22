@@ -15,9 +15,9 @@ controllers:
         image:
           tag: ""   # follow chart appVersion
         env:
-          REDIS_HOSTNAME: '{{ printf "%s-valkey" .Release.Name }}'
-          IMMICH_MACHINE_LEARNING_URL: '{{ printf "http://%s-machine-learning:3003" .Release.Name }}'
-          DB_HOSTNAME: immich-cnpg-rw.{{ immich_namespace }}.svc
+          REDIS_HOSTNAME: "{% raw %}{{ printf \"%s-valkey\" .Release.Name }}{% endraw %}"
+          IMMICH_MACHINE_LEARNING_URL: "{% raw %}{{ printf \"http://%s-machine-learning:3003\" .Release.Name }}{% endraw %}"
+          DB_HOSTNAME: "immich-cnpg-rw.{{ immich_namespace }}.svc"
           DB_PORT: "5432"
           DB_DATABASE_NAME: immich
         envFrom:
@@ -29,17 +29,36 @@ server:
   enabled: true
   controllers:
     main:
+      pod:
+        nodeSelector:
+          node-role: slow-services
+        tolerations:
+          - key: dedicated
+            operator: Equal
+            value: slow-services
+            effect: NoSchedule
       replicas: 1
       nodeSelector:
         node-role: slow-services
+      tolerations:
+        - key: dedicated
+          operator: Equal
+          value: slow-services
+          effect: NoSchedule
       containers:
         main:
+          image:
+            tag: "v1.134.0"
           resources:
             requests:
               cpu: 100m
               memory: 512Mi
             limits:
               memory: 2Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+
   ingress:
     main:
       enabled: true
@@ -68,20 +87,25 @@ machine-learning:
         node-role: slow-services
       containers:
         main:
+          image:
+            tag: "v1.134.0"
           resources:
             requests:
               cpu: 200m
               memory: 2Gi
             limits:
               memory: 4Gi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
   persistence:
     cache:
       enabled: true
       type: persistentVolumeClaim
-      storageClass: "{{ immich_library_storage_class }}"
+      storageClass: "rook-cephfs"
       accessMode: ReadWriteMany
       size: 10Gi
-
+          
 # ── Valkey ────────────────────────────────────────────────────────────────────
 valkey:
   enabled: true
@@ -89,6 +113,9 @@ valkey:
     main:
       containers:
         main:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
           image:
             repository: docker.io/valkey/valkey
             tag: 9.1-alpine@sha256:34f4f659e02a67cfdf3995d11ae432219c936005055b2cd39a042e86280e053e
@@ -97,6 +124,6 @@ valkey:
     data:
       enabled: true
       type: persistentVolumeClaim
-      storageClass: "{{ immich_library_storage_class }}"
+      storageClass: "rook-ceph-block"
       accessMode: ReadWriteOnce
       size: 1Gi

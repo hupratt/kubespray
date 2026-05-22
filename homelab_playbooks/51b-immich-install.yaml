@@ -1,0 +1,137 @@
+---
+# deploy_immich.yml
+- name: Deploy Immich
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    immich_namespace: immich
+    immich_chart_version: "0.12.0"
+    immich_chart_repo: https://immich-app.github.io/immich-charts
+    immich_release_name: immich
+
+    immich_node_selector:
+      node-role: slow-services
+
+    immich_tolerations:
+      - key: dedicated
+        operator: Equal
+        value: slow-services
+        effect: NoSchedule
+
+    immich_library_pv: slow-pv-02
+    immich_library_storage_class: slow-local
+    immich_library_storage_size: 2000Gi
+
+    immich_db_pv: slow-pv-03
+    immich_db_storage_class: slow-local
+    immich_db_storage_size: 100Gi
+
+    # TensorChord image — built on CNPG base (UID 26), includes vectorchord
+    immich_db_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.4.3
+
+    vault_secret_store: vault-backend
+    vault_kv_mount: immich
+    vault_kv_restic_mount: restic
+
+    volsync_schedule: "0 2 * * *"
+    volsync_retain_hourly: 24
+    volsync_retain_daily: 7
+    volsync_retain_weekly: 4
+    volsync_retain_monthly: 3
+
+  tasks:
+
+    - name: Add Immich Helm repository
+      kubernetes.core.helm_repository:
+        name: immich
+        repo_url: "{{ immich_chart_repo }}"
+
+    - name: Deploy Immich via Helm
+      kubernetes.core.helm:
+        name: "{{ immich_release_name }}"
+        chart_ref: immich/immich
+        chart_version: "{{ immich_chart_version }}"
+        release_namespace: "{{ immich_namespace }}"
+        create_namespace: false
+        wait: true
+        timeout: 10m0s
+        values: "{{ lookup('template', 'charts/immich/immich-values.yml.j2') | from_yaml }}"
+
+    # ── VolSync ReplicationSources ───────────────────────────────────────────
+
+    # - name: Deploy VolSync ReplicationSource for Immich library
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: volsync.backube/v1alpha1
+    #       kind: ReplicationSource
+    #       metadata:
+    #         name: immich-library-backup
+    #         namespace: "{{ immich_namespace }}"
+    #       spec:
+    #         sourcePVC: immich-library
+    #         trigger:
+    #           schedule: "{{ volsync_schedule }}"
+    #         restic:
+    #           pruneIntervalDays: 7
+    #           repository: volsync-restic-secret
+    #           retain:
+    #             hourly: "{{ volsync_retain_hourly }}"
+    #             daily: "{{ volsync_retain_daily }}"
+    #             weekly: "{{ volsync_retain_weekly }}"
+    #             monthly: "{{ volsync_retain_monthly }}"
+    #           copyMethod: Direct
+    #           storageClassName: "{{ immich_library_storage_class }}"
+    #           moverSecurityContext:
+    #             runAsUser: 1000
+    #             runAsGroup: 1000
+    #             fsGroup: 1000
+
+    # - name: Deploy VolSync ReplicationSource for Immich DB
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: volsync.backube/v1alpha1
+    #       kind: ReplicationSource
+    #       metadata:
+    #         name: immich-db-backup
+    #         namespace: "{{ immich_namespace }}"
+    #       spec:
+    #         sourcePVC: immich-cnpg-1
+    #         trigger:
+    #           schedule: "{{ volsync_schedule }}"
+    #         restic:
+    #           pruneIntervalDays: 7
+    #           repository: volsync-restic-secret
+    #           retain:
+    #             hourly: "{{ volsync_retain_hourly }}"
+    #             daily: "{{ volsync_retain_daily }}"
+    #             weekly: "{{ volsync_retain_weekly }}"
+    #             monthly: "{{ volsync_retain_monthly }}"
+    #           copyMethod: Direct
+    #           storageClassName: "{{ immich_db_storage_class }}"
+    #           moverSecurityContext:
+    #             runAsUser: 1000
+    #             runAsGroup: 1000
+    #             fsGroup: 1000
+
+    # # ── Verification ─────────────────────────────────────────────────────────
+
+    # - name: Show ReplicationSource status
+    #   kubernetes.core.k8s_info:
+    #     api_version: volsync.backube/v1alpha1
+    #     kind: ReplicationSource
+    #     namespace: "{{ immich_namespace }}"
+    #   register: rs_info
+
+    # - name: Print ReplicationSource last sync times
+    #   ansible.builtin.debug:
+    #     msg: >-
+    #       {{ item.metadata.name }}:
+    #       lastSyncTime={{ item.status.lastSyncTime | default('not yet synced') }}
+    #       lastSyncDuration={{ item.status.lastSyncDuration | default('n/a') }}
+    #   loop: "{{ rs_info.resources }}"
+    #   loop_control:
+    #     label: "{{ item.metadata.name }}"
