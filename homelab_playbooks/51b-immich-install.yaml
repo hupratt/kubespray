@@ -9,7 +9,7 @@
     immich_namespace: immich
 
     immich_library_storage_class: slow-local
-    immich_db_storage_class: slow-local
+    immich_db_storage_class: rook-ceph-block
 
     volsync_schedule: "0 2 * * *"
     volsync_retain_hourly: 24
@@ -71,11 +71,21 @@
                 weekly: "{{ volsync_retain_weekly }}"
                 monthly: "{{ volsync_retain_monthly }}"
               copyMethod: Direct
-              storageClassName: "{{ immich_db_storage_class }}"
+              cacheStorageClassName: rook-ceph-block
+              # storageClassName: "{{ immich_db_storage_class }}"
+              # volumeSnapshotClassName: ceph-rbd-snapclass
+              # cacheStorageClassName: local-path
               moverSecurityContext:
-                runAsUser: 1000
-                runAsGroup: 1000
-                fsGroup: 1000
+                runAsUser: 26
+                runAsGroup: 26
+                fsGroup: 26
+              moverPodTemplateSpec:
+                spec:
+                  tolerations:
+                    - key: dedicated
+                      operator: Equal
+                      value: slow-services
+                      effect: NoSchedule
 
     # ── Verification ─────────────────────────────────────────────────────────
 

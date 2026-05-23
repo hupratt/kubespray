@@ -141,7 +141,7 @@
               - secretKey: RESTIC_REPOSITORY
                 remoteRef:
                   key: "{{ vault_kv_restic_mount }}"
-                  property: RESTIC_REPOSITORY
+                  property: RESTIC_DB_REPOSITORY
               - secretKey: RESTIC_PASSWORD
                 remoteRef:
                   key: "{{ vault_kv_restic_mount }}"
