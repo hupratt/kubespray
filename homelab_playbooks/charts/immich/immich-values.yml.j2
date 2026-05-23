@@ -53,7 +53,7 @@ server:
       containers:
         main:
           image:
-            tag: "v1.134.0"
+            tag: "v2.7.5"
           resources:
             requests:
               cpu: 100m
@@ -66,9 +66,6 @@ server:
   ingress:
     main:
       enabled: true
-      annotations:
-        cert-manager.io/cluster-issuer: letsencrypt-prod
-        nginx.ingress.kubernetes.io/proxy-body-size: "0"
       ingressClassName: haproxy
       hosts:
         - host: immich2.thekor.eu
@@ -92,7 +89,9 @@ machine-learning:
       containers:
         main:
           image:
-            tag: "v1.134.0"
+            tag: "v2.7.5"
+          env:
+            GUNICORN_CMD_ARGS: "--no-control-socket"
           resources:
             requests:
               cpu: 200m
