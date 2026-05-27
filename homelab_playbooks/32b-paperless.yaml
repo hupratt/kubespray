@@ -99,6 +99,8 @@
             config:
               PAPERLESS_URL: "https://{{ paperless_hostname }}"
               PAPERLESS_CSRF_TRUSTED_ORIGINS: "https://{{ paperless_hostname }}"
+              PAPERLESS_OCR_MODE: skip
+              PAPERLESS_OCR_OUTPUT_TYPE: pdf
             secret:
               secretKey: "{{ paperless_secret_key }}"
               dbPassword: "{{ paperless_db_password }}"
