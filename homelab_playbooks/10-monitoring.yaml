@@ -18,11 +18,12 @@
       ansible.builtin.command:
         cmd: helm repo update
 
-    - name: Install Prometheus Pushgateway from OCI
+    - name: Install Prometheus Pushgateway
       community.kubernetes.helm:
-        name: pushgateway
-        chart_ref: oci://ghcr.io/prometheus-community/charts/prometheus-pushgateway
+        name: prometheus-pushgateway
+        chart_ref: prometheus-community/prometheus-pushgateway
         release_namespace: monitoring
+        kubeconfig: "{{ kubeconfig_path }}"
         create_namespace: false
         values_files: files/mon-pushgateway_values.yml
         state: present

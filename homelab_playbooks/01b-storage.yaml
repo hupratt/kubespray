@@ -30,3 +30,8 @@
         state: present
         kubeconfig: "{{ kubeconfig_path }}"
         src: "{{ rook_dir }}/deploy/examples/toolbox.yaml"
+
+
+# add toleration so that it can run despite the taint on node4
+# kubectl patch daemonset csi-rbdplugin -n rook-ceph --type=json \
+#   -p='[{"op":"add","path":"/spec/template/spec/tolerations","value":[{"key":"dedicated","operator":"Equal","value":"slow-services","effect":"NoSchedule"}]}]'

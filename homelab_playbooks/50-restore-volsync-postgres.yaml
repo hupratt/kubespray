@@ -51,21 +51,38 @@
         namespace: harbor
         storage_class: rook-ceph-block
         storage_size: 5Gi
+        cluster: shared-pg
+        secret: volsync-restic-secret
 
       - name: grafana
         namespace: monitoring
         storage_class: rook-ceph-block
         storage_size: 5Gi
+        cluster: shared-pg
+        secret: volsync-restic-secret
 
       - name: netbox
         namespace: netbox
         storage_class: rook-ceph-block
         storage_size: 5Gi
+        cluster: shared-pg
+        secret: volsync-restic-secret
 
       - name: patchmon
         namespace: patchmon
         storage_class: rook-ceph-block
         storage_size: 5Gi
+        cluster: shared-pg
+        secret: volsync-restic-secret
+
+      - name: immich
+        namespace: immich
+        storage_class: rook-ceph-block
+        # storage_class: slow-local
+        storage_size: 2000Gi
+        secret: volsync-restic-secret
+        cluster: shared-pg
+        # cluster: immich-cnpg
 
   tasks:
 
