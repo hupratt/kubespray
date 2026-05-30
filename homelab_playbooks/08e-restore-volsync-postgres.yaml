@@ -10,6 +10,15 @@
     volsync_restore_timeout: 600
     dry_run: false
 
+    immich_node_selector:
+      node-role: slow-services
+
+    immich_tolerations:
+      - key: dedicated
+        operator: Equal
+        value: slow-services
+        effect: NoSchedule
+
     db_owners:
       - owner: grafana
         vault_path: monitoring
@@ -70,7 +79,7 @@
         namespace: immich
         storage_class: slow-local
         storage_size: 2000Gi
-        cluster: immich-cnpg
+        cluster: immich-pg
         secret: volsync-restic-secret
         snaphost_class: ceph-rbd-snapclass
         pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
@@ -97,7 +106,7 @@
 
     # loop goes on include_tasks — blocks cannot loop directly
     - name: Restore PVCs 
-      ansible.builtin.include_tasks: tasks/50-restore-task.yaml
+      ansible.builtin.include_tasks: tasks/08e-restore-task.yaml
       loop: "{{ restore_pvcs }}"
       loop_control:
         loop_var: pvc

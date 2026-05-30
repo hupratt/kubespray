@@ -21,7 +21,7 @@ controllers:
         env:
           REDIS_HOSTNAME: "{% raw %}{{ printf \"%s-valkey\" .Release.Name }}{% endraw %}"
           IMMICH_MACHINE_LEARNING_URL: "{% raw %}{{ printf \"http://%s-machine-learning:3003\" .Release.Name }}{% endraw %}"
-          DB_HOSTNAME: "immich-cnpg-rw.{{ immich_namespace }}.svc"
+          DB_HOSTNAME: "immich-pg-rw.{{ immich_namespace }}.svc"
           DB_PORT: "5432"
           DB_DATABASE_NAME: immich
         envFrom:
@@ -29,7 +29,6 @@ controllers:
               name: immich-app-secret   # DATABASE_URL, DB_USERNAME, DB_PASSWORD from Vault
 
 # ── Server ────────────────────────────────────────────────────────────────────
-
 server:
   enabled: true
   controllers:
@@ -42,6 +41,10 @@ server:
             operator: Equal
             value: slow-services
             effect: NoSchedule
+        securityContext:
+          fsGroup: 1000
+          runAsUser: 1000
+          runAsNonRoot: true
       replicas: 1
       nodeSelector:
         node-role: slow-services

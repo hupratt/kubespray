@@ -65,10 +65,12 @@
               template:
                 engineVersion: v2
                 data:
-                  POSTGRES_USER: "{{ '{{' }} .username {{ '}}' }}"
-                  POSTGRES_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
-                  POSTGRES_DB: "{{ '{{' }} .name {{ '}}' }}"
-                  uri: "postgresql://{{ '{{' }} .username {{ '}}' }}:{{ '{{' }} .password {{ '}}' }}@immich-cnpg-rw.{{ immich_namespace }}.svc/{{ '{{' }} .name {{ '}}' }}"
+                  username: "{{ '{{' }} .username {{ '}}' }}"
+                  password: "{{ '{{' }} .password {{ '}}' }}"
+                  # POSTGRES_USER: "{{ '{{' }} .username {{ '}}' }}"
+                  # POSTGRES_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
+                  # POSTGRES_DB: "{{ '{{' }} .name {{ '}}' }}"
+                  uri: "postgresql://{{ '{{' }} .username {{ '}}' }}:{{ '{{' }} .password {{ '}}' }}@immich-pg-rw.{{ immich_namespace }}.svc/{{ '{{' }} .name {{ '}}' }}"
             data:
               - secretKey: username
                 remoteRef:
@@ -198,11 +200,11 @@
               - secretKey: username
                 remoteRef:
                   key: "{{ immich_namespace }}"
-                  property: username
+                  property: superuser_username
               - secretKey: password
                 remoteRef:
                   key: "{{ immich_namespace }}"
-                  property: password
+                  property: superuser_password
     # ── PVCs ─────────────────────────────────────────────────────────────────
 
     - name: Create Immich library PVC
@@ -254,7 +256,7 @@
           apiVersion: postgresql.cnpg.io/v1
           kind: Cluster
           metadata:
-            name: immich-cnpg
+            name: immich-pg
             namespace: "{{ immich_namespace }}"
           spec:
             instances: 1
@@ -273,13 +275,14 @@
                 database: immich
                 owner: immich
                 secret:
-                  name: immich-db-secret
+                  name: superuser-vault-secret
                 postInitSQLRefs:
                   secretRefs:
                     - name: cnpg-backup-user
                       key: setup.sql
                 postInitSQL:
                   - CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
+                  - CREATE EXTENSION IF NOT EXISTS vector CASCADE;
                   - CREATE EXTENSION IF NOT EXISTS cube CASCADE;
                   - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
             storage:
@@ -296,7 +299,7 @@
         api_version: postgresql.cnpg.io/v1
         kind: Cluster
         namespace: "{{ immich_namespace }}"
-        name: immich-cnpg
+        name: immich-pg
       register: cnpg_status
       until: >-
         cnpg_status.resources | length > 0 and
@@ -307,6 +310,20 @@
       retries: 30
       delay: 15
 
+    - name: Deploy Database CRD
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Database
+          metadata:
+            name: "immich-db"
+            namespace: "immich"
+          spec:
+            name: "immich"
+            owner: "immich"
+            cluster:
+              name: "immich-pg"
     # ── Helm release ─────────────────────────────────────────────────────────
 
     - name: Add Immich Helm repository

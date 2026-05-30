@@ -16,7 +16,7 @@
 
     # loop goes on include_tasks — blocks cannot loop directly
     - name: Backup PVC {{ pvc.pvc_name }}
-      ansible.builtin.include_tasks: tasks/49-backup-task.yaml
+      ansible.builtin.include_tasks: tasks/08d-backup-task.yaml
       loop: "{{ backup_pvc }}"
       loop_control:
         loop_var: pvc

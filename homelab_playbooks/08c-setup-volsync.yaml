@@ -6,7 +6,7 @@
   vars:
     volsync_namespace: volsync
     volsync_release_name: volsync
-    volsync_chart_version: "0.12.0"
+    volsync_chart_version: "0.15.0"
     csi_snapshotter_version: "v8.2.0"
 
   tasks:

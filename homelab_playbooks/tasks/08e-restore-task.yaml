@@ -6,6 +6,16 @@
     name: "cn-postgres-{{ pvc.name }}-pg-1"
     namespace: "{{ pvc.namespace }}"
   register: rs_info
+  when: pvc.name != "immich"
+
+- name: "[{{ pvc.name }}] Get latest ReplicationSource snapshot info"
+  kubernetes.core.k8s_info:
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationSource
+    name: "immich-db-backup"
+    namespace: "{{ pvc.namespace }}"
+  register: rs_info
+  when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Assert ReplicationSource exists and has completed"
   assert:
@@ -21,6 +31,16 @@
     name: "{{ pvc.name }}-pg-1"
     namespace: "{{ pvc.namespace }}"
   register: source_pvc_info
+  when: pvc.name != "immich"
+
+- name: "[{{ pvc.name }}] Get PVC capacity from source"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: immich-pg-1
+    namespace: "{{ pvc.namespace }}"
+  register: source_pvc_info
+  when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Set PVC capacity fact"
   set_fact:
@@ -83,6 +103,16 @@
   retries: 12
   delay: 5
 
+- name: Remove claimRef from PV slow-pv-03
+  kubernetes.core.k8s:
+    state: patched
+    kind: PersistentVolume
+    name: slow-pv-03
+    definition:
+      spec:
+        claimRef: null
+  when: pvc.name == "immich"
+
 - name: "[{{ pvc.name }}] Create destination PVC for restore"
   kubernetes.core.k8s:
     state: present
@@ -122,6 +152,32 @@
     dest_pvc.resources[0].status.phase == "Bound"
   retries: 12
   delay: 5
+  when: pvc.name != "immich"
+
+- name: Sleep for 2 seconds
+  command: sleep 2
+  when: pvc.name == "immich"
+
+- name: Patch PV claimRef for slow-pv-03
+  kubernetes.core.k8s:
+    state: patched
+    kind: PersistentVolume
+    name: slow-pv-03
+    definition:
+      spec:
+        claimRef:
+          namespace: immich
+          name: immich-pg-1
+  when: pvc.name == "immich"
+
+- name: Sleep for 2 seconds
+  command: sleep 2
+  when: pvc.name == "immich"
+
+- name: Ensure slow-services taint is absent
+  command:
+    cmd: kubectl taint node coreos-wk-4 dedicated=slow-services:NoSchedule-
+  when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Deploy ReplicationDestination"
   kubernetes.core.k8s:
@@ -136,11 +192,17 @@
         trigger:
           manual: "restore-{{ lookup('pipe', 'date +%s') }}"
         restic:
+          moverConfig:
+            tolerations:
+              - key: node-role
+                operator: Equal
+                value: slow-services
+                effect: NoSchedule
           moverSecurityContext:
             runAsUser: 26
             runAsGroup: 26
             fsGroup: 26
-          repository: restic-credentials
+          repository: "{{ pvc.secret }}"
           destinationPVC: "{{ pvc.name }}-pg-1"
           cacheStorageClassName: "{{ pvc.storage_class }}"
           cacheCapacity: 1Gi
@@ -148,6 +210,7 @@
             - ReadWriteOnce
           capacity: "{{ pvc_capacity }}"
           copyMethod: Direct
+  # when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Wait for ReplicationDestination to complete"
   kubernetes.core.k8s_info:
@@ -242,6 +305,7 @@
         }]
       }}
   loop: "{{ db_owners }}"
+  when: pvc.name != "immich"
 
 - name: "[{{ pvc.name }}] Recreate CNPG cluster"
   kubernetes.core.k8s:
@@ -267,6 +331,42 @@
           storageClass: "{{ pvc.storage_class }}"
         monitoring:
           enablePodMonitor: true
+  when: pvc.name != "immich"
+
+- name: "[{{ pvc.name }}] Recreate CNPG cluster"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: "{{ pvc.cluster }}"
+        namespace: "{{ pvc.namespace }}"
+        annotations:
+          helm.sh/resource-policy: keep
+      spec:
+        instances: 1
+        affinity:
+          nodeSelector: "{{ immich_node_selector }}"
+          tolerations: "{{ immich_tolerations }}"
+        postgresql:
+          shared_preload_libraries:
+            - vchord.so
+        imageName: "{{ pvc.pg_image }}"
+        enableSuperuserAccess: true
+        superuserSecret:
+          name: "superuser-vault-secret"
+        storage:
+          pvcTemplate:
+            accessModes: [ReadWriteOnce]
+            volumeName: slow-pv-03
+            storageClassName: "{{ pvc.storage_class }}"
+            resources:
+              requests:
+                storage: "{{ pvc_capacity }}"
+        monitoring:
+          enablePodMonitor: true
+  when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Wait for CNPG cluster to be ready"
   kubernetes.core.k8s_info:
@@ -284,6 +384,25 @@
       selectattr('status', 'eq', 'True') | list | length > 0
   retries: 36
   delay: 10
+  when: pvc.name != "immich"
+
+- name: "[{{ pvc.name }}] Wait for CNPG cluster to be ready"
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: immich-pg
+    namespace: "{{ pvc.namespace }}"
+  register: cluster_status
+  until: >-
+    cluster_status.resources | length > 0 and
+    cluster_status.resources[0].status is defined and
+    cluster_status.resources[0].status.conditions is defined and
+    cluster_status.resources[0].status.conditions |
+      selectattr('type', 'eq', 'Ready') |
+      selectattr('status', 'eq', 'True') | list | length > 0
+  retries: 36
+  delay: 10
+  when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Deploy Database CRDs"
   kubernetes.core.k8s:
@@ -300,6 +419,23 @@
         cluster:
           name: "{{ pvc.cluster }}"
   loop: "{{ databases }}"
+  when: pvc.name != "immich"
+
+- name: "[{{ pvc.name }}] Deploy Database CRD"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Database
+      metadata:
+        name: immich-db
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        name: immich
+        owner: immich
+        cluster:
+          name: "{{ pvc.cluster }}"
+  when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Clean up ReplicationDestination"
   kubernetes.core.k8s:
@@ -315,3 +451,8 @@
       - "Restore completed for PVC: {{ pvc.name }}"
       - "Source last sync: {{ rs_info.resources[0].status.lastSyncTime }}"
       - "Cluster ready: shared-pg"
+  
+- name: Ensure slow-services taint is present
+  command:
+    cmd: kubectl taint node coreos-wk-4 dedicated=slow-services:NoSchedule
+  when: pvc.name == "immich"
