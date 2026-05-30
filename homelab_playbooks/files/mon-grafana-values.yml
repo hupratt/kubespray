@@ -54,7 +54,7 @@ grafana:
   grafana.ini:
     database:
       type: postgres
-      host: postgres.postgres.svc.cluster.local:5432
+      host: shared-pg-rw.cn-postgres.svc.cluster.local:5432
       name: grafana
       user: grafana
       password: $__env{GF_DATABASE_PASSWORD}
