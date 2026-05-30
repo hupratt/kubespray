@@ -147,7 +147,7 @@
               - secretKey: RESTIC_REPOSITORY
                 remoteRef:
                   key: "{{ vault_kv_mount }}"
-                  property: RESTIC_DB_REPOSITORY
+                  property: RESTIC_LIB_REPOSITORY
               - secretKey: AWS_ACCESS_KEY_ID
                 remoteRef:
                   key: "{{ vault_kv_restic_mount }}"
