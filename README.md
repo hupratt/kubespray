@@ -278,6 +278,7 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 | etcd       | custom bash script | *.db stored in an S3 storage       | hourly            |
 | Database and filesystems | volsync and restic | PVCs get snapshoted and the incrementals get stored on an external S3 storage | hourly |
 | Proxmox backup server | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | once a week |
+| Proxmox replication | first proxmox backup server gets replicated to the second proxmox backup server | Sync | once a week |
 
 
 #### Backup strategy per service
