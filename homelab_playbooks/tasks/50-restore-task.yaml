@@ -1,59 +1,78 @@
----
-- name: "[{{ pvc.name }}] Set derived vars"
-  ansible.builtin.set_fact:
-    _cluster: "{{ pvc.cluster }}"
-    _pod: "{{ pvc.name }}-pg-1"
-    _pvc: "{{ pvc.name }}-pg-1"
-    _rd: "restore-{{ pvc.name }}"
-    _temp_pvc: "{{ pvc.name }}-restore-temp"
 
-# --- credentials -------------------------------------------------------------
-
-- name: "[{{ pvc.name }}] Read restic Secret"
+- name: "[{{ pvc.name }}] Get latest ReplicationSource snapshot info"
   kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
-    api_version: v1
-    kind: Secret
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationSource
+    name: "cn-postgres-{{ pvc.name }}-pg-1"
     namespace: "{{ pvc.namespace }}"
-    name: "{{ pvc.secret }}"
-  register: _restic_raw
-  failed_when: _restic_raw.resources | length == 0
+  register: rs_info
 
-- name: "[{{ pvc.name }}] Read DB app Secret"
+- name: "[{{ pvc.name }}] Assert ReplicationSource exists and has completed"
+  assert:
+    that:
+      - rs_info.resources | length > 0
+      - rs_info.resources[0].status.lastSyncTime is defined
+    fail_msg: "ReplicationSource not found or has never synced"
+
+- name: "[{{ pvc.name }}] Get PVC capacity from source"
   kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
     api_version: v1
-    kind: Secret
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.name }}-pg-1"
     namespace: "{{ pvc.namespace }}"
-    name: "{{ pvc.name }}-pg-vault-secret"
-    # name: "{{ pvc.name }}-app-secret"
-  register: _db_raw
-  failed_when: _db_raw.resources | length == 0
+  register: source_pvc_info
 
-- name: "[{{ pvc.name }}] Decode credentials"
-  ansible.builtin.set_fact:
-    _rc:
-      key: "{{ _restic_raw.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}"
-      secret: "{{ _restic_raw.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}"
-      password: "{{ _restic_raw.resources[0].data.RESTIC_PASSWORD | b64decode }}"
-      repo: "{{ _restic_raw.resources[0].data.RESTIC_REPOSITORY | b64decode }}/{{ pvc.name }}"
-    _dc:
-      # username: "{{ _db_raw.resources[0].data.DB_USERNAME | b64decode }}"
-      # password: "{{ _db_raw.resources[0].data.DB_PASSWORD | b64decode }}"
-      username: "{{ _db_raw.resources[0].data.username | b64decode }}"
-      password: "{{ _db_raw.resources[0].data.password | b64decode }}"
+- name: "[{{ pvc.name }}] Set PVC capacity fact"
+  set_fact:
+    pvc_capacity: "{{ source_pvc_info.resources[0].spec.resources.requests.storage }}"
 
-# --- Restore to temporary PVC (DON'T touch CNPG PVC) -------------------------
-
-- name: "[{{ pvc.name }}] Create temporary restore PVC"
+- name: "[{{ pvc.name }}] Delete CNPG cluster"
   kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
+    state: absent
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: "{{ pvc.cluster }}"
+    namespace: "{{ pvc.namespace }}"
+
+- name: "[{{ pvc.name }}] Wait for CNPG pods to terminate"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ pvc.namespace }}"
+    label_selectors:
+      - "cnpg.io/cluster={{ pvc.cluster }}"
+  register: pg_pods
+  until: pg_pods.resources | length == 0
+  retries: 24
+  delay: 10
+
+- name: "[{{ pvc.name }}] Delete existing PVC"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.name }}"
+    namespace: "{{ pvc.namespace }}"
+
+- name: "[{{ pvc.name }}] Wait for PVC deletion"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.name }}"
+    namespace: "{{ pvc.namespace }}"
+  register: pvc_gone
+  until: pvc_gone.resources | length == 0
+  retries: 12
+  delay: 5
+
+- name: "[{{ pvc.name }}] Create destination PVC for restore"
+  kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: v1
       kind: PersistentVolumeClaim
       metadata:
-        name: "{{ _temp_pvc }}"
+        name: "{{ pvc.name }}-pg-1"
         namespace: "{{ pvc.namespace }}"
       spec:
         accessModes:
@@ -61,175 +80,138 @@
         storageClassName: "{{ pvc.storage_class }}"
         resources:
           requests:
-            storage: "{{ pvc.storage_size }}"
+            storage: "{{ pvc_capacity }}"
 
+- name: "[{{ pvc.name }}] Wait for destination PVC to be bound"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.name }}-pg-1"
+    namespace: "{{ pvc.namespace }}"
+  register: dest_pvc
+  until: >-
+    dest_pvc.resources | length > 0 and
+    dest_pvc.resources[0].status.phase == "Bound"
+  retries: 12
+  delay: 5
 
-- name: "[{{ pvc.name }}] Create ReplicationDestination to temp PVC"
+- name: "[{{ pvc.name }}] Deploy ReplicationDestination"
   kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
     state: present
     definition:
       apiVersion: volsync.backube/v1alpha1
       kind: ReplicationDestination
       metadata:
-        name: "{{ _rd }}"
+        name: "restore-{{ pvc.name }}"
         namespace: "{{ pvc.namespace }}"
       spec:
         trigger:
-          manual: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
+          manual: "restore-{{ lookup('pipe', 'date +%s') }}"
         restic:
-          repository: "{{ pvc.secret }}"
-          destinationPVC: "{{ _temp_pvc }}"
-          copyMethod: Direct
+          moverSecurityContext:
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+          repository: restic-credentials
+          destinationPVC: "{{ pvc.name }}-pg-1"
           storageClassName: "{{ pvc.storage_class }}"
+          volumeSnapshotClassName: "{{ pvc.snaphost_class }}"
+          cacheStorageClassName: "{{ pvc.storage_class }}"
+          cacheCapacity: 1Gi
           accessModes:
             - ReadWriteOnce
-          moverSecurityContext:
-            runAsUser: 999
-            runAsGroup: 999
-            fsGroup: 999
-
+          capacity: "{{ pvc_capacity }}"
+          copyMethod: Snapshot
 
 - name: "[{{ pvc.name }}] Wait for ReplicationDestination to complete"
   kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
     api_version: volsync.backube/v1alpha1
     kind: ReplicationDestination
-    name: "{{ _rd }}"
+    name: "restore-{{ pvc.name }}"
     namespace: "{{ pvc.namespace }}"
-  register: _rd_status
-  until: 
-    - _rd_status.resources | length > 0
-    - _rd_status.resources[0].status.lastManualSync is defined
-  retries: "{{ (volsync_restore_timeout | default(300) / 10) | int }}"
-  delay: 10
-        
-- name: "[{{ pvc.name }}] Hibernate CNPG Cluster"
+  register: rd_status
+  until: rd_status.resources | length > 0
+    and rd_status.resources[0].status is defined
+    and rd_status.resources[0].status.latestMoverStatus is defined
+    and rd_status.resources[0].status.latestMoverStatus['result'] is defined
+    and rd_status.resources[0].status.latestMoverStatus['result'] == "Successful"
+  retries: 60
+  delay: 15
+
+- name: Build CNPG managed roles
+  set_fact:
+    cnpg_managed_roles: >-
+      {{
+        cnpg_managed_roles | default([]) + [{
+          'name': item.owner,
+          'ensure': 'present',
+          'login': true,
+          'passwordSecret': {'name': item.owner + '-pg-secret'}
+        }]
+      }}
+  loop: "{{ db_owners }}"
+
+- name: "[{{ pvc.name }}] Recreate CNPG cluster"
   kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
-    api_version: postgresql.cnpg.io/v1
-    kind: Cluster
-    name: "{{ _cluster }}"
-    namespace: "{{ pvc.namespace }}"
-    state: patched
-    definition:
-      metadata:
-        annotations:
-          cnpg.io/hibernation: "on"
-
-
-- name: "[{{ pvc.name }}] Wait for pod to terminate"
-  kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
-    api_version: v1
-    kind: Pod
-    namespace: "{{ pvc.namespace }}"
-    name: "{{ _pod }}"
-  register: _pod_gone
-  until: _pod_gone.resources | length == 0
-  retries: 24
-  delay: 5
-
-# Delete the cluster but keep the original PVC for backup
-- name: "[{{ pvc.name }}] Delete CNPG Cluster (preserving original PVC)"
-  kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
-    state: absent
-    api_version: postgresql.cnpg.io/v1
-    kind: Cluster
-    name: "{{ _cluster }}"
-    namespace: "{{ pvc.namespace }}"
-    wait: true
-
-# Remove finalizer if cluster is stuck
-- name: "[{{ pvc.name }}] Remove cluster finalizer if needed"
-  kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
-    state: patched
-    api_version: postgresql.cnpg.io/v1
-    kind: Cluster
-    name: "{{ _cluster }}"
-    namespace: "{{ pvc.namespace }}"
-    definition:
-      metadata:
-        finalizers: []
-  ignore_errors: true
-
-# Recreate cluster using the restored data
-- name: "[{{ pvc.name }}] Recreate CNPG Cluster from restored data"
-  kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
     state: present
     definition:
       apiVersion: postgresql.cnpg.io/v1
       kind: Cluster
       metadata:
-        name: "{{ _cluster }}"
+        name: "{{ pvc.cluster }}"
         namespace: "{{ pvc.namespace }}"
+        annotations:
+          helm.sh/resource-policy: keep
       spec:
         instances: 1
-        storage:
-          size: "{{ pvc.storage_size }}"
-          storageClass: "{{ pvc.storage_class }}"
-        # Don't use bootstrap.recovery - instead use bootstrap.initdb and copy data
+        imageName: "{{ pvc.pg_image }}"
+        enableSuperuserAccess: true
+        superuserSecret:
+          name: "{{ pvc.name }}-pg-superuser-vault-secret"
+        managed:
+          roles: "{{ cnpg_managed_roles }}"
         bootstrap:
           initdb:
-            database: "{{ pvc.name }}"
-            owner: "{{ _dc.username }}"
-            dataChecksums: true
-        # Add affinity and resources as needed
-        affinity:
-          podAntiAffinity:
-            preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 1
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                  - key: cnpg.io/cluster
-                    operator: In
-                    values:
-                    - "{{ _cluster }}"
-                topologyKey: kubernetes.io/hostname
+            database: postgres
+            owner: postgres
+            postInitSQLRefs:
+              secretRefs:
+                - name: cnpg-backup-user
+                  key: setup.sql
+        storage:
+          size: "{{ pvc_capacity }}"
+          storageClass: "{{ pvc.storage_class }}"
+        monitoring:
+          enablePodMonitor: true
 
-- name: "[{{ pvc.name }}] Wait for new pod Ready"
+- name: "[{{ pvc.name }}] Wait for CNPG cluster to be ready"
   kubernetes.core.k8s_info:
-    kubeconfig: "{{ kubeconfig }}"
-    api_version: v1
-    kind: Pod
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: shared-pg
     namespace: "{{ pvc.namespace }}"
-    name: "{{ _pod }}"
-  register: _pod_ready
-  until: 
-    - _pod_ready.resources | length > 0
-    - _pod_ready.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
+  register: cluster_status
+  until: >-
+    cluster_status.resources | length > 0 and
+    cluster_status.resources[0].status is defined and
+    cluster_status.resources[0].status.conditions is defined and
+    cluster_status.resources[0].status.conditions |
+      selectattr('type', 'eq', 'Ready') |
+      selectattr('status', 'eq', 'True') | list | length > 0
   retries: 36
   delay: 10
 
-# --- verify ------------------------------------------------------------------
-
-- name: "[{{ pvc.name }}] Wait for PostgreSQL to be ready"
-  kubernetes.core.k8s_exec:
-    kubeconfig: "{{ kubeconfig }}"
-    namespace: "{{ pvc.namespace }}"
-    pod: "{{ _pod }}"
-    command: "pg_isready"
-  register: _pg_ready
-  until: _pg_ready is success
-  retries: 30
-  delay: 5
-
-
-- name: "[{{ pvc.name }}] Done — {{ _post_count.stdout.strip() }} tables restored"
-  ansible.builtin.debug:
-    msg: "{{ pvc.name }} restored successfully via VolSync."
-
-# --- cleanup -----------------------------------------------------------------
-
-- name: "[{{ pvc.name }}] Delete temporary restore PVC"
+- name: "[{{ pvc.name }}] Clean up ReplicationDestination"
   kubernetes.core.k8s:
-    kubeconfig: "{{ kubeconfig }}"
     state: absent
-    api_version: v1
-    kind: PersistentVolumeClaim
-    name: "{{ _temp_pvc }}"
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "restore-{{ pvc.name }}"
     namespace: "{{ pvc.namespace }}"
+
+- name: "[{{ pvc.name }}] Print restore summary"
+  debug:
+    msg:
+      - "Restore completed for PVC: {{ pvc.name }}"
+      - "Source last sync: {{ rs_info.resources[0].status.lastSyncTime }}"
+      - "Cluster ready: shared-pg"

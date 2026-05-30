@@ -116,6 +116,10 @@
                 exclude:
                   any:
                     - resources:
+                        selector:
+                          matchLabels:
+                            app.kubernetes.io/created-by: volsync
+                    - resources:
                         namespaces:
                           - rook-ceph
                           - kube-system

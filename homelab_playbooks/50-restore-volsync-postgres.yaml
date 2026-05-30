@@ -10,13 +10,33 @@
     volsync_restore_timeout: 600
     dry_run: false
 
+    db_owners:
+      - owner: grafana
+        vault_path: monitoring
+      - owner: netbox
+        vault_path: netbox
+      - owner: authentik
+        vault_path: authentik
+      - owner: patchmon
+        vault_path: patchmon
+      - owner: harbor
+        vault_path: harbor
+      - owner: paperless
+        vault_path: paperless
+      - owner: ubuntu
+        vault_path: makita-booking
+      - owner: linkwarden
+        vault_path: linkwarden 
+
     restore_pvcs:
       - name: shared
         namespace: cn-postgres
         storage_class: rook-ceph-block
         storage_size: 5Gi
         cluster: shared-pg
-        secret: restic-credentials 
+        secret: restic-credentials
+        snaphost_class: ceph-rbd-snapclass
+        pg_image: ghcr.io/cloudnative-pg/postgresql:16
 
       # - name: immich
       #   namespace: immich
