@@ -26,6 +26,24 @@
   set_fact:
     pvc_capacity: "{{ source_pvc_info.resources[0].spec.resources.requests.storage }}"
 
+- name: "[{{ pvc.name }}] Delete all CNPG Database CRDs"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: postgresql.cnpg.io/v1
+    kind: Database
+    namespace: "{{ pvc.namespace }}"
+    delete_all: true
+
+- name: "[{{ pvc.name }}] Wait for Database CRDs to be deleted"
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Database
+    namespace: "{{ pvc.namespace }}"
+  register: db_crds
+  until: db_crds.resources | length == 0
+  retries: 12
+  delay: 5
+
 - name: "[{{ pvc.name }}] Delete CNPG cluster"
   kubernetes.core.k8s:
     state: absent
@@ -74,6 +92,16 @@
       metadata:
         name: "{{ pvc.name }}-pg-1"
         namespace: "{{ pvc.namespace }}"
+        labels:
+          cnpg.io/cluster: "{{ pvc.cluster }}"
+          cnpg.io/instanceName: "{{ pvc.cluster }}-1"
+          cnpg.io/instanceRole: primary
+          cnpg.io/pvcRole: PG_DATA
+          role: primary
+        annotations:
+          cnpg.io/nodeSerial: "1"
+          cnpg.io/operatorVersion: "1.25.0"
+          cnpg.io/pvcStatus: ready
       spec:
         accessModes:
           - ReadWriteOnce
@@ -136,7 +164,7 @@
   retries: 60
   delay: 15
 
-- name: "[{{ pvc.name }}] Remove stale postmaster.pid from restored PVC"
+- name: "[{{ pvc.name }}] Fix PGDATA consistency on restored PVC"
   kubernetes.core.k8s:
     state: present
     definition:
@@ -153,8 +181,13 @@
               claimName: "{{ pvc.name }}-pg-1"
         containers:
           - name: cleanup
-            image: busybox
-            command: ["sh", "-c", "rm -f /data/pgdata/postmaster.pid && echo 'done'"]
+            image: "{{ pvc.pg_image }}"
+            command:
+              - sh
+              - -c
+              - |
+                rm -f /data/pgdata/postmaster.pid
+                echo "done"
             volumeMounts:
               - name: data
                 mountPath: /data
@@ -251,6 +284,22 @@
       selectattr('status', 'eq', 'True') | list | length > 0
   retries: 36
   delay: 10
+
+- name: "[{{ pvc.name }}] Deploy Database CRDs"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Database
+      metadata:
+        name: "{{ item.name }}-db"
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        name: "{{ item.name }}"
+        owner: "{{ item.owner }}"
+        cluster:
+          name: "{{ pvc.cluster }}"
+  loop: "{{ databases }}"
 
 - name: "[{{ pvc.name }}] Clean up ReplicationDestination"
   kubernetes.core.k8s:

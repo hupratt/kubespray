@@ -28,6 +28,34 @@
       - owner: linkwarden
         vault_path: linkwarden 
 
+    databases:
+      - name: grafana
+        owner: grafana
+      - name: netbox
+        owner: netbox
+      - name: authentik
+        owner: authentik
+      - name: patchmon
+        owner: patchmon
+      - name: harbor-core
+        owner: harbor
+      - name: harbor-notary-server
+        owner: harbor
+      - name: harbor-notary-signer
+        owner: harbor
+      - name: harbor-trivy
+        owner: harbor
+      - name: booking
+        owner: ubuntu
+      - name: paperless
+        owner: paperless
+      - name: makita
+        owner: ubuntu
+      - name: linkwarden
+        owner: linkwarden
+      - name: craftstudios
+        owner: ubuntu
+        
     restore_pvcs:
       - name: shared
         namespace: cn-postgres
