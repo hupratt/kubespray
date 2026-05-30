@@ -268,15 +268,16 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 
 #### Backup Flows
 
+3-2-1 strategy. I have 3 copies of my data: the one in production, the one on my proxmox backup server and a remote copy on a cloud server. 
+
 | Flow             | Tool               | Destinations                                                                                 | Schedule          |
 |------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
-| Application PVCs | custom bash script | Volumes are backed up with restic for chunked layered backups  | At minute 30 every 2 hours |
-| Postgres statefulset      | custom bash script | sql dump stored in an S3 storage       | hourly            |
-| Mongodb statefulset       | custom bash script | tar dump stored in an S3 storage       | hourly            |
-| Mariadb statefulset       | custom bash script | sql dump stored in an S3 storage       | hourly            |
-| vault's raft database       | custom bash script | .snap stored in an S3 storage       | hourly            |
+| Postgres statefulset      | custom bash script | sql dump stored in an external S3 storage       | hourly            |
+| Mongodb statefulset       | custom bash script | tar dump stored in an external S3 storage       | hourly            |
+| Mariadb statefulset       | custom bash script | sql dump stored in an external S3 storage       | hourly            |
 | etcd       | custom bash script | *.db stored in an S3 storage       | hourly            |
-
+| Database and filesystems | volsync and restic | PVCs get snapshoted and the incrementals get stored on an external S3 storage | hourly |
+| Proxmox backup server | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | once a week |
 
 
 #### Backup strategy per service
@@ -284,21 +285,21 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 All backups are sent to the cloud based offsite VPS to an S3 storage hosted at hetzner on an ext4 luks encrypted partition
 
 
-| Service | Job type & name | cephfs PVC name | SQL/dump retention | PVC snapshot retention | Target storage |
+| Service | Job type & name | PVC name | SQL/dump retention | PVC snapshot retention | Target storage |
 |---|---|---|---|---|---|
 | **Kubernetes cluster** | | | | | |
 | etcd |  etcdctl snapshot via cronjob to garage s3 | — | 7 days via script itself | | `s3://backup/etcd-backups/` |
 | hashicorp-vault |  backup of the secret manager's raft database | — | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | | `s3://backup/vault/` |
 | **Postgres-backed** | | | | | |
-| prometheus / grafana | postgres sql backup, restic-monitoring | prometheus-grafana | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
-| paperless | postgres sql backup, restic-paperless-data, restic-paperless-media | paperless-data, paperless-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
-| authentik | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| linkwarden | postgres sql backup, restic-linkwarden-data | linkwarden-data | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/` and `s3://backup/restic/` |
-| netbox | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
+| prometheus / grafana | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | prometheus-grafana (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
+| paperless | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | paperless-data (RWX cephfs), paperless-media (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
+| authentik | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
+| linkwarden |  postgres sql backup, cephfs via restic and cloud native postgres PVC backup | linkwarden-data (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
+| netbox | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
 | sftpgo | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| harbor | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| makita | postgres sql backup | makita-static, makita-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/` and `s3://backup/restic/` |
-| booking clone | postgres sql backup | booking-media | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/` and `s3://backup/restic/` |
+| harbor | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
+| makita | postgres sql backup and cloud native postgres PVC backup | makita-static (cephfs RWX), makita-media (cephfs RWX) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/`, `s3://backup/restic/` and `s3://backup/restic-db/` (rbd block) |
+| booking clone | postgres sql backup and cloud native postgres PVC backup | booking-media (cephfs RWX) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/`, `s3://backup/restic/` and `s3://backup/restic-db/` (rbd block) |
 | **MariaDB-backed** | | | | | |
 | vaultwarden | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
 | uptime kuma | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
