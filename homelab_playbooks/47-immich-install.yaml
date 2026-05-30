@@ -22,7 +22,7 @@
 
     immich_library_pv: slow-pv-02
     immich_library_storage_class: slow-local
-    immich_library_storage_size: 2000Gi
+    immich_library_storage_size: 3000Gi
 
     immich_db_pv: slow-pv-03
     immich_db_storage_class: slow-local
@@ -324,3 +324,15 @@
         wait: true
         timeout: 10m0s
         values: "{{ lookup('template', 'charts/immich/immich-values.yml.j2') | from_yaml }}"
+        
+    - name: Set ingressClassName on Immich ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: immich-server
+            namespace: immich
+          spec:
+            ingressClassName: haproxy

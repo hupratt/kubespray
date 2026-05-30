@@ -14,7 +14,11 @@ spec:
     spec:
       hostNetwork: true
       serviceAccountName: haproxy-ingress
-
+      tolerations:
+        - key: "dedicated"
+          operator: "Equal"
+          value: "slow-services"
+          effect: "NoSchedule"
       securityContext:
         seccompProfile:
           type: RuntimeDefault

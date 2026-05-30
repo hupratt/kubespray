@@ -57,21 +57,23 @@
         owner: ubuntu
         
     restore_pvcs:
-      - name: shared
-        namespace: cn-postgres
-        storage_class: rook-ceph-block
-        storage_size: 5Gi
-        cluster: shared-pg
-        secret: restic-credentials
-        snaphost_class: ceph-rbd-snapclass
-        pg_image: ghcr.io/cloudnative-pg/postgresql:16
-
-      # - name: immich
-      #   namespace: immich
+      # - name: shared
+      #   namespace: cn-postgres
       #   storage_class: rook-ceph-block
-      #   storage_size: 2000Gi
-      #   secret: volsync-restic-secret
+      #   storage_size: 5Gi
       #   cluster: shared-pg
+      #   secret: restic-credentials
+      #   snaphost_class: ceph-rbd-snapclass
+      #   pg_image: ghcr.io/cloudnative-pg/postgresql:16
+
+      - name: immich
+        namespace: immich
+        storage_class: slow-local
+        storage_size: 2000Gi
+        cluster: immich-cnpg
+        secret: volsync-restic-secret
+        snaphost_class: ceph-rbd-snapclass
+        pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
 
   tasks:
 
