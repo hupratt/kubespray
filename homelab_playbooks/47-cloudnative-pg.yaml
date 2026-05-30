@@ -29,7 +29,7 @@
       - owner: ubuntu
         vault_path: makita-booking
       - owner: linkwarden
-        vault_path: linkwarden                
+        vault_path: linkwarden 
     databases:
       - name: grafana
         owner: grafana
@@ -55,7 +55,8 @@
         owner: ubuntu
       - name: linkwarden
         owner: linkwarden
-
+      - name: craftstudios
+        owner: ubuntu
 
   tasks:
     - name: Deploy CNPG operator via Helm

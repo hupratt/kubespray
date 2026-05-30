@@ -1,83 +1,51 @@
 ---
-# tasks/volsync_restore_db.yml
-- name: "[{{ db.name }}] Set derived vars"
+- name: "[{{ pvc.name }}] Set derived vars"
   ansible.builtin.set_fact:
-    _cluster: "{{ db.cluster }}"
-    _pod: "{{ db.name }}-pg-1"  # Use name, not db.name
-    _pvc: "{{ db.name }}-pg-1"  # Use name, not db.name
-    _rd: "restore-{{ db.name }}"
-    _temp_pvc: "{{ db.name }}-restore-temp"  # Don't touch CNPG PVCs directly!
+    _cluster: "{{ pvc.cluster }}"
+    _pod: "{{ pvc.name }}-pg-1"
+    _pvc: "{{ pvc.name }}-pg-1"
+    _rd: "restore-{{ pvc.name }}"
+    _temp_pvc: "{{ pvc.name }}-restore-temp"
 
 # --- credentials -------------------------------------------------------------
 
-- name: "[{{ db.name }}] Read restic Secret"
+- name: "[{{ pvc.name }}] Read restic Secret"
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     api_version: v1
     kind: Secret
-    namespace: "{{ db.namespace }}"
-    name: "{{ db.secret }}"
+    namespace: "{{ pvc.namespace }}"
+    name: "{{ pvc.secret }}"
   register: _restic_raw
   failed_when: _restic_raw.resources | length == 0
 
-- name: "[{{ db.name }}] Read DB app Secret"
+- name: "[{{ pvc.name }}] Read DB app Secret"
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     api_version: v1
     kind: Secret
-    namespace: "{{ db.namespace }}"
-    name: "{{ db.name }}-pg-vault-secret"
-    # name: "{{ db.name }}-app-secret"
+    namespace: "{{ pvc.namespace }}"
+    name: "{{ pvc.name }}-pg-vault-secret"
+    # name: "{{ pvc.name }}-app-secret"
   register: _db_raw
   failed_when: _db_raw.resources | length == 0
 
-- name: "[{{ db.name }}] Decode credentials"
+- name: "[{{ pvc.name }}] Decode credentials"
   ansible.builtin.set_fact:
     _rc:
       key: "{{ _restic_raw.resources[0].data.AWS_ACCESS_KEY_ID | b64decode }}"
       secret: "{{ _restic_raw.resources[0].data.AWS_SECRET_ACCESS_KEY | b64decode }}"
       password: "{{ _restic_raw.resources[0].data.RESTIC_PASSWORD | b64decode }}"
-      repo: "{{ _restic_raw.resources[0].data.RESTIC_REPOSITORY | b64decode }}/{{ db.name }}"
+      repo: "{{ _restic_raw.resources[0].data.RESTIC_REPOSITORY | b64decode }}/{{ pvc.name }}"
     _dc:
       # username: "{{ _db_raw.resources[0].data.DB_USERNAME | b64decode }}"
       # password: "{{ _db_raw.resources[0].data.DB_PASSWORD | b64decode }}"
       username: "{{ _db_raw.resources[0].data.username | b64decode }}"
       password: "{{ _db_raw.resources[0].data.password | b64decode }}"
 
-# --- emptiness check ---------------------------------------------------------
-
-# - name: "[{{ db.name }}] Check if DB exists and has tables"
-#   kubernetes.core.k8s_exec:
-#     kubeconfig: "{{ kubeconfig }}"
-#     namespace: "{{ db.namespace }}"
-#     pod: "{{ _pod }}"
-#     command: >-
-#       psql -U {{ _dc.username }} -d {{ db.name }} -tAc
-#       "SELECT COUNT(*) FROM information_schema.tables
-#        WHERE table_schema = 'public'"
-#   register: _count
-#   changed_when: false
-#   ignore_errors: true  # Database might not exist
-
-- name: "[{{ db.name }}] Set restore_needed"
-  ansible.builtin.set_fact:
-    _restore_needed: "0"
-
-# - name: "[{{ db.name }}] Skip — database has tables"
-#   ansible.builtin.debug:
-#     msg: "{{ db.name }} has {{ _count.stdout.strip() }} tables — skipping restore"
-#   when: not _restore_needed
-
-- name: "[{{ db.name }}] Dry-run — would restore from {{ _rc.repo }}"
-  ansible.builtin.debug:
-    msg: "dry_run=true — no changes made for {{ db.name }}."
-  # when:
-  #   - _restore_needed
-  #   - dry_run | bool
-
 # --- Restore to temporary PVC (DON'T touch CNPG PVC) -------------------------
 
-- name: "[{{ db.name }}] Create temporary restore PVC"
+- name: "[{{ pvc.name }}] Create temporary restore PVC"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: present
@@ -86,29 +54,17 @@
       kind: PersistentVolumeClaim
       metadata:
         name: "{{ _temp_pvc }}"
-        namespace: "{{ db.namespace }}"
+        namespace: "{{ pvc.namespace }}"
       spec:
         accessModes:
           - ReadWriteOnce
-        storageClassName: "{{ db.storage_class }}"
+        storageClassName: "{{ pvc.storage_class }}"
         resources:
           requests:
-            storage: "{{ db.storage_size }}"
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
-
-# - name: Remove taint from coreos-wk-4
-#   kubernetes.core.k8s_taint:
-#     kubeconfig: "{{ kubeconfig }}"
-#     state: absent
-#     name: coreos-wk-4
-#     taints:
-#       - key: dedicated
-#         effect: NoSchedule
+            storage: "{{ pvc.storage_size }}"
 
 
-- name: "[{{ db.name }}] Create ReplicationDestination to temp PVC"
+- name: "[{{ pvc.name }}] Create ReplicationDestination to temp PVC"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: present
@@ -117,127 +73,90 @@
       kind: ReplicationDestination
       metadata:
         name: "{{ _rd }}"
-        namespace: "{{ db.namespace }}"
+        namespace: "{{ pvc.namespace }}"
       spec:
         trigger:
           manual: "{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}"
         restic:
-          repository: "{{ db.secret }}"
+          repository: "{{ pvc.secret }}"
           destinationPVC: "{{ _temp_pvc }}"
           copyMethod: Direct
-          storageClassName: "{{ db.storage_class }}"
+          storageClassName: "{{ pvc.storage_class }}"
           accessModes:
             - ReadWriteOnce
           moverSecurityContext:
             runAsUser: 999
             runAsGroup: 999
             fsGroup: 999
-          # moverAffinity:
-          #   nodeAffinity:
-          #     requiredDuringSchedulingIgnoredDuringExecution:
-          #       nodeSelectorTerms:
-          #         - matchExpressions:
-          #             - key: node-role
-          #               operator: In
-          #               values:
-          #                 - slow-services
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
-- name: "[{{ db.name }}] Wait for ReplicationDestination to complete"
+
+- name: "[{{ pvc.name }}] Wait for ReplicationDestination to complete"
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     api_version: volsync.backube/v1alpha1
     kind: ReplicationDestination
     name: "{{ _rd }}"
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
   register: _rd_status
   until: 
     - _rd_status.resources | length > 0
     - _rd_status.resources[0].status.lastManualSync is defined
   retries: "{{ (volsync_restore_timeout | default(300) / 10) | int }}"
   delay: 10
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
-
-# --- Hibernate CNPG and swap PVCs -------------------------------------------
-# - name: Re-add taint to coreos-wk-4
-#   kubernetes.core.k8s_taint:
-#     kubeconfig: "{{ kubeconfig }}"
-#     state: present
-#     name: coreos-wk-4
-#     taints:
-#       - key: dedicated
-#         value: slow-services
-#         effect: NoSchedule
         
-- name: "[{{ db.name }}] Hibernate CNPG Cluster"
+- name: "[{{ pvc.name }}] Hibernate CNPG Cluster"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     api_version: postgresql.cnpg.io/v1
     kind: Cluster
     name: "{{ _cluster }}"
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
     state: patched
     definition:
       metadata:
         annotations:
           cnpg.io/hibernation: "on"
 
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
-- name: "[{{ db.name }}] Wait for pod to terminate"
+- name: "[{{ pvc.name }}] Wait for pod to terminate"
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     api_version: v1
     kind: Pod
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
     name: "{{ _pod }}"
   register: _pod_gone
   until: _pod_gone.resources | length == 0
   retries: 24
   delay: 5
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
 # Delete the cluster but keep the original PVC for backup
-- name: "[{{ db.name }}] Delete CNPG Cluster (preserving original PVC)"
+- name: "[{{ pvc.name }}] Delete CNPG Cluster (preserving original PVC)"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: absent
     api_version: postgresql.cnpg.io/v1
     kind: Cluster
     name: "{{ _cluster }}"
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
     wait: true
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
 # Remove finalizer if cluster is stuck
-- name: "[{{ db.name }}] Remove cluster finalizer if needed"
+- name: "[{{ pvc.name }}] Remove cluster finalizer if needed"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: patched
     api_version: postgresql.cnpg.io/v1
     kind: Cluster
     name: "{{ _cluster }}"
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
     definition:
       metadata:
         finalizers: []
   ignore_errors: true
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
 # Recreate cluster using the restored data
-- name: "[{{ db.name }}] Recreate CNPG Cluster from restored data"
+- name: "[{{ pvc.name }}] Recreate CNPG Cluster from restored data"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: present
@@ -246,16 +165,16 @@
       kind: Cluster
       metadata:
         name: "{{ _cluster }}"
-        namespace: "{{ db.namespace }}"
+        namespace: "{{ pvc.namespace }}"
       spec:
         instances: 1
         storage:
-          size: "{{ db.storage_size }}"
-          storageClass: "{{ db.storage_class }}"
+          size: "{{ pvc.storage_size }}"
+          storageClass: "{{ pvc.storage_class }}"
         # Don't use bootstrap.recovery - instead use bootstrap.initdb and copy data
         bootstrap:
           initdb:
-            database: "{{ db.name }}"
+            database: "{{ pvc.name }}"
             owner: "{{ _dc.username }}"
             dataChecksums: true
         # Add affinity and resources as needed
@@ -271,17 +190,13 @@
                     values:
                     - "{{ _cluster }}"
                 topologyKey: kubernetes.io/hostname
-        # Add your CNPG configuration here
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
-- name: "[{{ db.name }}] Wait for new pod Ready"
+- name: "[{{ pvc.name }}] Wait for new pod Ready"
   kubernetes.core.k8s_info:
     kubeconfig: "{{ kubeconfig }}"
     api_version: v1
     kind: Pod
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
     name: "{{ _pod }}"
   register: _pod_ready
   until: 
@@ -289,72 +204,32 @@
     - _pod_ready.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'Ready') | selectattr('status', 'equalto', 'True') | list | length > 0
   retries: 36
   delay: 10
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
 # --- verify ------------------------------------------------------------------
 
-- name: "[{{ db.name }}] Wait for PostgreSQL to be ready"
+- name: "[{{ pvc.name }}] Wait for PostgreSQL to be ready"
   kubernetes.core.k8s_exec:
     kubeconfig: "{{ kubeconfig }}"
-    namespace: "{{ db.namespace }}"
+    namespace: "{{ pvc.namespace }}"
     pod: "{{ _pod }}"
     command: "pg_isready"
   register: _pg_ready
   until: _pg_ready is success
   retries: 30
   delay: 5
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
-# - name: "[{{ db.name }}] Verify table count post-restore"
-#   kubernetes.core.k8s_exec:
-#     kubeconfig: "{{ kubeconfig }}"
-#     namespace: "{{ db.namespace }}"
-#     pod: "{{ _pod }}"
-#     command: >-
-#       psql -U {{ _dc.username }} -d {{ db.name }} -tAc
-#       "SELECT COUNT(*) FROM information_schema.tables
-#        WHERE table_schema NOT IN ('information_schema','pg_catalog')
-#        AND table_type = 'BASE TABLE'"
-#   environment:
-#     PGPASSWORD: "{{ _dc.password }}"
-#   register: _post_count
-#   changed_when: false
-#   retries: 5
-#   delay: 10
-#   until: _post_count is success
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
 
-# - name: "[{{ db.name }}] Fail if empty after restore"
-#   ansible.builtin.fail:
-#     msg: "{{ db.name }}: 0 tables after restore — check restic snapshot content."
-#   when:
-#     - _restore_needed
-#     - not dry_run | bool
-#     - (_post_count.stdout | default('0')).strip() | int == 0
-
-- name: "[{{ db.name }}] Done — {{ _post_count.stdout.strip() }} tables restored"
+- name: "[{{ pvc.name }}] Done — {{ _post_count.stdout.strip() }} tables restored"
   ansible.builtin.debug:
-    msg: "{{ db.name }} restored successfully via VolSync."
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
+    msg: "{{ pvc.name }} restored successfully via VolSync."
 
 # --- cleanup -----------------------------------------------------------------
 
-- name: "[{{ db.name }}] Delete temporary restore PVC"
+- name: "[{{ pvc.name }}] Delete temporary restore PVC"
   kubernetes.core.k8s:
     kubeconfig: "{{ kubeconfig }}"
     state: absent
     api_version: v1
     kind: PersistentVolumeClaim
     name: "{{ _temp_pvc }}"
-    namespace: "{{ db.namespace }}"
-  # when:
-  #   - _restore_needed
-  #   - not dry_run | bool
+    namespace: "{{ pvc.namespace }}"

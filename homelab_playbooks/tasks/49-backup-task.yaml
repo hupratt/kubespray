@@ -1,101 +1,26 @@
 # -------------------------------------------------------------------------
-# ExternalSecret
-# -------------------------------------------------------------------------
-- name: "[{{ db.name }}] Set derived vars"
-  ansible.builtin.set_fact:
-    _secret_name: "{{ db.name }}-volsync-secrets"
-
-- name: "[{{ db.name }}] Deploy ExternalSecret for VolSync restic credentials"
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: external-secrets.io/v1
-      kind: ExternalSecret
-      metadata:
-        name: "{{ _secret_name }}"
-        namespace: "{{ db.namespace }}"
-      spec:
-        refreshInterval: "1h"
-        secretStoreRef:
-          name: vault-backend
-          kind: ClusterSecretStore
-        target:
-          name: "{{ _secret_name }}"
-          creationPolicy: Owner
-          template:
-            data:
-              # VolSync restic mover expects these exact key names
-              RESTIC_REPOSITORY: "{{ '{{' }} .RESTIC_DB_REPOSITORY {{ '}}' }}/{{ db.name }}"
-              RESTIC_PASSWORD: "{{ '{{' }} .RESTIC_PASSWORD {{ '}}' }}"
-              AWS_ACCESS_KEY_ID: "{{ '{{' }} .AWS_ACCESS_KEY_ID {{ '}}' }}"
-              AWS_SECRET_ACCESS_KEY: "{{ '{{' }} .AWS_SECRET_ACCESS_KEY {{ '}}' }}"
-        data:
-          - secretKey: RESTIC_DB_REPOSITORY
-            remoteRef:
-              key: "{{ vault_kv_path }}"
-              property: RESTIC_DB_REPOSITORY
-          - secretKey: RESTIC_PASSWORD
-            remoteRef:
-              key: "{{ vault_kv_path }}"
-              property: RESTIC_PASSWORD
-          - secretKey: AWS_ACCESS_KEY_ID
-            remoteRef:
-              key: "{{ vault_kv_path }}"
-              property: AWS_ACCESS_KEY_ID
-          - secretKey: AWS_SECRET_ACCESS_KEY
-            remoteRef:
-              key: "{{ vault_kv_path }}"
-              property: AWS_SECRET_ACCESS_KEY
-
-- name: "[{{ db.name }}] Wait for ExternalSecret to sync"
-  kubernetes.core.k8s_info:
-    api_version: external-secrets.io/v1
-    kind: ExternalSecret
-    name: "{{ _secret_name }}"
-    namespace: "{{ db.namespace }}"
-  register: es_status
-  until: >
-    es_status.resources | length > 0 and
-    (es_status.resources[0].status.conditions | default([])
-    | selectattr('type', 'equalto', 'Ready')
-    | selectattr('status', 'equalto', 'True')
-    | list | length) > 0
-  retries: 12
-  delay: 5
-
-# -------------------------------------------------------------------------
 # ReplicationSource
 # -------------------------------------------------------------------------
-- name: "[{{ db.name }}] Deploy VolSync ReplicationSource for postgres"
+- name: "[{{ pvc.pvc_name }}] Deploy VolSync ReplicationSource for postgres"
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: volsync.backube/v1alpha1
       kind: ReplicationSource
       metadata:
-        name: "postgres-{{ db.name }}"
-        namespace: "{{ db.namespace }}"
+        name: "cn-postgres-{{ pvc.pvc_name }}"
+        namespace: "{{ pvc.namespace }}"
       spec:
-        sourcePVC: "{{ db.pvc_name }}"
+        sourcePVC: "{{ pvc.pvc_name }}"
         trigger:
           schedule: "3 * * * *"
         restic:
-          # moverPodLabels:
-          #   volsync.backube/identity: "{{ db.name }}"
           moverSecurityContext:
             runAsUser: 0
             runAsGroup: 0
             fsGroup: 0
-
-          # moverPodTemplate:
-          #   spec:
-          #     containers:
-          #       - name: restic
-          #         env:
-          #           - name: RESTIC_HOST
-          #             value: "{{ db.name }}"
           pruneIntervalDays: 7
-          repository: "{{ _secret_name }}"
+          repository: restic-credentials
           volumeSnapshotClassName: ceph-rbd-snapclass
           storageClassName: rook-ceph-block
           copyMethod: Snapshot
@@ -105,8 +30,3 @@
             daily: 7
             weekly: 4
             monthly: 6
-        # env:
-        #   - name: RESTIC_HOST
-        #     value: "{{ db.name }}"
-        #   - name: RESTIC_TAG
-        #     value: "database-{{ db.name }}"

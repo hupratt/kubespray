@@ -115,3 +115,38 @@ setup mongo and postgres backups cronjobs
      ansible-playbook -i inventory.ini 16-backup-mongo.yaml --ask-vault-pass
 
 encrypt block backups
+
+    migrating to cn-postgres
+
+    pg_dump -Upostgres authentik > authentik_20260530.bak
+    pg_dump -Upostgres booking > booking_20260530.bak
+    pg_dump -Upostgres craftstudios > craftstudios_20260530.bak
+    pg_dump -Upostgres grafana > grafana_20260530.bak
+    pg_dump -Upostgres harbor_core > harbor_core_20260530.bak
+    pg_dump -Upostgres harbor_notary_server > harbor_notserver_20260530.bak
+    pg_dump -Upostgres harbor_notary_signer > harbor_notsign_20260530.bak
+    pg_dump -Upostgres harbor_trivy > harbor_triv_20260530.bak
+    pg_dump -Upostgres linkwarden > linkwarden_20260530.bak
+    pg_dump -Upostgres makita > makita_20260530.bak
+    pg_dump -Upostgres netbox > netbox_20260530.bak
+    pg_dump -Upostgres paperless > paperless_20260530.bak
+    pg_dump -Upostgres patchmon > patchmon_20260530.bak
+
+
+    k cp backup.tgz shared-pg-1:/var/lib/postgresql/data/ -n cn-postgres --container postgres
+    cd /var/lib/postgresql/data/
+    tar -xvzf backup.tgz
+
+    psql -Upostgres authentik < authentik_20260530.bak
+    psql -Upostgres booking < booking_20260530.bak
+    psql -Upostgres craftstudios < craftstudios_20260530.bak
+    psql -Upostgres grafana < grafana_20260530.bak
+    psql -Upostgres harbor_core < harbor_core_20260530.bak
+    psql -Upostgres harbor_notary_server < harbor_notserver_20260530.bak
+    psql -Upostgres harbor_notary_signer < harbor_notsign_20260530.bak
+    psql -Upostgres harbor_trivy < harbor_triv_20260530.bak
+    psql -Upostgres linkwarden < linkwarden_20260530.bak
+    psql -Upostgres makita < makita_20260530.bak
+    psql -Upostgres netbox < netbox_20260530.bak
+    psql -Upostgres paperless < paperless_20260530.bak
+    psql -Upostgres patchmon < patchmon_20260530.bak

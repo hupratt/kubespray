@@ -1,36 +1,4 @@
 ---
-# postgres_volsync_restore.yml
-#
-# Restores PostgreSQL PVCs from restic snapshots via VolSync ReplicationDestination.
-# Targets CloudNativePG Cluster resources (one cluster per database).
-#
-# Flow per database:
-#   1. Read restic + DB credentials from existing cluster Secrets
-#   2. Check if the DB is empty via k8s_exec into the CNPG pod
-#   3. If empty:
-#      a. Suspend the CNPG Cluster via hibernation annotation
-#      b. Wait for pod to terminate
-#      c. Delete and recreate the PVC unbound
-#      d. Create a VolSync ReplicationDestination (manual trigger)
-#      e. Wait for restore to complete
-#      f. Resume the CNPG Cluster
-#      g. Wait for pod Ready
-#      h. Verify table count
-#      i. Clean up ReplicationDestination
-#
-# Naming conventions (one cluster per DB):
-#   CNPG Cluster:   <namespace>-pg
-#   Primary pod:    <namespace>-pg-1
-#   PVC:            <namespace>-pg-1
-#   Restic Secret:  restic-credentials  (per namespace)
-#   DB Secret:      <namespace>-pg-vault-secret
-#   Restic repo:    s3:<endpoint>/<bucket>/<prefix>/<db.name>
-#
-# Usage:
-#   ansible-playbook postgres_volsync_restore.yml \
-#     -i inventory/homelab \
-#     --vault-password-file ~/.vault_pass \
-#     [-e dry_run=true]
 
 - name: PostgreSQL PVC restore via VolSync (CloudNativePG)
   hosts: localhost
@@ -42,47 +10,20 @@
     volsync_restore_timeout: 600
     dry_run: false
 
-    restic_s3_endpoint: "https://garage.example.com"
-    restic_s3_bucket: "volsync-backups"
-    restic_repo_prefix: "postgres"
-
-    restore_databases:
-      - name: harbor
-        namespace: harbor
+    restore_pvcs:
+      - name: shared
+        namespace: cn-postgres
         storage_class: rook-ceph-block
         storage_size: 5Gi
         cluster: shared-pg
-        secret: volsync-restic-secret
+        secret: restic-credentials 
 
-      - name: grafana
-        namespace: monitoring
-        storage_class: rook-ceph-block
-        storage_size: 5Gi
-        cluster: shared-pg
-        secret: volsync-restic-secret
-
-      - name: netbox
-        namespace: netbox
-        storage_class: rook-ceph-block
-        storage_size: 5Gi
-        cluster: shared-pg
-        secret: volsync-restic-secret
-
-      - name: patchmon
-        namespace: patchmon
-        storage_class: rook-ceph-block
-        storage_size: 5Gi
-        cluster: shared-pg
-        secret: volsync-restic-secret
-
-      - name: immich
-        namespace: immich
-        storage_class: rook-ceph-block
-        # storage_class: slow-local
-        storage_size: 2000Gi
-        secret: volsync-restic-secret
-        cluster: shared-pg
-        # cluster: immich-cnpg
+      # - name: immich
+      #   namespace: immich
+      #   storage_class: rook-ceph-block
+      #   storage_size: 2000Gi
+      #   secret: volsync-restic-secret
+      #   cluster: shared-pg
 
   tasks:
 
@@ -105,9 +46,9 @@
       failed_when: _cnpg_crd.resources | length == 0
 
     # loop goes on include_tasks — blocks cannot loop directly
-    - name: Restore database 
+    - name: Restore PVCs 
       ansible.builtin.include_tasks: tasks/50-restore-task.yaml
-      loop: "{{ restore_databases }}"
+      loop: "{{ restore_pvcs }}"
       loop_control:
-        loop_var: db
-        label: "{{ db.name }}"
+        loop_var: pvc
+        label: "{{ pvc.name }}"

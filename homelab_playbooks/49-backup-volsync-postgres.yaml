@@ -7,32 +7,20 @@
     - group_vars/all/vault.yml
   vars:
     vault_kv_path: "restic"
-    backup_databases:
-      - name: grafana
-        namespace: cn-postgres
-        pvc_name: shared-pg-1
 
-      - name: netbox
+    backup_pvc:
+      - pvc_name: shared-pg-1
         namespace: cn-postgres
-        pvc_name: shared-pg-1
-
-      - name: harbor
-        namespace: cn-postgres
-        pvc_name: shared-pg-1
-
-      - name: patchmon
-        namespace: cn-postgres
-        pvc_name: shared-pg-1
 
   tasks:
 
     # loop goes on include_tasks — blocks cannot loop directly
-    - name: Backup database {{ db.name }}
+    - name: Backup PVC {{ pvc.pvc_name }}
       ansible.builtin.include_tasks: tasks/49-backup-task.yaml
-      loop: "{{ backup_databases }}"
+      loop: "{{ backup_pvc }}"
       loop_control:
-        loop_var: db
-        label: "{{ db.name }}"
+        loop_var: pvc
+        label: "{{ pvc.pvc_name }}"
 
 
 # kubectl describe replicationsource postgres-backup -n postgres
