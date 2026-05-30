@@ -114,14 +114,12 @@
             fsGroup: 26
           repository: restic-credentials
           destinationPVC: "{{ pvc.name }}-pg-1"
-          storageClassName: "{{ pvc.storage_class }}"
-          volumeSnapshotClassName: "{{ pvc.snaphost_class }}"
           cacheStorageClassName: "{{ pvc.storage_class }}"
           cacheCapacity: 1Gi
           accessModes:
             - ReadWriteOnce
           capacity: "{{ pvc_capacity }}"
-          copyMethod: Snapshot
+          copyMethod: Direct
 
 - name: "[{{ pvc.name }}] Wait for ReplicationDestination to complete"
   kubernetes.core.k8s_info:
@@ -137,6 +135,67 @@
     and rd_status.resources[0].status.latestMoverStatus['result'] == "Successful"
   retries: 60
   delay: 15
+
+- name: "[{{ pvc.name }}] Remove stale postmaster.pid from restored PVC"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: pgdata-cleanup
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        restartPolicy: Never
+        volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: "{{ pvc.name }}-pg-1"
+        containers:
+          - name: cleanup
+            image: busybox
+            command: ["sh", "-c", "rm -f /data/pgdata/postmaster.pid && echo 'done'"]
+            volumeMounts:
+              - name: data
+                mountPath: /data
+            securityContext:
+              runAsUser: 26
+              runAsGroup: 26
+            readinessProbe:
+              exec:
+                command: ["sh", "-c", "true"]
+              initialDelaySeconds: 1
+              periodSeconds: 5
+            livenessProbe:
+              exec:
+                command: ["sh", "-c", "true"]
+              initialDelaySeconds: 1
+              periodSeconds: 5
+
+- name: "[{{ pvc.name }}] Wait for cleanup pod to complete"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: pgdata-cleanup
+    namespace: "{{ pvc.namespace }}"
+  register: cleanup_pod
+  until: cleanup_pod.resources[0].status.phase in ['Succeeded', 'Failed']
+  retries: 12
+  delay: 5
+
+- name: "[{{ pvc.name }}] Assert cleanup succeeded"
+  assert:
+    that:
+      - cleanup_pod.resources[0].status.phase == "Succeeded"
+    fail_msg: "postmaster.pid cleanup pod failed"
+
+- name: "[{{ pvc.name }}] Delete cleanup pod"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    name: pgdata-cleanup
+    namespace: "{{ pvc.namespace }}"
 
 - name: Build CNPG managed roles
   set_fact:
@@ -170,14 +229,6 @@
           name: "{{ pvc.name }}-pg-superuser-vault-secret"
         managed:
           roles: "{{ cnpg_managed_roles }}"
-        bootstrap:
-          initdb:
-            database: postgres
-            owner: postgres
-            postInitSQLRefs:
-              secretRefs:
-                - name: cnpg-backup-user
-                  key: setup.sql
         storage:
           size: "{{ pvc_capacity }}"
           storageClass: "{{ pvc.storage_class }}"
