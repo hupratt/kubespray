@@ -62,7 +62,7 @@
               - secretKey: password
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: db-password
+                  property: pg_password
 
     - name: Deploy ExternalSecret for PatchMon Redis
       kubernetes.core.k8s:

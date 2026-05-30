@@ -10,7 +10,7 @@ fullnameOverride: "patchmon"
 # Disable chart-managed postgres - use external shared StatefulSet
 database:
   enabled: false
-  host: "postgres.postgres.svc.cluster.local"
+  host: "shared-pg-rw.cn-postgres.svc.cluster.local"
   port: 5432
   auth:
     database: patchmon
