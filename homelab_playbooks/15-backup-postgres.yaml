@@ -16,7 +16,7 @@
           kind: Secret
           metadata:
             name: aws-credentials
-            namespace: postgres
+            namespace: cn-postgres
           type: Opaque
           stringData:
             AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
@@ -30,7 +30,7 @@
           kind: CronJob
           metadata:
             name: pgdump-backup
-            namespace: postgres
+            namespace: cn-postgres
           spec:
             schedule: "0 0 31 2 *"
             successfulJobsHistoryLimit: 3
