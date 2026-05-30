@@ -9,7 +9,7 @@
     immich_namespace: immich
 
     immich_library_storage_class: slow-local
-    immich_db_storage_class: rook-ceph-block
+    immich_db_storage_class: slow-local
 
     volsync_schedule: "0 2 * * *"
     volsync_retain_hourly: 24
@@ -21,33 +21,40 @@
 
     # ── VolSync ReplicationSources ───────────────────────────────────────────
 
-    # - name: Deploy VolSync ReplicationSource for Immich library
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: volsync.backube/v1alpha1
-    #       kind: ReplicationSource
-    #       metadata:
-    #         name: immich-library-backup
-    #         namespace: "{{ immich_namespace }}"
-    #       spec:
-    #         sourcePVC: immich-library
-    #         trigger:
-    #           schedule: "{{ volsync_schedule }}"
-    #         restic:
-    #           pruneIntervalDays: 7
-    #           repository: volsync-restic-secret
-    #           retain:
-    #             hourly: "{{ volsync_retain_hourly }}"
-    #             daily: "{{ volsync_retain_daily }}"
-    #             weekly: "{{ volsync_retain_weekly }}"
-    #             monthly: "{{ volsync_retain_monthly }}"
-    #           copyMethod: Direct
-    #           storageClassName: "{{ immich_library_storage_class }}"
-    #           moverSecurityContext:
-    #             runAsUser: 1000
-    #             runAsGroup: 1000
-    #             fsGroup: 1000
+    - name: Deploy VolSync ReplicationSource for Immich library
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: volsync.backube/v1alpha1
+          kind: ReplicationSource
+          metadata:
+            name: immich-library-backup
+            namespace: "{{ immich_namespace }}"
+          spec:
+            sourcePVC: immich-library
+            trigger:
+              schedule: "{{ volsync_schedule }}"
+            restic:
+              pruneIntervalDays: 7
+              repository: volsync-restic-secret-library
+              retain:
+                hourly: "{{ volsync_retain_hourly }}"
+                daily: "{{ volsync_retain_daily }}"
+                weekly: "{{ volsync_retain_weekly }}"
+                monthly: "{{ volsync_retain_monthly }}"
+              copyMethod: Direct
+              storageClassName: "{{ immich_library_storage_class }}"
+              moverSecurityContext:
+                runAsUser: 1000
+                runAsGroup: 1000
+                fsGroup: 1000
+              moverPodTemplateSpec:
+                spec:
+                  tolerations:
+                    - key: node-role
+                      operator: Equal
+                      value: slow-services
+                      effect: NoSchedule
 
     - name: Deploy VolSync ReplicationSource for Immich DB
       kubernetes.core.k8s:
@@ -59,12 +66,12 @@
             name: immich-db-backup
             namespace: "{{ immich_namespace }}"
           spec:
-            sourcePVC: immich-cnpg-1
+            sourcePVC: immich-pg-1
             trigger:
               schedule: "{{ volsync_schedule }}"
             restic:
               pruneIntervalDays: 7
-              repository: volsync-restic-secret
+              repository: volsync-restic-secret-db
               retain:
                 hourly: "{{ volsync_retain_hourly }}"
                 daily: "{{ volsync_retain_daily }}"
@@ -82,7 +89,7 @@
               moverPodTemplateSpec:
                 spec:
                   tolerations:
-                    - key: dedicated
+                    - key: node-role
                       operator: Equal
                       value: slow-services
                       effect: NoSchedule

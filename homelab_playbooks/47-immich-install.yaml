@@ -122,14 +122,14 @@
                   key: "{{ vault_kv_mount }}"
                   property: name
 
-    - name: Deploy ExternalSecret for VolSync restic repository
+    - name: Deploy ExternalSecret for VolSync library
       kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: volsync-restic-secret
+            name: volsync-restic-secret-library
             namespace: "{{ immich_namespace }}"
           spec:
             refreshInterval: 1h
@@ -137,7 +137,42 @@
               name: "{{ vault_secret_store }}"
               kind: ClusterSecretStore
             target:
-              name: volsync-restic-secret
+              name: volsync-restic-secret-library
+              creationPolicy: Owner
+            data:
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: RESTIC_PASSWORD
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: RESTIC_DB_REPOSITORY
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_SECRET_ACCESS_KEY
+
+    - name: Deploy ExternalSecret for VolSync restic repository
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: volsync-restic-secret-db
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: volsync-restic-secret-db
               creationPolicy: Owner
             data:
               - secretKey: RESTIC_PASSWORD
@@ -175,7 +210,8 @@
       loop:
         - immich-db-secret
         - immich-app-secret
-        - volsync-restic-secret
+        - volsync-restic-secret-db
+        - volsync-restic-secret-library
 
     - name: Create ExternalSecret for shared cluster superuser
       kubernetes.core.k8s:

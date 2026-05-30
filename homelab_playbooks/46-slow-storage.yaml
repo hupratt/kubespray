@@ -17,6 +17,8 @@
         size: 3000Gi
       - name: volsync-restore-immich-cache
         size: 1Gi
+      - name: volsync-src-immich-library-backup-cache
+        size: 1Gi
 
   tasks:
 
