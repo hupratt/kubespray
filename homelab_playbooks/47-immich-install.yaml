@@ -20,7 +20,7 @@
         value: slow-services
         effect: NoSchedule
 
-    immich_library_pv: slow-pv-02
+    immich_library_pv: immich-library
     immich_library_storage_class: slow-local
     immich_library_storage_size: 3000Gi
 
