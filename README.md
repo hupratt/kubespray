@@ -84,6 +84,7 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 | <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving |
 | <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates |
 | 🌐 | **Chirpy** | Self-hosted microblogging platform |
+| 🌐 | **Youtube-clone** | Self-hosted video platform |
 | <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | SFTP / FTP / WebDAV server with S3 backend support |
 | 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
 | <img src="./icons/posthog.svg" width="16"/> | **PostHog** | Product analytics and event tracking |
