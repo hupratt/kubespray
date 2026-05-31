@@ -79,6 +79,7 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 
 | | Application | Description |
 |---|---|---|
+| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi |
 | <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search |
 | <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving |
 | <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates |
@@ -293,6 +294,7 @@ All backups are sent to the cloud based offsite VPS to an S3 storage hosted at h
 | hashicorp-vault |  backup of the secret manager's raft database | — | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | | `s3://backup/vault/` |
 | **Postgres-backed** | | | | | |
 | prometheus / grafana | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | prometheus-grafana (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
+| immich | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | immich-library (static PV RWO on zfs) and immich-pg-1 (static PV RWO on zfs) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/immich-lib/` and `s3:///backup/immich-db/` |
 | paperless | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | paperless-data (RWX cephfs), paperless-media (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
 | authentik | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
 | linkwarden |  postgres sql backup, cephfs via restic and cloud native postgres PVC backup | linkwarden-data (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
