@@ -11,11 +11,24 @@
     backup_pvc:
       - pvc_name: shared-pg-1
         namespace: cn-postgres
+      - pvc_name: immich-library
+        namespace: immich
+      - pvc_name: immich-pg-1
+        namespace: immich
+
+    immich_library_storage_class: slow-local
+    immich_db_storage_class: slow-local
+
+    volsync_schedule: "0 2 * * *"
+    volsync_retain_hourly: 24
+    volsync_retain_daily: 7
+    volsync_retain_weekly: 4
+    volsync_retain_monthly: 3
 
   tasks:
 
     # loop goes on include_tasks — blocks cannot loop directly
-    - name: Backup PVC {{ pvc.pvc_name }}
+    - name: Backup PVC
       ansible.builtin.include_tasks: tasks/08d-backup-task.yaml
       loop: "{{ backup_pvc }}"
       loop_control:
