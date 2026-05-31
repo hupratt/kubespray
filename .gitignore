@@ -1,3 +1,4 @@
+backup-matrix/node_modules
 .vagrant
 *.retry
 **/vagrant_ansible_inventory
