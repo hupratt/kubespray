@@ -74,7 +74,7 @@
                           - name: PGPASSWORD
                             value: "{{ POSTGRES_BACKUP_PASSWORD }}"
                           - name: PG_TARGETS
-                            value: "grafana linkwarden netbox authentik makita paperless harbor_core harbor_notary_server harbor_notary_signer harbor_trivy booking patchmon"
+                            value: "grafana linkwarden netbox authentik makita paperless harbor_core harbor_notary_server harbor_notary_signer harbor_trivy booking patchmon youtubeclone"
                         volumeMounts:
                           - name: backupoutput
                             mountPath: /home/postgres/backupoutput

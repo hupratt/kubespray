@@ -40,7 +40,7 @@
         definition:
           metadata:
             annotations:
-              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,backup,booking,cert-manager,chirpy,cilium-secrets,cn-postgres,etcd-backup,frigate,haproxy,harbor,immich,kubewarden,linkwarden,makita,mariadb,mongo-express,mongodb,monitoring,netbox,open-webui,paperless,rook-ceph,sftpgo,spotify,thrifty,trellis,vault,vaultwarden,www-portfolio"
+              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,backup,booking,cert-manager,chirpy,cilium-secrets,cn-postgres,etcd-backup,frigate,haproxy,harbor,immich,kubewarden,linkwarden,makita,mariadb,mongo-express,mongodb,monitoring,netbox,open-webui,paperless,rook-ceph,sftpgo,spotify,thrifty,trellis,vault,vaultwarden,www-portfolio,youtube"
 
     - name: Apply chirpy deployment, svc, pvc and the ingress
       kubernetes.core.k8s:

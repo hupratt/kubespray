@@ -7,10 +7,10 @@
     storage_base: /var/mnt/slow-storage
     storage_class: slow-local
     pvs:
+      # technitium/technitium-technitium-dnsserver-config
       - name: slow-pv-01
         size: 50Gi
-      - name: slow-pv-02
-        size: 3000Gi
+      # immich/immich-pg-1
       - name: slow-pv-03
         size: 100Gi
       - name: immich-restore-temp
@@ -87,6 +87,58 @@
             storageClassName: "{{ storage_class }}"
             local:
               path: "/var/mnt/immich/immich/library"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolume youtubeclone-static
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: youtubeclone-static
+          spec:
+            capacity:
+              storage: 3000Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/var/mnt/youtube/youtubeclone-dockerized/static"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolume youtubeclone-uploads
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: youtubeclone-uploads
+          spec:
+            capacity:
+              storage: 100Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/var/mnt/youtube/youtubeclone-dockerized/vids"
             nodeAffinity:
               required:
                 nodeSelectorTerms:

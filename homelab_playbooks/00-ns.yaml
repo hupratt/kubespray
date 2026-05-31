@@ -45,6 +45,7 @@
       - vaultwarden
       - volsync
       - www-portfolio
+      - youtube
 
   tasks:
     - name: Ensure namespaces exist

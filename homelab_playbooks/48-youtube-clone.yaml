@@ -1,0 +1,224 @@
+---
+- name: Deploy youtubeclone-backend to Kubernetes with ESO + Vault
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # ── Vault ───────────────────────────────────────────────────────────────────
+    vault_addr: "https://vault.thekor.eu"      # your Vault address
+    vault_token: "{{ lookup('env', 'VAULT_TOKEN') }}"
+    vault_kv_mount: youtube
+    vault_kv_ubuntu_mount: makita-booking 
+    vault_secret_path: "youtubeclone/backend"    # path inside KV; full: secret/data/youtubeclone/backend
+
+    # ── Kubernetes ───────────────────────────────────────────────────────────────
+    k8s_namespace: "youtube"
+    kubeconfig: "~/.kube/config"    # override with KUBECONFIG env var if needed
+
+    # ── Image ────────────────────────────────────────────────────────────────────
+    backend_image: "registry.thekor.eu/docker/youtubeclone/youtubeclone-dockerized-backend:latest"
+
+    # ── Networking ──────────────────────────────────────────────────────────────
+    app_hostname: "youtube.thekor.eu"
+    ingress_class: "haproxy"
+
+    # ── Storage ──────────────────────────────────────────────────────────────────
+    storage_class: "slow-local"
+    static_pvc_size: "2Gi"
+    uploads_pvc_size: "100Gi"
+
+    # ── Deployment ───────────────────────────────────────────────────────────────
+    replicas: 1
+
+  tasks:
+
+    - name: Create ExternalSecret for app .env
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: youtubeclone-env
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: youtubeclone-env
+              creationPolicy: Owner
+              template:
+                engineVersion: v2
+                data:
+                  DATABASE_USR: "{{ '{{' }} .DATABASE_USR {{ '}}' }}"
+                  DATABASE_PW: "{{ '{{' }} .DATABASE_PW {{ '}}' }}"
+                  DATABASE_HST: shared-pg-rw.cn-postgres.svc
+                  DATABASE_URL: "postgresql://{{ '{{' }} .DATABASE_USR {{ '}}' }}:{{ '{{' }} .DATABASE_PW {{ '}}' }}@shared-pg-rw.cn-postgres.svc/{{ '{{' }} .DATABASE_NM {{ '}}' }}"
+                  JWT_SECRET: "{{ '{{' }} .JWT_SECRET {{ '}}' }}"
+                  JWT_EXPIRE: 30d
+                  FILE_UPLOAD_PATH: public/uploads/
+                  FILE_SIZE: "0"
+                  USER_ID_PROD: 972892ce-59ac-44b0-9922-62d2eb8ce961
+                  USER_ID: 5adc6932-3029-4c85-9db8-9124c89652e6
+                  PORT: "3000"
+            data:
+              - secretKey: DATABASE_USR
+                remoteRef:
+                  key: "{{ vault_kv_ubuntu_mount }}"
+                  property: pg_username
+              - secretKey: DATABASE_PW
+                remoteRef:
+                  key: "{{ vault_kv_ubuntu_mount }}"
+                  property: pg_password
+              - secretKey: DATABASE_NM
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: DATABASE_NM
+              - secretKey: JWT_SECRET
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: JWT_SECRET
+
+    - name: Create PVCs
+      kubernetes.core.k8s:
+        state: present
+        definition: "{{ item }}"
+      loop:
+        - apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: youtubeclone-static
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: "{{ storage_class }}"
+            resources:
+              requests:
+                storage: "{{ static_pvc_size }}"
+        - apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: youtubeclone-uploads
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: "{{ storage_class }}"
+            resources:
+              requests:
+                storage: "{{ uploads_pvc_size }}"
+
+    - name: Deploy youtubeclone-backend
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: youtubeclone-backend
+            namespace: "{{ k8s_namespace }}"
+            labels:
+              app: youtubeclone-backend
+          spec:
+            replicas: "{{ replicas }}"
+            selector:
+              matchLabels:
+                app: youtubeclone-backend
+            template:
+              metadata:
+                labels:
+                  app: youtubeclone-backend
+              spec:
+                imagePullSecrets:
+                  - name: docker-registry-secret
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                  runAsGroup: 1000
+                  fsGroup: 1000
+                containers:
+                  - name: backend
+                    image: "{{ backend_image }}"
+                    imagePullPolicy: Always
+                    ports:
+                      - containerPort: 3000
+                        name: http
+                    envFrom:
+                      - secretRef:
+                          name: youtubeclone-env   # populated by ExternalSecret
+                    volumeMounts:
+                      - name: static
+                        mountPath: /backend/static
+                      - name: uploads
+                        mountPath: /backend/public/uploads/netgear
+                    resources:
+                      requests:
+                        cpu: "100m"
+                        memory: "256Mi"
+                      limits:
+                        memory: "512Mi"
+                    readinessProbe:
+                      tcpSocket:
+                        port: 3000
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                    livenessProbe:
+                      tcpSocket:
+                        port: 3000
+                      initialDelaySeconds: 30
+                      periodSeconds: 30
+
+                volumes:
+                  - name: static
+                    persistentVolumeClaim:
+                      claimName: youtubeclone-static
+                  - name: uploads
+                    persistentVolumeClaim:
+                      claimName: youtubeclone-uploads
+    
+    - name: Create Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: youtubeclone-backend
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            selector:
+              app: youtubeclone-backend
+            ports:
+              - name: http
+                port: 3000
+                targetPort: 3000
+
+    - name: Create Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: youtubeclone-backend
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            ingressClassName: "{{ ingress_class }}"
+            tls:
+              - hosts:
+                  - "{{ app_hostname }}"
+                secretName: youtubeclone-tls
+            rules:
+              - host: "{{ app_hostname }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: youtubeclone-backend
+                          port:
+                            number: 3000
+

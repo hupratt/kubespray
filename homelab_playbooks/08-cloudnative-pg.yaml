@@ -57,6 +57,8 @@
         owner: linkwarden
       - name: craftstudios
         owner: ubuntu
+      - name: youtubeclone
+        owner: ubuntu
 
   tasks:
     - name: Deploy CNPG operator via Helm
