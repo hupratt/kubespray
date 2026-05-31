@@ -110,7 +110,7 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 | <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
 | <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
 | <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
-
+---
 </details>
 
 ### Directory Helper
@@ -257,9 +257,9 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 | Spotify family              | Podcast & music to keep afloat                                                                       | €21.99/month      |
 |                             |                                                                                                      | Total: ~€49/month |
 
+---
 </details>
 
----
 
 ### 💾 Backup Architecture
 
@@ -287,38 +287,12 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 All backups are sent to the cloud based offsite VPS to an S3 storage hosted at hetzner on an ext4 luks encrypted partition
 
 
-| Service | Job type & name | PVC name | SQL/dump retention | PVC snapshot retention | Target storage |
-|---|---|---|---|---|---|
-| **Kubernetes cluster** | | | | | |
-| etcd |  etcdctl snapshot via cronjob to garage s3 | — | 7 days via script itself | | `s3://backup/etcd-backups/` |
-| hashicorp-vault |  backup of the secret manager's raft database | — | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | | `s3://backup/vault/` |
-| **Postgres-backed** | | | | | |
-| prometheus / grafana | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | prometheus-grafana (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
-| immich | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | immich-library (static PV RWO on zfs) and immich-pg-1 (static PV RWO on zfs) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/immich-lib/` and `s3:///backup/immich-db/` |
-| paperless | postgres sql backup, cephfs via restic and cloud native postgres PVC backup | paperless-data (RWX cephfs), paperless-media (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
-| authentik | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
-| linkwarden |  postgres sql backup, cephfs via restic and cloud native postgres PVC backup | linkwarden-data (RWX cephfs) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month)| `s3://backup/db/`, `s3://backup/restic/` (cephfs) and `s3://backup/restic-db/` (rbd block) |
-| netbox | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
-| sftpgo | postgres sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| harbor | postgres sql backup and cloud native postgres PVC backup | shared-pg-1 (rbd block RWO) | 7 days via bucket policy | | `s3://backup/db/` and `s3://backup/restic-db/` (rbd block) |
-| makita | postgres sql backup and cloud native postgres PVC backup | makita-static (cephfs RWX), makita-media (cephfs RWX) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/`, `s3://backup/restic/` and `s3://backup/restic-db/` (rbd block) |
-| booking clone | postgres sql backup and cloud native postgres PVC backup | booking-media (cephfs RWX) and shared-pg-1 (rbd block RWO) | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/`, `s3://backup/restic/` and `s3://backup/restic-db/` (rbd block) |
-| **MariaDB-backed** | | | | | |
-| vaultwarden | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| uptime kuma | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| sftpgo      | mariadb sql backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| technitium  | mariadb sql backup | — | 7 days via bucket policy | the last 7 daily snapshots, the last 4 weekly snapshots (one per week) and the last 6 monthly snapshots (one per month) | `s3://backup/db/` and `s3://backup/restic/` |
-| **MongoDB-backed** | | | | | |
-| amazon clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| trello clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| spotify clone | mongo backup | — | 7 days via bucket policy | | `s3://backup/db/` |
-| **Stateless** | | | | | |
-| pushgateway | stateless no backup needed | — | — | | |
-
+![Backup Matrix](./backup-matrix/backup-matrix.png)
+---
 </details>
 
 
----
+
 
 ### 🔧 Hardware
 

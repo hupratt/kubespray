@@ -8,10 +8,10 @@
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { background: #fff; color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; padding: 2rem; }
-  .bm { max-width: 1000px; margin: 0 auto; }
+  .bm { max-width: 1200px; margin: 0 auto; }
   h1 { font-size: 18px; font-weight: 500; margin-bottom: 1.5rem; color: #1a1a1a; }
-  .col-head { display: grid; grid-template-columns: 200px 1fr 1fr 120px 160px; gap: 0; padding: 6px 8px; font-size: 11px; font-weight: 500; color: #666; border-bottom: 1px solid #ddd; background: #fafafa; }
-  .row { display: grid; grid-template-columns: 200px 1fr 1fr 120px 160px; gap: 0; border-bottom: 0.5px solid #eee; }
+  .col-head { display: grid; grid-template-columns: 180px 1fr 160px 110px 150px 180px; gap: 0; padding: 6px 8px; font-size: 11px; font-weight: 500; color: #666; border-bottom: 1px solid #ddd; background: #fafafa; }
+  .row { display: grid; grid-template-columns: 180px 1fr 160px 110px 150px 180px; gap: 0; border-bottom: 0.5px solid #eee; }
   .row:hover { background: #f9f9f9; }
   .section-header { display: flex; align-items: center; gap: 8px; padding: 6px 8px 4px; margin: 1.2rem 0 0.3rem; border-bottom: 0.5px solid #ddd; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #888; }
   .section-header i { font-size: 14px; }
@@ -23,12 +23,13 @@
   .tag-pg      { background: #E6F1FB; color: #0C447C; }
   .tag-maria   { background: #FAEEDA; color: #633806; }
   .tag-mongo   { background: #EAF3DE; color: #27500A; }
-  .tag-s3      { background: #EEEDFE; color: #3C3489; }
   .tag-restic  { background: #E1F5EE; color: #085041; }
   .tag-snap    { background: #FBEAF0; color: #72243E; }
   .tag-etcd    { background: #FCEBEB; color: #791F1F; }
   .tag-vault   { background: #FAEEDA; color: #633806; }
   .tag-neutral { background: #f0f0f0; color: #555; }
+  .s3path { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; color: #3C3489; background: #EEEDFE; padding: 2px 7px; border-radius: 10px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
+  .s3path i { font-size: 11px; }
   .muted  { color: #888; font-size: 12px; width: 100%; }
   .none   { color: #bbb; font-style: italic; font-size: 12px; }
   .legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 1.5rem; padding-top: 1rem; border-top: 0.5px solid #ddd; }
@@ -44,24 +45,27 @@
     <div>PVCs</div>
     <div>DB retention</div>
     <div>Snapshot retention</div>
+    <div>Target storage</div>
   </div>
 
   <div class="section-header"><i class="ti ti-server-2"></i> Kubernetes cluster</div>
 
   <div class="row">
     <div class="cell svc"><i class="ti ti-database-cog"></i> etcd</div>
-    <div class="cell"><span class="tag tag-etcd"><i class="ti ti-box"></i>etcdctl snapshot</span><span class="tag tag-s3"><i class="ti ti-brand-aws"></i>s3://backup/etcd-backups/</span></div>
+    <div class="cell"><span class="tag tag-etcd"><i class="ti ti-box"></i>etcdctl snapshot</span></div>
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/etcd-backups/</span></div>
   </div>
 
   <div class="row">
     <div class="cell svc"><i class="ti ti-lock"></i> hashicorp vault</div>
-    <div class="cell"><span class="tag tag-vault"><i class="ti ti-database-export"></i>raft DB backup</span><span class="tag tag-s3"><i class="ti ti-brand-aws"></i>s3://backup/vault/</span></div>
+    <div class="cell"><span class="tag tag-vault"><i class="ti ti-database-export"></i>raft DB backup</span></div>
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/vault/</span></div>
   </div>
 
   <div class="section-header"><i class="ti ti-database"></i> Postgres-backed</div>
@@ -72,6 +76,7 @@
     <div class="cell"><span class="muted">prometheus-grafana (RWX)</span><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -80,6 +85,7 @@
     <div class="cell"><span class="muted">immich-library (ZFS RWO)</span><span class="muted">immich-pg-1 (ZFS RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/immich-lib/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/immich-db/</span></div>
   </div>
 
   <div class="row">
@@ -88,6 +94,7 @@
     <div class="cell"><span class="muted">paperless-data (RWX)</span><span class="muted">paperless-media (RWX)</span><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -96,6 +103,7 @@
     <div class="cell"><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -104,6 +112,7 @@
     <div class="cell"><span class="muted">linkwarden-data (RWX)</span><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -112,6 +121,7 @@
     <div class="cell"><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -120,6 +130,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="row">
@@ -128,6 +139,7 @@
     <div class="cell"><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -136,6 +148,7 @@
     <div class="cell"><span class="muted">makita-static/media (RWX)</span><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="row">
@@ -144,6 +157,7 @@
     <div class="cell"><span class="muted">booking-media (RWX)</span><span class="muted">shared-pg-1 (RWO)</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
 
   <div class="section-header"><i class="ti ti-database"></i> MariaDB-backed</div>
@@ -154,6 +168,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="row">
@@ -162,6 +177,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="row">
@@ -170,6 +186,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="row">
@@ -178,6 +195,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span></div>
   </div>
 
   <div class="section-header"><i class="ti ti-brand-mongodb"></i> MongoDB-backed</div>
@@ -188,6 +206,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="row">
@@ -196,6 +215,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="row">
@@ -204,6 +224,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span></div>
   </div>
 
   <div class="section-header"><i class="ti ti-circle-dashed"></i> Stateless</div>
@@ -214,6 +235,7 @@
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="none">—</span></div>
     <div class="cell"><span class="none">—</span></div>
+    <div class="cell"><span class="none">—</span></div>
   </div>
 
   <div class="legend">
@@ -221,8 +243,7 @@
     <span class="tag tag-maria"><i class="ti ti-database"></i>MariaDB</span>
     <span class="tag tag-mongo"><i class="ti ti-database"></i>MongoDB</span>
     <span class="tag tag-restic"><i class="ti ti-archive"></i>restic / VolSync</span>
-    <span class="tag tag-snap"><i class="ti ti-copy"></i>CNPG snapshots</span>
-    <span class="tag tag-s3"><i class="ti ti-brand-aws"></i>S3 target</span>
+    <span class="tag tag-snap"><i class="ti ti-copy"></i>Cloud Native Postgres snapshots</span>
     <span class="tag tag-neutral"><i class="ti ti-calendar"></i>7d · 4w · 6m = daily / weekly / monthly</span>
   </div>
 </div>
