@@ -98,7 +98,7 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 |---|---|---|
 | 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat |
 | <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection |
-| 🌐 | **Scriberr** | Whisper-based transcription service |
+| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts |
 | <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
 
 ### 6. My Projects

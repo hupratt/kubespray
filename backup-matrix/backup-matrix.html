@@ -10,14 +10,21 @@
   body { background: #fff; color: #1a1a1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; padding: 2rem; }
   .bm { max-width: 1200px; margin: 0 auto; }
   h1 { font-size: 18px; font-weight: 500; margin-bottom: 1.5rem; color: #1a1a1a; }
-  .col-head { display: grid; grid-template-columns: 180px 1fr 160px 110px 150px 180px; gap: 0; padding: 6px 8px; font-size: 11px; font-weight: 500; color: #666; border-bottom: 1px solid #ddd; background: #fafafa; }
+  
+  /* Fixed header layout to perfectly match data row grid geometry */
+  .col-head { display: grid; grid-template-columns: 180px 1fr 160px 110px 150px 180px; gap: 0; border-bottom: 1px solid #ddd; background: #fafafa; }
+  .head-cell { padding: 8px; font-size: 11px; font-weight: 500; color: #666; display: flex; align-items: center; }
+  
   .row { display: grid; grid-template-columns: 180px 1fr 160px 110px 150px 180px; gap: 0; border-bottom: 0.5px solid #eee; }
   .row:hover { background: #f9f9f9; }
   .section-header { display: flex; align-items: center; gap: 8px; padding: 6px 8px 4px; margin: 1.2rem 0 0.3rem; border-bottom: 0.5px solid #ddd; font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; color: #888; }
   .section-header i { font-size: 14px; }
-  .cell { padding: 7px 8px; display: flex; align-items: flex-start; flex-wrap: wrap; gap: 3px; min-height: 36px; }
-  .svc { align-items: center; font-weight: 500; color: #1a1a1a; gap: 7px; flex-wrap: nowrap; }
+  
+  /* Adjusted alignment to center for better vertical distribution */
+  .cell { padding: 7px 8px; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; min-height: 36px; }
+  .svc { font-weight: 500; color: #1a1a1a; gap: 7px; flex-wrap: nowrap; }
   .svc i { font-size: 15px; color: #888; flex-shrink: 0; }
+  
   .tag { display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 500; white-space: nowrap; }
   .tag i { font-size: 11px; }
   .tag-pg      { background: #E6F1FB; color: #0C447C; }
@@ -28,6 +35,7 @@
   .tag-etcd    { background: #FCEBEB; color: #791F1F; }
   .tag-vault   { background: #FAEEDA; color: #633806; }
   .tag-neutral { background: #f0f0f0; color: #555; }
+  
   .s3path { font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; font-size: 11px; color: #3C3489; background: #EEEDFE; padding: 2px 7px; border-radius: 10px; white-space: nowrap; display: inline-flex; align-items: center; gap: 3px; }
   .s3path i { font-size: 11px; }
   .muted  { color: #888; font-size: 12px; width: 100%; }
@@ -40,12 +48,12 @@
   <h1>Backup matrix</h1>
 
   <div class="col-head">
-    <div>Service</div>
-    <div>Backup type</div>
-    <div>PVCs</div>
-    <div>DB retention</div>
-    <div>Snapshot retention</div>
-    <div>Target storage</div>
+    <div class="head-cell">Service</div>
+    <div class="head-cell">Backup type</div>
+    <div class="head-cell">PVCs</div>
+    <div class="head-cell">DB retention</div>
+    <div class="head-cell">Snapshot retention</div>
+    <div class="head-cell">Target storage</div>
   </div>
 
   <div class="section-header"><i class="ti ti-server-2"></i> Kubernetes cluster</div>
@@ -89,6 +97,15 @@
   </div>
 
   <div class="row">
+    <div class="cell svc"><i class="ti ti-photo"></i> scriberr</div>
+    <div class="cell"><span class="tag tag-restic"><i class="ti ti-archive"></i>restic</span></div>
+    <div class="cell"><span class="muted">scriberr-data (ZFS RWO)</span><span class="muted">scriberr-whisperx-env (ZFS RWO)</span></div>
+    <div class="cell"><span class="tag tag-neutral"><i class="ti ti-calendar"></i>7 days</span></div>
+    <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
+    <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/immich-lib/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/immich-db/</span></div>
+  </div>
+
+  <div class="row">
     <div class="cell svc"><i class="ti ti-photo"></i> youtube-clone</div>
     <div class="cell"><span class="tag tag-pg"><i class="ti ti-database"></i>SQL dump</span><span class="tag tag-restic"><i class="ti ti-archive"></i>restic</span><span class="tag tag-snap"><i class="ti ti-copy"></i>CNPG PVC</span></div>
     <div class="cell"><span class="muted">shared-pg-1 (ceph RWO)</span><span class="muted">youtubeclone-static (ZFS RWO)</span><span class="muted">youtubeclone-uploads (ZFS RWO)</span></div>
@@ -96,7 +113,6 @@
     <div class="cell"><span class="tag tag-snap"><i class="ti ti-calendar"></i>7d · 4w · 6m</span></div>
     <div class="cell"><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/db/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic/</span><span class="s3path"><i class="ti ti-brand-aws"></i>s3://backup/restic-db/</span></div>
   </div>
-
 
   <div class="row">
     <div class="cell svc"><i class="ti ti-file-text"></i> paperless</div>
