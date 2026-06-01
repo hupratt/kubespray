@@ -26,7 +26,8 @@
     # ── Storage ──────────────────────────────────────────────────────────────────
     storage_class: "slow-local"
     static_pvc_size: "2Gi"
-    uploads_pvc_size: "100Gi"
+    uploads_pvc_size: "100Mi"
+    videos_pvc_size: "100Gi"
 
     # ── Deployment ───────────────────────────────────────────────────────────────
     replicas: 1
@@ -94,6 +95,7 @@
             namespace: "{{ k8s_namespace }}"
           spec:
             accessModes: [ReadWriteOnce]
+            volumeName: youtubeclone-static
             storageClassName: "{{ storage_class }}"
             resources:
               requests:
@@ -105,10 +107,23 @@
             namespace: "{{ k8s_namespace }}"
           spec:
             accessModes: [ReadWriteOnce]
+            volumeName: youtubeclone-uploads
             storageClassName: "{{ storage_class }}"
             resources:
               requests:
                 storage: "{{ uploads_pvc_size }}"
+        - apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: youtubeclone-vids
+            namespace: "{{ k8s_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            volumeName: youtubeclone-vids
+            storageClassName: "{{ storage_class }}"
+            resources:
+              requests:
+                storage: "{{ videos_pvc_size }}"
 
     - name: Deploy youtubeclone-backend
       kubernetes.core.k8s:
@@ -152,6 +167,8 @@
                       - name: static
                         mountPath: /backend/static
                       - name: uploads
+                        mountPath: /backend/public/uploads
+                      - name: videos
                         mountPath: /backend/public/uploads/netgear
                     resources:
                       requests:
@@ -177,7 +194,10 @@
                   - name: uploads
                     persistentVolumeClaim:
                       claimName: youtubeclone-uploads
-    
+                  - name: videos
+                    persistentVolumeClaim:
+                      claimName: youtubeclone-vids   
+
     - name: Create Service
       kubernetes.core.k8s:
         state: present

@@ -132,6 +132,32 @@
             name: youtubeclone-uploads
           spec:
             capacity:
+              storage: 100Mi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/var/mnt/youtube/youtubeclone-dockerized/youtubeclone-backend/uploads"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolume youtubeclone-vids
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: youtubeclone-vids
+          spec:
+            capacity:
               storage: 100Gi
             accessModes:
               - ReadWriteOnce
