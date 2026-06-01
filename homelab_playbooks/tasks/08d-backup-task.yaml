@@ -34,33 +34,33 @@
   when: pvc.namespace  != "immich"
 
 
-- name: Deploy VolSync ReplicationSource for Immich library
+- name: "[{{ pvc.pvc_name }}] Deploy VolSync ReplicationSource for Immich"
   kubernetes.core.k8s:
     state: present
     definition:
       apiVersion: volsync.backube/v1alpha1
       kind: ReplicationSource
       metadata:
-        name: immich-library-backup
+        name: "{{ pvc.replication_name }}"
         namespace: "{{ pvc.namespace }}"
       spec:
-        sourcePVC: immich-library
+        sourcePVC: "{{ pvc.pvc_name }}"
         trigger:
           schedule: "{{ volsync_schedule }}"
         restic:
           pruneIntervalDays: 7
-          repository: volsync-restic-secret-library
+          repository: "{{ pvc.secret }}"
           retain:
             hourly: "{{ volsync_retain_hourly }}"
             daily: "{{ volsync_retain_daily }}"
             weekly: "{{ volsync_retain_weekly }}"
             monthly: "{{ volsync_retain_monthly }}"
           copyMethod: Direct
-          storageClassName: "{{ immich_library_storage_class }}"
+          storageClassName: "{{ immich_storage_class }}"
           moverSecurityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-            fsGroup: 1000
+            runAsUser: "{{ pvc.runas }}"
+            runAsGroup: "{{ pvc.runas }}"
+            fsGroup: "{{ pvc.runas }}"
           moverPodTemplateSpec:
             spec:
               tolerations:
@@ -70,44 +70,6 @@
                   effect: NoSchedule
   when: pvc.namespace  == "immich"
 
-- name: Deploy VolSync ReplicationSource for Immich DB
-  kubernetes.core.k8s:
-    state: present
-    definition:
-      apiVersion: volsync.backube/v1alpha1
-      kind: ReplicationSource
-      metadata:
-        name: immich-db-backup
-        namespace: "{{ pvc.namespace }}"
-      spec:
-        sourcePVC: immich-pg-1
-        trigger:
-          schedule: "{{ volsync_schedule }}"
-        restic:
-          pruneIntervalDays: 7
-          repository: volsync-restic-secret-db
-          retain:
-            hourly: "{{ volsync_retain_hourly }}"
-            daily: "{{ volsync_retain_daily }}"
-            weekly: "{{ volsync_retain_weekly }}"
-            monthly: "{{ volsync_retain_monthly }}"
-          copyMethod: Direct
-          cacheStorageClassName: rook-ceph-block
-          # storageClassName: "{{ immich_db_storage_class }}"
-          # volumeSnapshotClassName: ceph-rbd-snapclass
-          # cacheStorageClassName: local-path
-          moverSecurityContext:
-            runAsUser: 26
-            runAsGroup: 26
-            fsGroup: 26
-          moverPodTemplateSpec:
-            spec:
-              tolerations:
-                - key: node-role
-                  operator: Equal
-                  value: slow-services
-                  effect: NoSchedule
-  when: pvc.namespace  == "immich"
 
 # ── Verification ─────────────────────────────────────────────────────────
 

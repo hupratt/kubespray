@@ -13,11 +13,16 @@
         namespace: cn-postgres
       - pvc_name: immich-library
         namespace: immich
+        secret: volsync-restic-secret-library
+        replication_name: immich-library-backup
+        runas: 1000
       - pvc_name: immich-pg-1
         namespace: immich
+        secret: volsync-restic-secret-db
+        replication_name: immich-db-backup
+        runas: 26
 
-    immich_library_storage_class: slow-local
-    immich_db_storage_class: slow-local
+    immich_storage_class: slow-local
 
     volsync_schedule: "0 2 * * *"
     volsync_retain_hourly: 24
