@@ -1,0 +1,349 @@
+---
+- name: Deploy Mosquitto MQTT broker to Kubernetes
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    mosquitto_namespace: frigate
+    mosquitto_node_hostname: coreos-wk-4
+    mosquitto_config_path: /opt/mosquitto/config
+    mosquitto_data_path: /opt/mosquitto/data
+    mosquitto_log_path: /opt/mosquitto/log
+    haproxy_config_path: /etc/haproxy/haproxy.cfg
+    k8s_node_ip: "192.168.1.100"
+
+  tasks:
+
+    # -----------------------------------------------------------------------
+    # PersistentVolumes
+    # -----------------------------------------------------------------------
+    - name: Create PV for mosquitto config (ReadOnlyMany)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: mosquitto-config-pv
+          spec:
+            capacity:
+              storage: 100Mi
+            accessModes:
+              - ReadOnlyMany
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: ""
+            hostPath:
+              path: "{{ mosquitto_config_path }}"
+              type: DirectoryOrCreate
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - "{{ mosquitto_node_hostname }}"
+            claimRef:
+              namespace: "{{ mosquitto_namespace }}"
+              name: mosquitto-config-pvc
+
+    - name: Create PV for mosquitto data (ReadWriteOnce)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: mosquitto-data-pv
+          spec:
+            capacity:
+              storage: 1Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: ""
+            hostPath:
+              path: "{{ mosquitto_data_path }}"
+              type: DirectoryOrCreate
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - "{{ mosquitto_node_hostname }}"
+            claimRef:
+              namespace: "{{ mosquitto_namespace }}"
+              name: mosquitto-data-pvc
+
+    - name: Create PV for mosquitto log (ReadWriteOnce)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: mosquitto-log-pv
+          spec:
+            capacity:
+              storage: 500Mi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: ""
+            hostPath:
+              path: "{{ mosquitto_log_path }}"
+              type: DirectoryOrCreate
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - "{{ mosquitto_node_hostname }}"
+            claimRef:
+              namespace: "{{ mosquitto_namespace }}"
+              name: mosquitto-log-pvc
+
+    # -----------------------------------------------------------------------
+    # PersistentVolumeClaims
+    # -----------------------------------------------------------------------
+    - name: Create PVC for mosquitto config
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: mosquitto-config-pvc
+            namespace: "{{ mosquitto_namespace }}"
+          spec:
+            accessModes:
+              - ReadOnlyMany
+            storageClassName: ""
+            volumeName: mosquitto-config-pv
+            resources:
+              requests:
+                storage: 100Mi
+
+    - name: Create PVC for mosquitto data
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: mosquitto-data-pvc
+            namespace: "{{ mosquitto_namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: ""
+            volumeName: mosquitto-data-pv
+            resources:
+              requests:
+                storage: 1Gi
+
+    - name: Create PVC for mosquitto log
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: mosquitto-log-pvc
+            namespace: "{{ mosquitto_namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: ""
+            volumeName: mosquitto-log-pv
+            resources:
+              requests:
+                storage: 500Mi
+
+    # -----------------------------------------------------------------------
+    # Deployment — hostNetwork: true
+    # -----------------------------------------------------------------------
+    - name: Deploy mosquitto
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: mosquitto
+            namespace: "{{ mosquitto_namespace }}"
+            labels:
+              app: mosquitto
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: mosquitto
+            template:
+              metadata:
+                labels:
+                  app: mosquitto
+              spec:
+                nodeSelector:
+                  kubernetes.io/hostname: "{{ mosquitto_node_hostname }}"
+                # Pod shares the node's network namespace.
+                # Ports 1883 and 9001 are bound directly on the node NIC.
+                # dnsPolicy must be ClusterFirstWithHostNet to keep
+                # in-cluster DNS resolution working.
+                hostNetwork: true
+                dnsPolicy: ClusterFirstWithHostNet
+                terminationGracePeriodSeconds: 30
+                containers:
+                  - name: mosquitto
+                    image: eclipse-mosquitto:latest
+                    imagePullPolicy: IfNotPresent
+                    stdin: true
+                    tty: true
+                    ports:
+                      - name: mqtt
+                        containerPort: 1883
+                        protocol: TCP
+                      - name: mqtt-ws
+                        containerPort: 9001
+                        protocol: TCP
+                    volumeMounts:
+                      - name: config
+                        mountPath: /mosquitto/config
+                        readOnly: true
+                      - name: data
+                        mountPath: /mosquitto/data
+                      - name: log
+                        mountPath: /mosquitto/log
+                    resources:
+                      requests:
+                        cpu: 50m
+                        memory: 64Mi
+                      limits:
+                        cpu: 200m
+                        memory: 128Mi
+                    livenessProbe:
+                      tcpSocket:
+                        port: 1883
+                      initialDelaySeconds: 10
+                      periodSeconds: 30
+                    readinessProbe:
+                      tcpSocket:
+                        port: 1883
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                volumes:
+                  - name: config
+                    persistentVolumeClaim:
+                      claimName: mosquitto-config-pvc
+                      readOnly: true
+                  - name: data
+                    persistentVolumeClaim:
+                      claimName: mosquitto-data-pvc
+                  - name: log
+                    persistentVolumeClaim:
+                      claimName: mosquitto-log-pvc
+
+    # -----------------------------------------------------------------------
+    # ClusterIP service — in-cluster DNS name for other pods
+    # (hostNetwork pods are still reachable via ClusterIP from inside the cluster)
+    # -----------------------------------------------------------------------
+    - name: Create ClusterIP service for in-cluster access
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: mosquitto
+            namespace: "{{ mosquitto_namespace }}"
+            labels:
+              app: mosquitto
+          spec:
+            type: ClusterIP
+            selector:
+              app: mosquitto
+            ports:
+              - name: mqtt
+                port: 1883
+                targetPort: 1883
+                protocol: TCP
+              - name: mqtt-ws
+                port: 9001
+                targetPort: 9001
+                protocol: TCP
+
+    # -----------------------------------------------------------------------
+    # Wait for rollout
+    # -----------------------------------------------------------------------
+    - name: Wait for mosquitto deployment to become ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: mosquitto
+        namespace: "{{ mosquitto_namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 120
+
+# -----------------------------------------------------------------------
+# HAProxy configuration
+# -----------------------------------------------------------------------
+- name: Configure HAProxy TCP frontends for Mosquitto
+  hosts: haproxy
+  gather_facts: false
+  become: true
+
+  vars:
+    k8s_node_ip: "192.168.1.100"
+    haproxy_config_path: /etc/haproxy/haproxy.cfg
+
+  tasks:
+
+    - name: Add HAProxy frontend+backend for MQTT (1883)
+      ansible.builtin.blockinfile:
+        path: "{{ haproxy_config_path }}"
+        marker: "# {mark} ANSIBLE MANAGED — mosquitto-mqtt"
+        block: |
+          frontend mosquitto_mqtt
+              bind *:1883
+              mode tcp
+              option tcplog
+              default_backend mosquitto_mqtt_back
+
+          backend mosquitto_mqtt_back
+              mode tcp
+              option tcp-check
+              server mosquitto {{ k8s_node_ip }}:1883 check inter 10s rise 2 fall 3
+      notify: Reload HAProxy
+
+    - name: Add HAProxy frontend+backend for MQTT WebSocket (9001)
+      ansible.builtin.blockinfile:
+        path: "{{ haproxy_config_path }}"
+        marker: "# {mark} ANSIBLE MANAGED — mosquitto-ws"
+        block: |
+          frontend mosquitto_ws
+              bind *:9001
+              mode tcp
+              option tcplog
+              default_backend mosquitto_ws_back
+
+          backend mosquitto_ws_back
+              mode tcp
+              option tcp-check
+              server mosquitto {{ k8s_node_ip }}:9001 check inter 10s rise 2 fall 3
+      notify: Reload HAProxy
+
+    - name: Validate HAProxy config before reload
+      ansible.builtin.command: haproxy -c -f "{{ haproxy_config_path }}"
+      changed_when: false
+
+  handlers:
+    - name: Reload HAProxy
+      ansible.builtin.service:
+        name: haproxy
+        state: reloaded
