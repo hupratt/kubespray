@@ -173,3 +173,55 @@
                         operator: In
                         values:
                           - slow-services
+
+    - name: Create PersistentVolume scriberr-data-pv
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: scriberr-data-pv
+          spec:
+            capacity:
+              storage: 10Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/var/mnt/youtube/scriberr/scriberr_data"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolume scriberr-whisperx-env-pv
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: scriberr-whisperx-env-pv
+          spec:
+            capacity:
+              storage: 100Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/var/mnt/youtube/scriberr/env_data"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services

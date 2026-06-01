@@ -36,6 +36,7 @@
       - patchmon
       - postgres
       - rook-ceph
+      - scriberr
       - sftpgo
       - spotify
       - technitium
