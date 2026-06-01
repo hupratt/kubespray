@@ -71,7 +71,7 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/postgresql.svg" width="16"/> | **PostgreSQL** | Shared relational DB for Authentik, NetBox, PostHog, and Django apps |
+| <img src="./icons/postgresql.svg" width="16"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon |
 | <img src="./icons/mariadb.svg" width="16"/> | **MariaDB** | MySQL-compatible DB managed via Kubernetes operator |
 | <img src="./icons/mongodb.svg" width="16"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
 
