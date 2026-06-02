@@ -25,6 +25,41 @@
     neolink_mem_limit: "256Mi"
 
   tasks:
+
+    - name: Apply ExternalSecret for neolink config
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: neolink-config
+            namespace: "{{ neolink_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: neolink-config
+              creationPolicy: Owner
+            data:
+              - secretKey: config.toml
+                remoteRef:
+                  key: frigate
+                  property: config.toml
+
+    - name: Wait for ExternalSecret to sync
+      kubernetes.core.k8s_info:
+        kind: ExternalSecret
+        name: neolink-config
+        namespace: "{{ neolink_namespace }}"
+        wait: true
+        wait_condition:
+          type: Ready
+          status: "True"
+        wait_timeout: 60
+
     - name: Apply ServiceAccount
       kubernetes.core.k8s:
         state: present
@@ -130,16 +165,16 @@
                   - operator: "Exists"
                 volumes:
                   - name: neolink-config
-                    hostPath:
-                      path: "{{ neolink_config_host_path | dirname }}"
-                      type: Directory
+                    secret:
+                      secretName: neolink-config
+                      defaultMode: 0444
                 containers:
                   - name: neolink
                     image: registry.thekor.eu/docker/neolink:latest
                     imagePullPolicy: Always
                     args:
                       - rtsp
-                      - "--config=/config/{{ neolink_config_host_path | basename }}"
+                      - "--config=/config/config.toml"
                     ports:
                       - name: rtsp
                         containerPort: "{{ neolink_rtsp_port }}"
