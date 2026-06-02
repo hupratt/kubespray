@@ -5,7 +5,8 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     default_storage_class: rook-ceph-block
-
+  vars_files:
+     - group_vars/all/vault.yml
   tasks:
 
     - name: Set default StorageClass
