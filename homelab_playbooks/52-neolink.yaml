@@ -1,0 +1,188 @@
+---
+# deploy-neolink.yml
+#
+# Usage:
+#   ansible-playbook deploy-neolink.yml
+#   ansible-playbook deploy-neolink.yml -e neolink_node=coreos-wk-2
+
+- name: Deploy neolink RTSP bridge
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    neolink_node: "coreos-wk-4"
+    neolink_namespace: "frigate"
+    # Path to the neolink binary on the node
+    neolink_binary_host_path: "/opt/neolink/neolink"
+    # Path to config.toml on the node
+    neolink_config_host_path: "/opt/neolink/config.toml"
+    neolink_rtsp_port: 8554
+    neolink_base_image: "ubuntu:24.04"
+    neolink_cpu_request: "100m"
+    neolink_cpu_limit: "500m"
+    neolink_mem_request: "64Mi"
+    neolink_mem_limit: "256Mi"
+
+  tasks:
+    - name: Apply ServiceAccount
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: neolink
+            namespace: "{{ neolink_namespace }}"
+
+    - name: Apply PersistentVolume for binary
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: neolink-bin-pv
+          spec:
+            capacity:
+              storage: 10Mi
+            accessModes:
+              - ReadOnlyMany
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: ""
+            local:
+              path: "{{ neolink_binary_host_path | dirname }}"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - "{{ neolink_node }}"
+
+    - name: Apply PersistentVolumeClaim for binary
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: neolink-bin-pvc
+            namespace: "{{ neolink_namespace }}"
+          spec:
+            accessModes:
+              - ReadOnlyMany
+            storageClassName: ""
+            volumeName: neolink-bin-pv
+            resources:
+              requests:
+                storage: 10Mi
+
+    - name: Apply Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: neolink
+            namespace: "{{ neolink_namespace }}"
+            labels:
+              app: neolink
+          spec:
+            selector:
+              app: neolink
+            ports:
+              - name: rtsp
+                port: "{{ neolink_rtsp_port }}"
+                targetPort: rtsp
+                protocol: TCP
+
+    - name: Apply Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: neolink
+            namespace: "{{ neolink_namespace }}"
+            labels:
+              app: neolink
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app: neolink
+            template:
+              metadata:
+                labels:
+                  app: neolink
+              spec:
+                imagePullSecrets:
+                  - name: docker-registry-secret
+                serviceAccountName: neolink
+                nodeName: "{{ neolink_node }}"
+                tolerations:
+                  - operator: "Exists"
+                volumes:
+                  - name: neolink-config
+                    hostPath:
+                      path: "{{ neolink_config_host_path | dirname }}"
+                      type: Directory
+                containers:
+                  - name: neolink
+                    image: registry.thekor.eu/docker/neolink:latest
+                    imagePullPolicy: Always
+                    args:
+                      - rtsp
+                      - "--config=/config/{{ neolink_config_host_path | basename }}"
+                    ports:
+                      - name: rtsp
+                        containerPort: "{{ neolink_rtsp_port }}"
+                        protocol: TCP
+                    volumeMounts:
+                      - name: neolink-config
+                        mountPath: /config
+                        readOnly: true
+                    resources:
+                      requests:
+                        cpu: "{{ neolink_cpu_request }}"
+                        memory: "{{ neolink_mem_request }}"
+                      limits:
+                        cpu: "{{ neolink_cpu_limit }}"
+                        memory: "{{ neolink_mem_limit }}"
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 65534
+                      runAsGroup: 65534
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop: ["ALL"]
+                    livenessProbe:
+                      tcpSocket:
+                        port: rtsp
+                      initialDelaySeconds: 15
+                      periodSeconds: 30
+                      failureThreshold: 3
+                    readinessProbe:
+                      tcpSocket:
+                        port: rtsp
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+
+
+    - name: Wait for rollout
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: neolink
+        namespace: "{{ neolink_namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 120
