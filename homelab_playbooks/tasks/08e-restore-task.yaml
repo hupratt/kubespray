@@ -44,7 +44,7 @@
 
 - name: "[{{ pvc.name }}] Set PVC capacity fact"
   set_fact:
-    pvc_capacity: "{{ source_pvc_info.resources[0].spec.resources.requests.storage }}"
+    pvc_capacity: "{{ source_pvc_info.resources[0].spec.resources.requests.storage | default('100Gi')}}"
 
 - name: "[{{ pvc.name }}] Delete all CNPG Database CRDs"
   kubernetes.core.k8s:
@@ -103,11 +103,11 @@
   retries: 12
   delay: 5
 
-- name: Remove claimRef from PV slow-pv-03
+- name: Remove claimRef from PV immich-pg-1
   kubernetes.core.k8s:
     state: patched
     kind: PersistentVolume
-    name: slow-pv-03
+    name: immich-pg-1
     definition:
       spec:
         claimRef: null
@@ -158,11 +158,11 @@
   command: sleep 2
   when: pvc.name == "immich"
 
-- name: Patch PV claimRef for slow-pv-03
+- name: Patch PV claimRef for immich-pg-1
   kubernetes.core.k8s:
     state: patched
     kind: PersistentVolume
-    name: slow-pv-03
+    name: immich-pg-1
     definition:
       spec:
         claimRef:
@@ -172,11 +172,6 @@
 
 - name: Sleep for 2 seconds
   command: sleep 2
-  when: pvc.name == "immich"
-
-- name: Ensure slow-services taint is absent
-  command:
-    cmd: kubectl taint node coreos-wk-4 dedicated=slow-services:NoSchedule-
   when: pvc.name == "immich"
 
 - name: "[{{ pvc.name }}] Deploy ReplicationDestination"
@@ -359,7 +354,7 @@
         storage:
           pvcTemplate:
             accessModes: [ReadWriteOnce]
-            volumeName: slow-pv-03
+            volumeName: immich-pg-1
             storageClassName: "{{ pvc.storage_class }}"
             resources:
               requests:
@@ -452,7 +447,3 @@
       - "Source last sync: {{ rs_info.resources[0].status.lastSyncTime }}"
       - "Cluster ready: shared-pg"
   
-- name: Ensure slow-services taint is present
-  command:
-    cmd: kubectl taint node coreos-wk-4 dedicated=slow-services:NoSchedule
-  when: pvc.name == "immich"

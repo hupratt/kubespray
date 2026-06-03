@@ -71,7 +71,7 @@ server:
       enabled: true
       ingressClassName: haproxy
       hosts:
-        - host: immich2.thekor.eu
+        - host: immich.thekor.eu
           paths:
             - path: /
               service:
@@ -79,7 +79,7 @@ server:
       tls:
         - secretName: wildcard-thekor
           hosts:
-            - immich2.thekor.eu
+            - immich.thekor.eu
 
 # ── Machine Learning ──────────────────────────────────────────────────────────
 machine-learning:

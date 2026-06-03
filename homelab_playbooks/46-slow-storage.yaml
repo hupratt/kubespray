@@ -10,15 +10,6 @@
       # technitium/technitium-technitium-dnsserver-config
       - name: slow-pv-01
         size: 50Gi
-      # immich/immich-pg-1
-      - name: slow-pv-03
-        size: 100Gi
-      - name: immich-restore-temp
-        size: 3000Gi
-      - name: volsync-restore-immich-cache
-        size: 1Gi
-      - name: volsync-src-immich-library-backup-cache
-        size: 1Gi
 
   tasks:
 
@@ -70,7 +61,85 @@
       delegate_to: "{{ slow_node }}"
       become: true
 
-    - name: Create PersistentVolumes
+    - name: Create PersistentVolumes immich db space
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: immich-pg-1
+          spec:
+            capacity:
+              storage: 100Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/opt/immich/immich-pg-1"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolumes tmp restore
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: volsync-src-immich-library-backup-cache
+          spec:
+            capacity:
+              storage: 3000Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/opt/immich/volsync-src-immich-library-backup-cache"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolumes tmp restore
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: volsync-src-immich-library-restore-cache
+          spec:
+            capacity:
+              storage: 3000Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/opt/immich/volsync-src-immich-library-restore-cache"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PersistentVolumes for the immich library
       kubernetes.core.k8s:
         state: present
         definition:
@@ -86,7 +155,7 @@
             persistentVolumeReclaimPolicy: Retain
             storageClassName: "{{ storage_class }}"
             local:
-              path: "/var/mnt/immich/immich/library"
+              path: "/opt/immich/library"
             nodeAffinity:
               required:
                 nodeSelectorTerms:

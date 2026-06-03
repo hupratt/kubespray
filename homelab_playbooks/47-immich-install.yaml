@@ -24,7 +24,7 @@
     immich_library_storage_class: slow-local
     immich_library_storage_size: 3000Gi
 
-    immich_db_pv: slow-pv-03
+    immich_db_pv: immich-pg-1
     immich_db_storage_class: slow-local
     immich_db_storage_size: 100Gi
 

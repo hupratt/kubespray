@@ -80,7 +80,7 @@
         storage_class: slow-local
         storage_size: 2000Gi
         cluster: immich-pg
-        secret: volsync-restic-secret
+        secret: volsync-restic-secret-db
         snaphost_class: ceph-rbd-snapclass
         pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
 
