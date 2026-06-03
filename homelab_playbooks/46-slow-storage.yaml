@@ -112,7 +112,7 @@
             persistentVolumeReclaimPolicy: Retain
             storageClassName: "{{ storage_class }}"
             local:
-              path: "/var/mnt/youtube/youtubeclone-dockerized/static"
+              path: "/opt/youtubeclone-dockerized/static"
             nodeAffinity:
               required:
                 nodeSelectorTerms:
@@ -138,7 +138,7 @@
             persistentVolumeReclaimPolicy: Retain
             storageClassName: "{{ storage_class }}"
             local:
-              path: "/var/mnt/youtube/youtubeclone-dockerized/youtubeclone-backend/uploads"
+              path: "/opt/youtubeclone-dockerized/youtubeclone-backend/uploads"
             nodeAffinity:
               required:
                 nodeSelectorTerms:
@@ -164,7 +164,7 @@
             persistentVolumeReclaimPolicy: Retain
             storageClassName: "{{ storage_class }}"
             local:
-              path: "/var/mnt/youtube/youtubeclone-dockerized/vids"
+              path: "/opt/youtubeclone-dockerized/vids"
             nodeAffinity:
               required:
                 nodeSelectorTerms:
@@ -190,7 +190,7 @@
             persistentVolumeReclaimPolicy: Retain
             storageClassName: "{{ storage_class }}"
             local:
-              path: "/var/mnt/youtube/scriberr/scriberr_data"
+              path: "/opt/scriberr/scriberr_data"
             nodeAffinity:
               required:
                 nodeSelectorTerms:
@@ -216,7 +216,7 @@
             persistentVolumeReclaimPolicy: Retain
             storageClassName: "{{ storage_class }}"
             local:
-              path: "/var/mnt/youtube/scriberr/env_data"
+              path: "/opt/scriberr/env_data"
             nodeAffinity:
               required:
                 nodeSelectorTerms:
