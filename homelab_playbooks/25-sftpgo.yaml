@@ -5,33 +5,67 @@
     - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
-
+    sftpgo_repo: "git@gitlab.thekor.eu:kube/sftpgo.git"
+    sftpgo_dir: "~/sftpgo"
   tasks:
 
-    - name: Create rook-cephfs StorageClass
-      k8s:
-        api_version: storage.k8s.io/v1
-        kind: StorageClass
-        name: rook-cephfs-sftpgo
+
+    - name: Check if repo already exists
+      ansible.builtin.stat:
+        path: "{{ sftpgo_dir }}"
+      register: repo_dir
+
+    - name: Clone netbox git repo
+      ansible.builtin.git:
+        repo: "{{ sftpgo_repo }}"
+        dest: "{{ sftpgo_dir }}"
+        version: main
+        force: yes
+        accept_hostkey: yes
+      when: not repo_dir.stat.exists
+
+    - name: Create PersistentVolumes for sftpgo
+      kubernetes.core.k8s:
+        state: present
         definition:
+          apiVersion: v1
+          kind: PersistentVolume
           metadata:
-            name: rook-cephfs-sftpgo
-          provisioner: rook-ceph.cephfs.csi.ceph.com
-          parameters:
-            clusterID: rook-ceph
-            fsName: myfs
-            pool: myfs-data0
-            subvolumeGroup: csi
-            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
-            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
-            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
-            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
-            monitors: ceph-mon.rook-ceph.svc.cluster.local
-            mounter: fuse
-          mountOptions:
-            - debug
-          reclaimPolicy: Retain
-          allowVolumeExpansion: true
+            name: sftpgo-data
+          spec:
+            capacity:
+              storage: 10Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: slow-local
+            local:
+              path: "/opt/sftpgo/sftpgo-data"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+
+    - name: Create PVC for sftpgo
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: sftpgo-data
+            namespace: sftpgo
+          spec:
+            accessModes: [ReadWriteOnce]
+            volumeName: sftpgo-data
+            storageClassName: slow-local
+            resources:
+              requests:
+                storage: 10Gi
 
     - name: Load SFTPGo chart values from file
       ansible.builtin.set_fact:
@@ -139,17 +173,15 @@
             grantOption: false
 
     - name: Deploy SFTPGo Helm chart
-      kubernetes.core.helm:
-        kubeconfig: "{{ kubeconfig_path }}"
-        name: "my-sftpgo"
-        chart_ref: "oci://ghcr.io/sftpgo/helm-charts/sftpgo"
-        chart_version: "0.43.0"
-        release_namespace: "sftpgo"
-        create_namespace: false
-        wait: true
-        wait_timeout: "5m"
+      community.kubernetes.helm:
+        name: my-sftpgo
+        chart_ref: "{{ sftpgo_dir }}/sftpgo"
+        release_namespace: sftpgo
+        dependency_update: yes
         values: "{{ sftpgo_values }}"
-
+        state: present
+        force: no
+        create_namespace: no
 
 # mariadb -u root -p "sftp-go" < sftp-go-2026-04-14.sql
 # DROP DATABASE `sftp-go`;
