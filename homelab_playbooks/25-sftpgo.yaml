@@ -183,5 +183,22 @@
         force: no
         create_namespace: no
 
+    - name: Patch SFTPGo service to add externalIPs
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: my-sftpgo
+            namespace: sftpgo
+          spec:
+            externalIPs:
+              - "10.10.85.24"
+            ports:
+              - name: sftp
+                port: 2222
+                targetPort: 2022
+
 # mariadb -u root -p "sftp-go" < sftp-go-2026-04-14.sql
 # DROP DATABASE `sftp-go`;
