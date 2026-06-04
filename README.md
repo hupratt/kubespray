@@ -111,6 +111,11 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 | <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
 | <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
 | <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
+
+### Critical dependencies
+
+My most important bits are arguably storage (rook and zfs), DNS and the ingress routing rules. Hashicorp vault and gitlab are arguably come in close second place because I didn't migrate all of my secrets to the vault yet and because I managed to get harbor as a backup proxy registry so if gitlab should fail I can rely on harbor. I'm doing dual NAT so that the mistakes only impact my playground and reduce the blast radius significantly. 
+
 ---
 </details>
 
