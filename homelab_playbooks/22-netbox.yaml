@@ -57,3 +57,25 @@
         state: present
         force: no
         create_namespace: yes
+        
+    - name: Patch NetBox Valkey StatefulSet node affinity
+      kubernetes.core.k8s:
+        state: present
+        kind: StatefulSet
+        name: netbox-thekor-valkey-replicas
+        namespace: netbox
+        merge_type:
+          - strategic-merge
+        definition:
+          spec:
+            template:
+              spec:
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: kubernetes.io/hostname
+                              operator: NotIn
+                              values:
+                                - coreos-wk-4

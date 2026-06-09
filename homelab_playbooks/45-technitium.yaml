@@ -82,6 +82,37 @@
       retries: 12
       delay: 10
 
+    - name: Patch nodelocaldns DaemonSet with nodeAffinity exclusion
+      kubernetes.core.k8s:
+        state: present
+        kind: DaemonSet
+        name: nodelocaldns
+        namespace: kube-system
+        merge_type:
+          - strategic-merge
+        definition:
+          spec:
+            template:
+              spec:
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: kubernetes.io/hostname
+                              operator: NotIn
+                              values:
+                                - coreos-wk-4
+
+# # On wk-4 make sure to remove the nodelocaldns reference as they would both run on port 53
+# sed -i 's/- 10.233.0.10/- 10.233.0.3/' /etc/kubernetes/kubelet-config.yaml
+# grep -A3 'clusterDNS' /etc/kubernetes/kubelet-config.yaml
+
+# # Restart kubelet
+# systemctl restart kubelet
+
+
+
 # before setting up technitium as a dns server you'll have to configure resolved to not 
 
 # /etc/systemd/resolved.conf

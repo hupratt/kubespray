@@ -17,39 +17,7 @@ env:
 # IMPORTANT: needed for port 53 on the node
 hostNetwork: true
 dnsPolicy: Default
-service:
-  main:
-    enabled: true
-    type: ClusterIP
-    externalTrafficPolicy: null
 
-    ports:
-      http:
-        enabled: true
-        port: 5380
-        targetPort: 5380
-        protocol: TCP
-
-      dns-udp:
-        enabled: true
-        port: 53
-        targetPort: 53
-        protocol: UDP
-
-      dns-tcp:
-        enabled: true
-        port: 53
-        targetPort: 53
-        protocol: TCP
-
-      https:
-        enabled: false
-      dhcp:
-        enabled: false
-      dot:
-        enabled: false
-      doh-reverse:
-        enabled: false
 
 ingress:
   main:
