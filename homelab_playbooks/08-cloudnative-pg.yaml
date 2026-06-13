@@ -30,6 +30,8 @@
         vault_path: makita-booking
       - owner: linkwarden
         vault_path: linkwarden 
+      - owner: backupmatrix
+        vault_path: backup-matrix 
     databases:
       - name: grafana
         owner: grafana
@@ -59,6 +61,8 @@
         owner: ubuntu
       - name: youtubeclone
         owner: ubuntu
+      - name: backupmatrix
+        owner: backupmatrix
 
   tasks:
     - name: Deploy CNPG operator via Helm
