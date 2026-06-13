@@ -1,0 +1,225 @@
+---
+- name: Deploy BackupMatrix
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vault_kv_path: "backup-matrix"           # path within the mount
+    external_secret_namespace: "backup"
+    external_secret_name: "{{ external_secret_namespace }}-secrets"
+  tasks:
+    # -------------------------------------------------------------------------
+    # Deploy ExternalSecret
+    # -------------------------------------------------------------------------
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ external_secret_name }}"
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ external_secret_name }}"
+              # Owner: ESO owns and garbage-collects the k8s Secret.
+              # Change to Merge only if this Secret already exists and you
+              # want ESO to add keys without replacing the whole object.
+              creationPolicy: Owner
+            data:
+              - secretKey: ALLOWED_HOSTS
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ALLOWED_HOSTS
+              - secretKey: DEBUG
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DEBUG
+              - secretKey: POSTGRES_DB
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: POSTGRES_DB
+              - secretKey: POSTGRES_HOST
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: POSTGRES_HOST
+              - secretKey: POSTGRES_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+              - secretKey: POSTGRES_PORT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: POSTGRES_PORT
+              - secretKey: POSTGRES_USER
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_username
+              - secretKey: SECRET_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SECRET_KEY
+    # -------------------------------------------------------------------------
+    # Web Deployment 
+    # -------------------------------------------------------------------------
+    - name: Deploy web application
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: backupmatrix-web
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: backupmatrix-web
+
+            template:
+              metadata:
+                labels:
+                  app: backupmatrix-web
+
+              spec:
+                imagePullSecrets:
+                  - name: docker-registry-secret
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 10001
+                  fsGroup: 10001
+
+                containers:
+                  - name: web
+                    image: registry.thekor.eu/docker/backup-matrix/backup-matrix:latest
+                    ports:
+                      - containerPort: 8000
+
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: false
+                      capabilities:
+                        drop:
+                          - ALL
+
+                    env:
+                      - name: POSTGRES_DB
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: POSTGRES_DB
+
+                      - name: POSTGRES_USER
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: POSTGRES_USER
+
+                      - name: POSTGRES_HOST
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: POSTGRES_HOST
+
+                      - name: POSTGRES_PORT
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: POSTGRES_PORT
+
+                      - name: POSTGRES_PASSWORD
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: POSTGRES_PASSWORD
+
+                      - name: SECRET_KEY
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: SECRET_KEY
+
+                      - name: DEBUG
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: DEBUG
+
+                      - name: ALLOWED_HOSTS
+                        valueFrom:
+                          secretKeyRef:
+                            name: "{{ external_secret_name }}"
+                            key: ALLOWED_HOSTS
+
+                    readinessProbe:
+                      httpGet:
+                        path: /health
+                        port: 8000
+                      initialDelaySeconds: 10
+                      periodSeconds: 5
+                      timeoutSeconds: 2
+                      failureThreshold: 3
+
+                    livenessProbe:
+                      httpGet:
+                        path: /health
+                        port: 8000
+                      initialDelaySeconds: 30
+                      periodSeconds: 10
+                      timeoutSeconds: 2
+                      failureThreshold: 3
+
+    # -------------------------------------------------------------------------
+    # Service
+    # -------------------------------------------------------------------------
+    - name: Expose web service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: backupmatrix-web
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            selector:
+              app: backupmatrix-web
+            ports:
+              - port: 8000
+                targetPort: 8000
+
+    # -------------------------------------------------------------------------
+    # HAProxy Ingress (correct controller)
+    # -------------------------------------------------------------------------
+    - name: Create HAProxy ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: backupmatrix
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - hosts:
+                  - backup-matrix.thekor.eu
+                secretName: wildcard-thekor
+            rules:
+              - host: backup-matrix.thekor.eu
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: backupmatrix-web
+                          port:
+                            number: 8000
+
