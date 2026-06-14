@@ -153,7 +153,7 @@
                           - -c
                           - |
                             set -e
-                            restic backup /data
+                            restic backup /data --host makita-static
                             restic forget \
                               --keep-daily 7 \
                               --keep-weekly 4 \
@@ -239,7 +239,7 @@
                           - -c
                           - |
                             set -e
-                            restic backup /data
+                            restic backup /data --host makita-media
                             restic forget \
                               --keep-daily 7 \
                               --keep-weekly 4 \

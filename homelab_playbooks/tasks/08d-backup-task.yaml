@@ -19,7 +19,7 @@
             runAsUser: 0
             runAsGroup: 0
             fsGroup: 0
-          pruneIntervalDays: 7
+          pruneIntervalDays: 1
           repository: restic-credentials
           volumeSnapshotClassName: ceph-rbd-snapclass
           storageClassName: rook-ceph-block
@@ -48,7 +48,7 @@
         trigger:
           schedule: "{{ volsync_schedule }}"
         restic:
-          pruneIntervalDays: 7
+          pruneIntervalDays: 1
           repository: "{{ pvc.secret }}"
           retain:
             hourly: "{{ volsync_retain_hourly }}"

@@ -155,7 +155,7 @@
                           - -c
                           - |
                             set -e
-                            restic backup /data
+                            restic backup /data --host linkwarden
                             restic forget \
                               --keep-daily 7 \
                               --keep-weekly 4 \
