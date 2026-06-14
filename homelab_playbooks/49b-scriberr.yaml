@@ -1,0 +1,171 @@
+---
+
+- name: Deploys Scriberr backups
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # ── General ────────────────────────────────────────────────────────────────
+    namespace: scriberr
+    state: present   # present | absent
+    kubeconfig: ~/.kube/config
+    # ── Storage – static PVs must exist before running ─────────────────────────
+    data_pvc_name: scriberr-data
+    whisperx_pvc_name: scriberr-whisperx-env
+    # ── Security ───────────────────────────────────────────────────────────────
+    run_as_user: 1000
+    run_as_group: 1000
+
+  tasks:
+
+# ── VolSync – ExternalSecret (restic credentials) ──────────────────────────
+
+    - name: ExternalSecret scriberr-restic
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: scriberr-restic
+            namespace: "{{ namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend          # adjust to your ClusterSecretStore name
+              kind: ClusterSecretStore
+            target:
+              name: scriberr-restic
+              creationPolicy: Owner
+              template:
+                type: Opaque
+                data:
+                  RESTIC_REPOSITORY:     "{% raw %}{{ .RESTIC_REPOSITORY }}{% endraw %}"
+                  RESTIC_PASSWORD:       "{% raw %}{{ .resticPassword }}{% endraw %}"
+                  AWS_ACCESS_KEY_ID:     "{% raw %}{{ .accessKey }}{% endraw %}"
+                  AWS_SECRET_ACCESS_KEY: "{% raw %}{{ .secretKey }}{% endraw %}"
+            data:
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: scriberr
+                  property: RESTIC_REPOSITORY
+              - secretKey: resticPassword
+                remoteRef:
+                  key: scriberr
+                  property: RESTIC_PASSWORD
+              - secretKey: accessKey
+                remoteRef:
+                  key: restic
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: secretKey
+                remoteRef:
+                  key: restic
+                  property: AWS_SECRET_ACCESS_KEY
+
+    - name: ExternalSecret scriberr-restic-models
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: scriberr-restic-models
+            namespace: "{{ namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend          # adjust to your ClusterSecretStore name
+              kind: ClusterSecretStore
+            target:
+              name: scriberr-restic-models
+              creationPolicy: Owner
+              template:
+                type: Opaque
+                data:
+                  RESTIC_REPOSITORY:     "{% raw %}{{ .RESTIC_REPOSITORY }}{% endraw %}"
+                  RESTIC_PASSWORD:       "{% raw %}{{ .resticPassword }}{% endraw %}"
+                  AWS_ACCESS_KEY_ID:     "{% raw %}{{ .accessKey }}{% endraw %}"
+                  AWS_SECRET_ACCESS_KEY: "{% raw %}{{ .secretKey }}{% endraw %}"
+            data:
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: scriberr
+                  property: RESTIC_REPOSITORY_MODELS
+              - secretKey: resticPassword
+                remoteRef:
+                  key: scriberr
+                  property: RESTIC_PASSWORD
+              - secretKey: accessKey
+                remoteRef:
+                  key: restic
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: secretKey
+                remoteRef:
+                  key: restic
+                  property: AWS_SECRET_ACCESS_KEY
+    # ── VolSync – ReplicationSource: scriberr-data ─────────────────────────────
+
+    - name: ReplicationSource scriberr-data
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: volsync.backube/v1alpha1
+          kind: ReplicationSource
+          metadata:
+            name: scriberr-data
+            namespace: "{{ namespace }}"
+          spec:
+            sourcePVC: "{{ data_pvc_name }}"
+            trigger:
+              schedule: "31 2 * * *"
+            restic:
+              repository: scriberr-restic  # Secret name from ExternalSecret above
+              copyMethod: Direct          # pauses the pod, VolSync mounts the source PVC itself into the mover pod rather than snapshotting it first
+              pruneIntervalDays: 1
+              retain:
+                daily: 7
+                weekly: 4
+                monthly: 3
+              moverSecurityContext:
+                runAsUser: "{{ run_as_user }}"
+                runAsGroup: "{{ run_as_group }}"
+                fsGroup: "{{ run_as_group }}"
+              # If garage-s3.thekor.eu uses a private CA:
+              # customCA:
+              #   secretName: garage-s3-ca
+              #   key: ca.crt
+
+    # ── VolSync – ReplicationSource: scriberr-whisperx-env ────────────────────
+    # This PVC holds model weights (100 Gi, mostly static).
+    # Weekly schedule keeps backup load reasonable; bump to daily if you retrain.
+
+    - name: ReplicationSource scriberr-whisperx-env
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: volsync.backube/v1alpha1
+          kind: ReplicationSource
+          metadata:
+            name: scriberr-whisperx-env
+            namespace: "{{ namespace }}"
+          spec:
+            sourcePVC: "{{ whisperx_pvc_name }}"
+            trigger:
+              schedule: "31 7 * * *"
+            restic:
+              repository: scriberr-restic-models
+              copyMethod: Direct
+              pruneIntervalDays: 1
+              retain:
+                daily: 7
+                weekly: 4
+                monthly: 3
+              moverSecurityContext:
+                runAsUser: "{{ run_as_user }}"
+                runAsGroup: "{{ run_as_group }}"
+                fsGroup: "{{ run_as_group }}"
