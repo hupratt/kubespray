@@ -185,7 +185,6 @@
     - name: Deploy Synapse
       kubernetes.core.helm:
         name: matrix-synapse
-        # disable_hook: "{{ signingkey_check.resources | length > 0 }}"
         chart_ref: ananace-charts/matrix-synapse
         chart_version: "{{ synapse_chart_version }}"
         release_namespace: "{{ matrix_namespace }}"
@@ -202,23 +201,31 @@
 
           config:
             reportStats: false
-            enableRegistration: "{{ synapse_enable_registration }}"
+            enableRegistration: false
             allowGuestAccess: false
 
           extraConfig:
-            enable_registration_without_verification: false
-            registrations_require_3pid:
-              - email
             max_upload_size: "{{ synapse_max_upload_size }}"
+            suppress_key_server_warning: true
             media_retention:
               remote_media_lifetime: 30d
-            email:
-              smtp_host: "{{ smtp_host }}"
-              smtp_port: 587
-              smtp_user: "{{ smtp_user }}"
-              smtp_pass: "{{ smtp_pass }}"
-              require_transport_security: true
-              notif_from: "{{ notif_from }}"
+            app_service_config_files:
+              - /synapse/config/conf.d/mautrix-discord.yaml
+
+          synapse:
+            extraVolumes:
+              - name: mautrix-discord-registration
+                secret:
+                  secretName: mautrix-discord-registration
+                  items:
+                    - key: registration.yaml
+                      path: mautrix-discord.yaml
+            extraVolumeMounts:
+              - name: mautrix-discord-registration
+                mountPath: /synapse/config/conf.d/mautrix-discord.yaml
+                subPath: mautrix-discord.yaml
+                readOnly: true
+
           # Disable bundled PostgreSQL — we use CNPG
           postgresql:
             enabled: false
@@ -239,13 +246,6 @@
           signingKey:
             job:
               enabled: true
-            # existingSecret: ""
-
-          # mautrix-discord appservice registration
-          appServices:
-            - name: mautrix-discord
-              existingSecret: mautrix-discord-registration
-              existingSecretKey: registration.yaml
 
           wellknown:
             enabled: true
@@ -271,9 +271,9 @@
                   - "{{ matrix_public_hostname }}"
 
           podSecurityContext:
-            runAsUser: 666
-            runAsGroup: 666
-            fsGroup: 666
+            runAsUser: 991
+            runAsGroup: 991
+            fsGroup: 991
             runAsNonRoot: true
 
           securityContext:
