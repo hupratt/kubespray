@@ -294,6 +294,7 @@ All backups are sent to the cloud based offsite VPS to an S3 storage hosted at h
 
 
 ![Backup Matrix](./backup-matrix/backup-matrix.png)
+
 ---
 </details>
 

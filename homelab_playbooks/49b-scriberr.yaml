@@ -160,7 +160,7 @@
             restic:
               repository: scriberr-restic-models
               copyMethod: Direct
-              pruneIntervalDays: 1
+              pruneIntervalDays: 2
               retain:
                 daily: 7
                 weekly: 4

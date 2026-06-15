@@ -82,6 +82,14 @@
                           matchLabels:
                             app.kubernetes.io/created-by: volsync
                     - resources:
+                        selector:
+                          matchLabels:
+                            app.kubernetes.io/component: signingkey-job
+                    - resources:
+                        selector:
+                          matchLabels:
+                            app.kubernetes.io/instance: matrix-synapse 
+                    - resources:
                         namespaces:
                           - rook-ceph
                           - kube-system
@@ -98,6 +106,7 @@
                           - thrifty
                           - trellis
                           - www-portfolio
+                          - backup
                 mutate:
                   patchStrategicMerge:
                     spec:
@@ -120,6 +129,14 @@
                           matchLabels:
                             app.kubernetes.io/created-by: volsync
                     - resources:
+                        selector:
+                          matchLabels:
+                            app.kubernetes.io/created-by: signingkey-job
+                    - resources:
+                        selector:
+                          matchLabels:
+                            app.kubernetes.io/instance: matrix-synapse
+                    - resources:
                         namespaces:
                           - rook-ceph
                           - kube-system
@@ -135,6 +152,7 @@
                           - thrifty
                           - trellis
                           - www-portfolio
+                          - backup
                 validate:
                   message: "Running as root is not allowed."
                   pattern:

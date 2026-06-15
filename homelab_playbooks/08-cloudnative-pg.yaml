@@ -30,8 +30,8 @@
         vault_path: makita-booking
       - owner: linkwarden
         vault_path: linkwarden 
-      - owner: backupmatrix
-        vault_path: backup-matrix 
+      - owner: synapse
+        vault_path: synapse
     databases:
       - name: grafana
         owner: grafana
@@ -63,6 +63,8 @@
         owner: ubuntu
       - name: backupmatrix
         owner: backupmatrix
+      - name: synapse
+        owner: synapse
 
   tasks:
     - name: Deploy CNPG operator via Helm

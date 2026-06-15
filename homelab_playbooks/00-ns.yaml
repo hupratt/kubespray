@@ -27,6 +27,7 @@
       - linkwarden
       - makita
       - mariadb
+      - matrix
       - mongo-express
       - mongodb
       - monitoring

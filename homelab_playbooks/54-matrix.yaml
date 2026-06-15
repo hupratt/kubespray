@@ -1,0 +1,359 @@
+---
+# Matrix stack — single-file deployment
+# Components: Synapse + Element Web + mautrix-discord
+# Ingress:    HAProxy
+# Policy:     Kyverno PolicyExceptions
+# Storage:    Rook-Ceph RBD (RWO)
+# DB:         External CNPG (bootstrapped in this playbook)
+#
+# Usage:
+#   ansible-vault encrypt_string 'yourvalue' --name 'varname'   # to encrypt individual vars
+#   ansible-playbook matrix.yml --ask-vault-pass
+
+- name: Deploy Matrix stack
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars_files:
+    - group_vars/all/matrix-vault.yml
+
+  tasks:
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # KYVERNO POLICY EXCEPTIONS
+    # Run: kubectl get clusterpolicies   to verify policy names match yours
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # - name: Apply Kyverno PolicyException for Synapse signing key job
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: kyverno.io/v2beta1
+    #       kind: PolicyException
+    #       metadata:
+    #         name: synapse-signingkey-job-exception
+    #         namespace: "{{ matrix_namespace }}"
+    #       spec:
+    #         match:
+    #           any:
+    #             - resources:
+    #                 kinds:
+    #                   - Pod
+    #                 namespaces:
+    #                   - "{{ matrix_namespace }}"
+    #                 selector:
+    #                   matchLabels:
+    #                     app.kubernetes.io/component: signingkey-job
+
+    #         exceptions:
+    #           - policyName: disallow-root-user
+    #             ruleNames:
+    #               - run-as-non-root
+
+    - name: Apply Kyverno PolicyExceptions
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kyverno.io/v2beta1
+          kind: PolicyException
+          metadata:
+            name: matrix-stack-exceptions
+            namespace: "{{ matrix_namespace }}"
+          spec:
+            match:
+              any:
+                - resources:
+                    namespaces:
+                      - "{{ matrix_namespace }}"
+
+            exceptions:
+              # element-web nginx needs NET_BIND_SERVICE (port 80 inside container)
+              - policyName: disallow-capabilities-strict
+                ruleNames:
+                  - adding-capabilities-strict
+                conditions:
+                  any:
+                    - key: "{{ '{{' }} request.object.metadata.labels[\"app.kubernetes.io/name\"] {{ '}}' }}"
+                      operator: In
+                      value: [element-web]
+
+              # Synapse + bridge write to /data — can't use read-only root FS
+              - policyName: require-ro-rootfs
+                ruleNames:
+                  - require-ro-rootfs
+                conditions:
+                  any:
+                    - key: "{{ '{{' }} request.object.metadata.labels[\"app.kubernetes.io/name\"] {{ '}}' }}"
+                      operator: In
+                      value: [matrix-synapse, mautrix-discord]
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SECRETS
+    # ══════════════════════════════════════════════════════════════════════════
+
+    - name: Create Synapse secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: synapse-secret
+            namespace: "{{ matrix_namespace }}"
+          type: Opaque
+          stringData:
+            registration_shared_secret: "{{ synapse_registration_shared_secret }}"
+            macaroon_secret_key: "{{ synapse_macaroon_secret_key }}"
+            db_password: "{{ synapse_db_password }}"
+
+    # - name: Create mautrix-discord appservice registration secret
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: Secret
+    #       metadata:
+    #         name: mautrix-discord-registration
+    #         namespace: "{{ matrix_namespace }}"
+    #       type: Opaque
+    #       stringData:
+    #         registration.yaml: |
+    #           id: mautrix-discord
+    #           url: http://mautrix-discord:{{ mautrix_discord_port }}
+    #           as_token: {{ mautrix_discord_as_token }}
+    #           hs_token: {{ mautrix_discord_hs_token }}
+    #           sender_localpart: discordbot
+    #           rate_limited: false
+    #           namespaces:
+    #             users:
+    #               - exclusive: true
+    #                 regex: '@discord_.*:{{ matrix_server_name }}'
+    #             aliases:
+    #               - exclusive: true
+    #                 regex: '#discord_.*:{{ matrix_server_name }}'
+
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # SYNAPSE
+    # ══════════════════════════════════════════════════════════════════════════
+    - name: Create wellknown ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: matrix-wellknown
+            namespace: "{{ matrix_namespace }}"
+            annotations:
+              cert-manager.io/cluster-issuer: "{{ cert_issuer }}"
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - secretName: matrix-wellknown-tls
+                hosts:
+                  - "{{ matrix_server_name }}"
+            rules:
+              - host: "{{ matrix_server_name }}"
+                http:
+                  paths:
+                    - path: /.well-known/matrix
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: matrix-synapse-wellknown-lighttpd
+                          port:
+                            number: 80
+
+    - name: Add ananace Helm repo
+      kubernetes.core.helm_repository:
+        name: ananace-charts
+        repo_url: https://ananace.gitlab.io/charts
+
+    - name: Deploy Synapse
+      kubernetes.core.helm:
+        name: matrix-synapse
+        chart_ref: ananace-charts/matrix-synapse
+        chart_version: "{{ synapse_chart_version }}"
+        release_namespace: "{{ matrix_namespace }}"
+        create_namespace: false
+        wait: true
+        timeout: "10m0s"
+        values:
+          serverName: "{{ matrix_server_name }}"
+          publicServerName: "{{ matrix_public_hostname }}"
+
+          image:
+            repository: ghcr.io/element-hq/synapse
+            pullPolicy: IfNotPresent
+
+          config:
+            reportStats: false
+            enableRegistration: "{{ synapse_enable_registration }}"
+            allowGuestAccess: false
+
+          extraConfig:
+            enable_registration_without_verification: false
+            registrations_require_3pid:
+              - email
+            max_upload_size: "{{ synapse_max_upload_size }}"
+            media_retention:
+              remote_media_lifetime: 30d
+            email:
+              smtp_host: "{{ smtp_host }}"
+              smtp_port: 587
+              smtp_user: "{{ smtp_user }}"
+              smtp_pass: "{{ smtp_pass }}"
+              require_transport_security: true
+              notif_from: "{{ notif_from }}"
+          # Disable bundled PostgreSQL — we use CNPG
+          postgresql:
+            enabled: false
+
+          externalPostgresql:
+            host: "{{ synapse_db_host }}"
+            port: 5432
+            username: "{{ synapse_db_user }}"
+            database: "{{ synapse_db_name }}"
+            existingSecret: synapse-secret
+            existingSecretPasswordKey: db_password
+
+          existingSecret: synapse-secret
+          existingSecretKeys:
+            registrationSharedSecret: registration_shared_secret
+            macaroonSecretKey: macaroon_secret_key
+
+          signingKey:
+            job:
+              enabled: true
+            # existingSecret: ""
+
+          # mautrix-discord appservice registration
+          appServices:
+            - name: mautrix-discord
+              existingSecret: mautrix-discord-registration
+              existingSecretKey: registration.yaml
+
+          wellknown:
+            enabled: true
+            replicaCount: 1
+
+          persistence:
+            enabled: true
+            storageClass: "{{ synapse_storage_class }}"
+            accessMode: ReadWriteOnce
+            size: "{{ synapse_media_size }}"
+
+          ingress:
+            enabled: true
+            className: "{{ ingress_class }}"
+            annotations:
+              cert-manager.io/cluster-issuer: "{{ cert_issuer }}"
+              haproxy-ingress.github.io/proxy-body-size: "{{ synapse_max_upload_size }}"
+              haproxy-ingress.github.io/timeout-client: "300s"
+              haproxy-ingress.github.io/timeout-server: "300s"
+            tls:
+              - secretName: synapse-tls
+                hosts:
+                  - "{{ matrix_public_hostname }}"
+
+          podSecurityContext:
+            runAsUser: 666
+            runAsGroup: 666
+            fsGroup: 666
+            runAsNonRoot: true
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+
+    - name: Wait for Synapse pod to be Running
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ matrix_namespace }}"
+        label_selectors:
+          - "app.kubernetes.io/name=matrix-synapse"
+      register: synapse_pods
+      until: >
+        synapse_pods.resources | length > 0 and
+        synapse_pods.resources[0].status.phase == 'Running'
+      retries: 30
+      delay: 10
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # ELEMENT WEB
+    # ══════════════════════════════════════════════════════════════════════════
+
+    - name: Deploy Element Web
+      kubernetes.core.helm:
+        name: element-web
+        chart_ref: ananace-charts/element-web
+        chart_version: "{{ element_chart_version }}"
+        release_namespace: "{{ matrix_namespace }}"
+        create_namespace: false
+        wait: true
+        timeout: "5m0s"
+        values:
+          defaultServer:
+            url: "https://{{ matrix_public_hostname }}"
+            name: "{{ matrix_server_name }}"
+
+          config:
+            brand: Element
+            showLabsSettings: true
+            piwik: false
+          ingress:
+            enabled: true
+            className: "{{ ingress_class }}"
+            annotations:
+              cert-manager.io/cluster-issuer: "{{ cert_issuer }}"
+            hosts:
+              - element.thekor.eu
+            tls:
+              - secretName: element-web-tls
+                hosts:
+                  - "{{ element_hostname }}"
+
+          # nginx internally binds :80 — needs NET_BIND_SERVICE (excepted by Kyverno above)
+          podSecurityContext:
+            runAsNonRoot: true
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+
+    - name: Deployment complete
+      ansible.builtin.debug:
+        msg:
+          - "Synapse:      https://{{ matrix_public_hostname }}"
+          - "Element:      https://{{ element_hostname }}"
+          - ""
+          - "Create admin: kubectl exec -n {{ matrix_namespace }} deploy/matrix-synapse --"
+          - "              register_new_matrix_user -c /data/homeserver.yaml -u admin -p <pw> -a http://localhost:8008"
+          - ""
+          - "Check federation: https://federationtester.matrix.org/#{{ matrix_server_name }}"
