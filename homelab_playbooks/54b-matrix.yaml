@@ -17,6 +17,52 @@
 
   tasks:
 
+    # - name: Apply matrix CiliumNetworkPolicy
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: cilium.io/v2
+    #       kind: CiliumNetworkPolicy
+    #       metadata:
+    #         name: matrix-internal
+    #         namespace: matrix
+    #       spec:
+    #         endpointSelector: {}
+    #         ingress:
+    #           - fromEndpoints:
+    #               - matchLabels:
+    #                   io.kubernetes.pod.namespace: matrix
+    #         egress:
+    #           - toEndpoints:
+    #               - matchLabels:
+    #                   io.kubernetes.pod.namespace: matrix
+    #           - toEndpoints:
+    #               - matchLabels:
+    #                   io.kubernetes.pod.namespace: kube-system
+    #                   k8s-app: kube-dns
+    #             toPorts:
+    #               - ports:
+    #                   - port: "53"
+    #                     protocol: UDP
+    #                   - port: "53"
+    #                     protocol: TCP
+    #           - toFQDNs:
+    #               - matchPattern: "*.discord.com"
+    #               - matchPattern: "discord.com"
+    #               - matchPattern: "*.discordapp.com"
+    #             toPorts:
+    #               - ports:
+    #                   - port: "443"
+    #                     protocol: TCP
+    #           - toCIDR:
+    #               - 0.0.0.0/0
+    #             toPorts:
+    #               - ports:
+    #                   - port: "443"
+    #                     protocol: TCP
+    #                   - port: "80"
+    #                     protocol: TCP
+                        
     - name: Create mautrix-discord ConfigMap
       kubernetes.core.k8s:
         state: present
