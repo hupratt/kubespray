@@ -107,31 +107,31 @@
             macaroon_secret_key: "{{ synapse_macaroon_secret_key }}"
             db_password: "{{ synapse_db_password }}"
 
-    # - name: Create mautrix-discord appservice registration secret
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: v1
-    #       kind: Secret
-    #       metadata:
-    #         name: mautrix-discord-registration
-    #         namespace: "{{ matrix_namespace }}"
-    #       type: Opaque
-    #       stringData:
-    #         registration.yaml: |
-    #           id: mautrix-discord
-    #           url: http://mautrix-discord:{{ mautrix_discord_port }}
-    #           as_token: {{ mautrix_discord_as_token }}
-    #           hs_token: {{ mautrix_discord_hs_token }}
-    #           sender_localpart: discordbot
-    #           rate_limited: false
-    #           namespaces:
-    #             users:
-    #               - exclusive: true
-    #                 regex: '@discord_.*:{{ matrix_server_name }}'
-    #             aliases:
-    #               - exclusive: true
-    #                 regex: '#discord_.*:{{ matrix_server_name }}'
+    - name: Create mautrix-discord appservice registration secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: mautrix-discord-registration
+            namespace: "{{ matrix_namespace }}"
+          type: Opaque
+          stringData:
+            registration.yaml: |
+              id: mautrix-discord
+              url: http://mautrix-discord:{{ mautrix_discord_port }}
+              as_token: {{ mautrix_discord_as_token }}
+              hs_token: {{ mautrix_discord_hs_token }}
+              sender_localpart: discordbot
+              rate_limited: false
+              namespaces:
+                users:
+                  - exclusive: true
+                    regex: '@discord_.*:{{ matrix_server_name }}'
+                aliases:
+                  - exclusive: true
+                    regex: '#discord_.*:{{ matrix_server_name }}'
 
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -171,9 +171,21 @@
         name: ananace-charts
         repo_url: https://ananace.gitlab.io/charts
 
+    # - name: Clean up orphaned Synapse hook resources
+    #   kubernetes.core.k8s:
+    #     state: absent
+    #     api_version: "{{ item.api_version }}"
+    #     kind: "{{ item.kind }}"
+    #     name: "{{ item.name }}"
+    #     namespace: "{{ matrix_namespace }}"
+    #   loop:
+    #     - { api_version: v1, kind: Secret, name: matrix-synapse-signingkey }
+    #     - { api_version: v1, kind: ConfigMap, name: matrix-synapse-scripts }
+
     - name: Deploy Synapse
       kubernetes.core.helm:
         name: matrix-synapse
+        # disable_hook: "{{ signingkey_check.resources | length > 0 }}"
         chart_ref: ananace-charts/matrix-synapse
         chart_version: "{{ synapse_chart_version }}"
         release_namespace: "{{ matrix_namespace }}"
