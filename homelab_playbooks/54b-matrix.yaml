@@ -17,12 +17,6 @@
 
   tasks:
 
-    # ══════════════════════════════════════════════════════════════════════════
-    # MAUTRIX-DISCORD
-    # No Helm chart — raw manifests.
-    # strategy: Recreate because the bridge holds a SQLite lock on /data.
-    # ══════════════════════════════════════════════════════════════════════════
-
     - name: Create mautrix-discord ConfigMap
       kubernetes.core.k8s:
         state: present
@@ -49,6 +43,9 @@
                   displayname: Discord Bridge
                 as_token: {{ mautrix_discord_as_token }}
                 hs_token: {{ mautrix_discord_hs_token }}
+                database:
+                  type: sqlite3
+                  uri: file:/data/mautrix-discord.db?_txlock=immediate
 
               bridge:
                 username_template: "discord_{{'{{'}}  .}}"
@@ -63,10 +60,6 @@
               discord:
                 bot: true
                 token: {{ mautrix_discord_bot_token }}
-
-              database:
-                type: sqlite3
-                uri: /data/mautrix-discord.db
 
               logging:
                 min_level: info
@@ -120,26 +113,40 @@
                   fsGroup: 1337
                   runAsNonRoot: true
                 volumes:
-                  - name: config
+                  - name: config-template
                     configMap:
                       name: mautrix-discord-config
                   - name: data
                     persistentVolumeClaim:
                       claimName: mautrix-discord-data
+                # mautrix rewrites config in-place — copy from read-only ConfigMap to /data
+                initContainers:
+                  - name: copy-config
+                    image: busybox
+                    command: [sh, -c, "cp /config-template/config.yaml /data/config.yaml"]
+                    volumeMounts:
+                      - name: config-template
+                        mountPath: /config-template
+                        readOnly: true
+                      - name: data
+                        mountPath: /data
+                    securityContext:
+                      runAsUser: 1337
+                      runAsGroup: 1337
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop: [ALL]
                 containers:
                   - name: mautrix-discord
                     image: "{{ mautrix_discord_image }}"
                     imagePullPolicy: Always
                     command:
                       - /usr/bin/mautrix-discord
-                      - --config=/config/config.yaml
+                      - --config=/data/config.yaml
                     ports:
                       - containerPort: "{{ mautrix_discord_port }}"
                         name: appservice
                     volumeMounts:
-                      - name: config
-                        mountPath: /config
-                        readOnly: true
                       - name: data
                         mountPath: /data
                     securityContext:
