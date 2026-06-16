@@ -176,6 +176,29 @@
                 database:
                   type: postgres
                   uri: "{{ cnpg_app_secret }}"
+          probes:
+            liveness:
+              enabled: true
+              path: /_matrix/mau/live
+              initialDelaySeconds: 20
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
+
+            readiness:
+              enabled: true
+              path: /_matrix/mau/ready
+              initialDelaySeconds: 10
+              periodSeconds: 15
+              timeoutSeconds: 5
+              failureThreshold: 3
+
+          securityContext:
+            enabled: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
         mode: '0600'
  
 

@@ -78,6 +78,15 @@
                 exclude:
                   any:
                     - resources:
+                        namespaces:
+                          - matrix
+                        selector:
+                          matchExpressions:
+                            - key: app.kubernetes.io/name
+                              operator: In
+                              values:
+                                - mautrix-signal
+                    - resources:
                         selector:
                           matchLabels:
                             app.kubernetes.io/created-by: volsync
@@ -124,6 +133,15 @@
                         operations: ["CREATE", "UPDATE"]
                 exclude:
                   any:
+                    - resources:
+                        namespaces:
+                          - matrix
+                        selector:
+                          matchExpressions:
+                            - key: app.kubernetes.io/name
+                              operator: In
+                              values:
+                                - mautrix-signal
                     - resources:
                         selector:
                           matchLabels:
