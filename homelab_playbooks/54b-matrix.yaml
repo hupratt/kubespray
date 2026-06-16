@@ -17,52 +17,6 @@
 
   tasks:
 
-    # - name: Apply matrix CiliumNetworkPolicy
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: cilium.io/v2
-    #       kind: CiliumNetworkPolicy
-    #       metadata:
-    #         name: matrix-internal
-    #         namespace: matrix
-    #       spec:
-    #         endpointSelector: {}
-    #         ingress:
-    #           - fromEndpoints:
-    #               - matchLabels:
-    #                   io.kubernetes.pod.namespace: matrix
-    #         egress:
-    #           - toEndpoints:
-    #               - matchLabels:
-    #                   io.kubernetes.pod.namespace: matrix
-    #           - toEndpoints:
-    #               - matchLabels:
-    #                   io.kubernetes.pod.namespace: kube-system
-    #                   k8s-app: kube-dns
-    #             toPorts:
-    #               - ports:
-    #                   - port: "53"
-    #                     protocol: UDP
-    #                   - port: "53"
-    #                     protocol: TCP
-    #           - toFQDNs:
-    #               - matchPattern: "*.discord.com"
-    #               - matchPattern: "discord.com"
-    #               - matchPattern: "*.discordapp.com"
-    #             toPorts:
-    #               - ports:
-    #                   - port: "443"
-    #                     protocol: TCP
-    #           - toCIDR:
-    #               - 0.0.0.0/0
-    #             toPorts:
-    #               - ports:
-    #                   - port: "443"
-    #                     protocol: TCP
-    #                   - port: "80"
-    #                     protocol: TCP
-                        
     - name: Create mautrix-discord ConfigMap
       kubernetes.core.k8s:
         state: present
@@ -77,7 +31,10 @@
               homeserver:
                 address: http://matrix-synapse:8008
                 domain: {{ matrix_server_name }}
+                software: standard
                 async_media: false
+                # Disable websocket ping — bridge connects via HTTP, not websocket
+                ping_interval_seconds: 0
 
               appservice:
                 address: http://mautrix-discord:{{ mautrix_discord_port }}
@@ -90,7 +47,7 @@
                 as_token: {{ mautrix_discord_as_token }}
                 hs_token: {{ mautrix_discord_hs_token }}
                 database:
-                  type: sqlite3
+                  type: sqlite3-fk-wal
                   uri: file:/data/mautrix-discord.db?_txlock=immediate
 
               bridge:
@@ -211,14 +168,51 @@
                       httpGet:
                         path: /_matrix/mau/live
                         port: appservice
-                      initialDelaySeconds: 30
-                      periodSeconds: 30
-                    readinessProbe:
-                      httpGet:
-                        path: /_matrix/mau/ready
-                        port: appservice
                       initialDelaySeconds: 10
                       periodSeconds: 10
+                      failureThreshold: 30
+                    readinessProbe:
+                      httpGet:
+                        path: /_matrix/mau/live
+                        port: appservice
+                      initialDelaySeconds: 5
+                      periodSeconds: 5
+                      failureThreshold: 1
+
+    # - name: Create matrix namespace NetworkPolicy
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: networking.k8s.io/v1
+    #       kind: NetworkPolicy
+    #       metadata:
+    #         name: matrix-internal
+    #         namespace: "{{ matrix_namespace }}"
+    #       spec:
+    #         podSelector: {}
+    #         policyTypes:
+    #           - Ingress
+    #           - Egress
+    #         ingress:
+    #           # Allow all intra-namespace traffic
+    #           - from:
+    #               - podSelector: {}
+    #         egress:
+    #           # Allow all intra-namespace traffic
+    #           - to:
+    #               - podSelector: {}
+    #           # Allow DNS
+    #           - ports:
+    #               - port: 53
+    #                 protocol: UDP
+    #               - port: 53
+    #                 protocol: TCP
+    #           # Allow HTTPS egress (homeserver federation, Discord API)
+    #           - ports:
+    #               - port: 443
+    #                 protocol: TCP
+    #               - port: 80
+    #                 protocol: TCP
 
     - name: Create mautrix-discord Service
       kubernetes.core.k8s:
@@ -232,12 +226,43 @@
             labels:
               app.kubernetes.io/name: mautrix-discord
           spec:
+            clusterIP: None
             selector:
               app.kubernetes.io/name: mautrix-discord
             ports:
               - name: appservice
                 port: "{{ mautrix_discord_port }}"
                 targetPort: appservice
+
+
+    - name: Create mautrix-discord Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: mautrix-discord
+            namespace: "{{ matrix_namespace }}"
+            annotations:
+              cert-manager.io/cluster-issuer: "{{ cert_issuer }}"
+          spec:
+            ingressClassName: "{{ ingress_class }}"
+            tls:
+              - secretName: mautrix-discord-tls
+                hosts:
+                  - "{{ discord_bridge_hostname }}"
+            rules:
+              - host: "{{ discord_bridge_hostname }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: mautrix-discord
+                          port:
+                            number: "{{ mautrix_discord_port }}"
 
     - name: Wait for mautrix-discord pod to be Running
       kubernetes.core.k8s_info:

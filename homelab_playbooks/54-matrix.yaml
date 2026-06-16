@@ -194,16 +194,16 @@
         values:
           serverName: "{{ matrix_server_name }}"
           publicServerName: "{{ matrix_public_hostname }}"
-
+ 
           image:
             repository: ghcr.io/element-hq/synapse
             pullPolicy: IfNotPresent
-
+ 
           config:
             reportStats: false
             enableRegistration: false
             allowGuestAccess: false
-
+ 
           extraConfig:
             max_upload_size: "{{ synapse_max_upload_size }}"
             suppress_key_server_warning: true
@@ -211,7 +211,11 @@
               remote_media_lifetime: 30d
             app_service_config_files:
               - /synapse/config/conf.d/mautrix-discord.yaml
-
+            # Allow Synapse to connect back to bridge pods (default blacklist blocks RFC1918)
+            ip_range_whitelist:
+              - "10.233.0.0/16"
+              - "127.0.0.1/8"
+ 
           synapse:
             extraVolumes:
               - name: mautrix-discord-registration
@@ -225,11 +229,11 @@
                 mountPath: /synapse/config/conf.d/mautrix-discord.yaml
                 subPath: mautrix-discord.yaml
                 readOnly: true
-
+ 
           # Disable bundled PostgreSQL — we use CNPG
           postgresql:
             enabled: false
-
+ 
           externalPostgresql:
             host: "{{ synapse_db_host }}"
             port: 5432
@@ -237,26 +241,26 @@
             database: "{{ synapse_db_name }}"
             existingSecret: synapse-secret
             existingSecretPasswordKey: db_password
-
+ 
           existingSecret: synapse-secret
           existingSecretKeys:
             registrationSharedSecret: registration_shared_secret
             macaroonSecretKey: macaroon_secret_key
-
+ 
           signingKey:
             job:
               enabled: true
-
+ 
           wellknown:
             enabled: true
             replicaCount: 1
-
+ 
           persistence:
             enabled: true
             storageClass: "{{ synapse_storage_class }}"
             accessMode: ReadWriteOnce
             size: "{{ synapse_media_size }}"
-
+ 
           ingress:
             enabled: true
             className: "{{ ingress_class }}"
@@ -269,19 +273,19 @@
               - secretName: synapse-tls
                 hosts:
                   - "{{ matrix_public_hostname }}"
-
+ 
           podSecurityContext:
             runAsUser: 991
             runAsGroup: 991
             fsGroup: 991
             runAsNonRoot: true
-
+ 
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false
             capabilities:
               drop: [ALL]
-
+ 
           resources:
             requests:
               cpu: 250m
