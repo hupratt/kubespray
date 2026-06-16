@@ -57,11 +57,11 @@
               name: mautrix-signal-creds
               creationPolicy: Owner
             data:
-              - secretKey: as_token
+              - secretKey: asToken
                 remoteRef:
                   key: "{{ vault_path }}"
                   property: as_token
-              - secretKey: hs_token
+              - secretKey: hsToken
                 remoteRef:
                   key: "{{ vault_path }}"
                   property: hs_token
@@ -102,110 +102,83 @@
                 storage: "{{ data_storage_size }}"
             # storageClassName: "{{ storage_class }}"  # uncomment if needed
 
-    # ── 5. Helm values template ───────────────────────────────────────────────
+    # ── 5. Helm values – strictly matching the chart's values.schema.json ─────
     - name: Write Helm values file
       ansible.builtin.copy:
         dest: /tmp/mautrix-signal-values.yaml
         content: |
           nameOverride: ""
           fullnameOverride: "mautrix-signal"
-
+ 
           image:
             repository: "{{ bridge_image_repo }}"
             tag: "{{ bridge_image_tag }}"
             pullPolicy: IfNotPresent
-
-          # ── Security contexts – satisfy Kyverno restricted profile ──────────
+ 
+          # podSecurityContext: chart only allows 'enabled' + 'seccompProfile'
           podSecurityContext:
             enabled: true
-            runAsNonRoot: true
-            runAsUser: 1337
-            fsGroup: 1337
             seccompProfile:
               type: RuntimeDefault
-
+ 
+          # securityContext: chart schema accepts these fields
           securityContext:
             enabled: true
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false   # bridge writes /data at runtime
+            readOnlyRootFilesystem: false
             capabilities:
               drop: [ALL]
-
-          # ── Homeserver connection ────────────────────────────────────────────
+ 
+          logging: info
+ 
+          # ── Homeserver ───────────────────────────────────────────────────────
           homeserver:
-            # Internal cluster address for Synapse – bridge-to-homeserver traffic
             address: "http://synapse.{{ synapse_namespace }}.svc.cluster.local:8008"
             domain: "{{ matrix_domain }}"
-
-          # ── Appservice / registration ────────────────────────────────────────
+ 
+          # ── Appservice ───────────────────────────────────────────────────────
           appservice:
-            # Public address Synapse uses to reach THIS bridge (via HAProxy ingress)
             address: "https://{{ signal_bridge_hostname }}"
             hostname: "0.0.0.0"
             port: {{ bridge_port }}
-
+            bot:
+              username: signalbot
+ 
+          # ── Registration ─────────────────────────────────────────────────────
           registration:
-            # Copy the registration ConfigMap into the Synapse namespace so
-            # you can mount it in your Synapse Helm values.
+            # existingSecret is a plain string (secret name), not a map
+            existingSecret: "mautrix-signal-creds"
+            autoGenerate: false
             synapseNamespace: "{{ synapse_namespace }}"
-
-          # ── Token injection from ESO secret ─────────────────────────────────
-          # The cyclikal94 chart honours existingSecret for as_token / hs_token
-          existingSecret:
-            name: mautrix-signal-creds
-            asTokenKey: as_token
-            hsTokenKey: hs_token
-
-          # ── Database (CNPG-managed DSN from generated secret) ────────────────
-          database:
-            # The CNPG app secret exposes a 'uri' field with the full pg DSN
-            existingSecret:
-              name: "{{ cnpg_app_secret }}"
-              uriKey: uri
-
-          # ── Storage: reuse the PVC we created above ──────────────────────────
-          persistence:
-            existingClaim: mautrix-signal-data
-
-          # ── Service ──────────────────────────────────────────────────────────
-          service:
-            port: {{ bridge_port }}
-            publishNotReadyAddresses: true
-
-          # ── Ingress via HAProxy ──────────────────────────────────────────────
-          ingress:
+ 
+          # ── Double puppet ────────────────────────────────────────────────────
+          doublePuppet:
             enabled: true
-            ingressClassName: haproxy
-            annotations:
-              # Let cert-manager issue a cert
-              cert-manager.io/cluster-issuer: "letsencrypt-prod"
-              # HAProxy-specific: route only the /_matrix/app path
-              haproxy.org/path-rewrite: "/"
-            hosts:
-              - host: "{{ signal_bridge_hostname }}"
-                paths:
-                  - path: /_matrix/app
-                    pathType: Prefix
-            tls:
-              - secretName: mautrix-signal-tls
-                hosts:
-                  - "{{ signal_bridge_hostname }}"
-
-          # ── Extra pod labels to satisfy Kyverno NetworkPolicy matchers ───────
-          podLabels:
-            app.kubernetes.io/name: mautrix-signal
-            app.kubernetes.io/component: bridge
-
-          # ── Resources ────────────────────────────────────────────────────────
-          resources:
-            requests:
-              cpu: 50m
-              memory: 128Mi
-            limits:
-              memory: 512Mi
-
-          logging: info
+ 
+          # ── Database: chart only supports structured postgres block ──────────
+          # Disable bundled postgres; point at CNPG via config.baseExtra DSN.
+          postgres:
+            enabled: false
+          database:
+            postgres:
+              host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+              port: 5432
+              user: mautrix_signal
+              password:
+                value: "{{ cnpg_app_secret | urlsplit('password') }}"
+              database: mautrix_signal
+              sslMode: require
+          # ── baseExtra: inject the real DSN from CNPG, overriding the above ──
+          # The chart merges baseExtra last for appservice.database, so this wins.
+          config:
+            baseExtra: |
+              appservice:
+                database:
+                  type: postgres
+                  uri: "{{ cnpg_app_secret }}"
         mode: '0600'
+ 
+
 
     # ── 6. Helm deploy ────────────────────────────────────────────────────────
     - name: Deploy mautrix-signal Helm chart
