@@ -1,19 +1,18 @@
 ---
-# Matrix stack — single-file deployment
-# Components: Synapse + Element Web + mautrix-discord
+# Component:  mautrix-discord
 # Ingress:    HAProxy
 # Policy:     Kyverno PolicyExceptions
 # Storage:    Rook-Ceph RBD (RWO)
-# DB:         External CNPG (bootstrapped in this playbook)
-#
-# Usage:
-#   ansible-vault encrypt_string 'yourvalue' --name 'varname'   # to encrypt individual vars
-#   ansible-playbook matrix.yml --ask-vault-pass
+# DB:         External CNPG
+
 
 - name: Deploy the mautrix/discord puppeting bridge
   hosts: localhost
   connection: local
   gather_facts: false
+
+  vars_files:
+    - group_vars/all/matrix-vault.yml
 
   tasks:
 

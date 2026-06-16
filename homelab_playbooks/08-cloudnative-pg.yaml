@@ -32,6 +32,8 @@
         vault_path: linkwarden 
       - owner: synapse
         vault_path: synapse
+      - owner: mautrixsignal
+        vault_path: mautrixsignal
     databases:
       - name: grafana
         owner: grafana
@@ -65,6 +67,8 @@
         owner: backupmatrix
       - name: synapse
         owner: synapse
+      - name: mautrixsignal
+        owner: mautrixsignal
 
   tasks:
     - name: Deploy CNPG operator via Helm

@@ -4,11 +4,8 @@
 # Ingress:    HAProxy
 # Policy:     Kyverno PolicyExceptions
 # Storage:    Rook-Ceph RBD (RWO)
-# DB:         External CNPG (bootstrapped in this playbook)
-#
-# Usage:
-#   ansible-vault encrypt_string 'yourvalue' --name 'varname'   # to encrypt individual vars
-#   ansible-playbook matrix.yml --ask-vault-pass
+# DB:         External CNPG 
+
 
 - name: Deploy Matrix stack
   hosts: localhost
