@@ -10,7 +10,7 @@
 #   ansible-vault encrypt_string 'yourvalue' --name 'varname'   # to encrypt individual vars
 #   ansible-playbook matrix.yml --ask-vault-pass
 
-- name: Deploy Matrix stack
+- name: Deploy the mautrix/discord puppeting bridge
   hosts: localhost
   connection: local
   gather_facts: false
@@ -178,41 +178,6 @@
                       initialDelaySeconds: 5
                       periodSeconds: 5
                       failureThreshold: 1
-
-    # - name: Create matrix namespace NetworkPolicy
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: networking.k8s.io/v1
-    #       kind: NetworkPolicy
-    #       metadata:
-    #         name: matrix-internal
-    #         namespace: "{{ matrix_namespace }}"
-    #       spec:
-    #         podSelector: {}
-    #         policyTypes:
-    #           - Ingress
-    #           - Egress
-    #         ingress:
-    #           # Allow all intra-namespace traffic
-    #           - from:
-    #               - podSelector: {}
-    #         egress:
-    #           # Allow all intra-namespace traffic
-    #           - to:
-    #               - podSelector: {}
-    #           # Allow DNS
-    #           - ports:
-    #               - port: 53
-    #                 protocol: UDP
-    #               - port: 53
-    #                 protocol: TCP
-    #           # Allow HTTPS egress (homeserver federation, Discord API)
-    #           - ports:
-    #               - port: 443
-    #                 protocol: TCP
-    #               - port: 80
-    #                 protocol: TCP
 
     - name: Create mautrix-discord Service
       kubernetes.core.k8s:

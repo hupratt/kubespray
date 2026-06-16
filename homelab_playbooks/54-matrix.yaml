@@ -25,32 +25,6 @@
     # Run: kubectl get clusterpolicies   to verify policy names match yours
     # ══════════════════════════════════════════════════════════════════════════
 
-    # - name: Apply Kyverno PolicyException for Synapse signing key job
-    #   kubernetes.core.k8s:
-    #     state: present
-    #     definition:
-    #       apiVersion: kyverno.io/v2beta1
-    #       kind: PolicyException
-    #       metadata:
-    #         name: synapse-signingkey-job-exception
-    #         namespace: "{{ matrix_namespace }}"
-    #       spec:
-    #         match:
-    #           any:
-    #             - resources:
-    #                 kinds:
-    #                   - Pod
-    #                 namespaces:
-    #                   - "{{ matrix_namespace }}"
-    #                 selector:
-    #                   matchLabels:
-    #                     app.kubernetes.io/component: signingkey-job
-
-    #         exceptions:
-    #           - policyName: disallow-root-user
-    #             ruleNames:
-    #               - run-as-non-root
-
     - name: Apply Kyverno PolicyExceptions
       kubernetes.core.k8s:
         state: present
