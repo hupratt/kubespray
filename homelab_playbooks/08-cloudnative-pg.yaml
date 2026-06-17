@@ -34,6 +34,8 @@
         vault_path: synapse
       - owner: mautrix
         vault_path: mautrixsignal
+      - owner: mautrixwhatsapp
+        vault_path: mautrixwhatsapp
     databases:
       - name: grafana
         owner: grafana
@@ -69,7 +71,8 @@
         owner: synapse
       - name: mautrixsignal
         owner: mautrix
-
+      - name: mautrixwhatsapp
+        owner: mautrixwhatsapp
   tasks:
     - name: Deploy CNPG operator via Helm
       kubernetes.core.helm:
