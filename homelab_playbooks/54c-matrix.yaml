@@ -33,7 +33,7 @@
     synapse_namespace: matrix
     vault_path: synapse
     vault_path_mautrix: mautrixsignal
-    signal_bridge_hostname: signal.thekor.eu
+    signal_bridge_hostname: mautrix-signal.matrix.svc.cluster.local
     matrix_domain: matrix.thekor.eu
 
   tasks:
@@ -59,11 +59,11 @@
             data:
               - secretKey: asToken
                 remoteRef:
-                  key: "{{ vault_path }}"
+                  key: "{{ vault_path_mautrix }}"
                   property: as_token
               - secretKey: hsToken
                 remoteRef:
-                  key: "{{ vault_path }}"
+                  key: "{{ vault_path_mautrix }}"
                   property: hs_token
               - secretKey: db_password
                 remoteRef:
@@ -138,11 +138,11 @@
  
           # ── Appservice ───────────────────────────────────────────────────────
           appservice:
-            address: "https://{{ signal_bridge_hostname }}"
+            address: http://mautrix-signal.matrix.svc.cluster.local
             hostname: "0.0.0.0"
             port: {{ bridge_port }}
             bot:
-              username: signalbot
+              username: signal_bot
  
           # ── Registration ─────────────────────────────────────────────────────
           registration:
@@ -217,18 +217,7 @@
     - name: Build chart dependencies
       ansible.builtin.command:
         cmd: helm dependency build /tmp/matrix-helm-charts/charts/mautrix-signal
-      changed_when: true
-
-    # - name: Patch mautrix-signal chart - move database under appservice for bridgev2
-    #   ansible.builtin.shell: |
-    #     python3 /tmp/matrix-helm-charts/patch.py
     #   changed_when: true
-
-    # - name: Patch reserved base paths to match moved database key
-    #   ansible.builtin.replace:
-    #     path: /tmp/matrix-helm-charts/charts/mautrix-signal/templates/_helpers.tpl
-    #     regexp: 'appservice\.hs_token,database\.type,database\.uri'
-    #     replace: 'appservice.hs_token,appservice.database.type,appservice.database.uri'
 
     - name: Deploy mautrix-signal Helm chart
       kubernetes.core.helm:
@@ -261,21 +250,39 @@
       ansible.builtin.debug:
         msg: |
           ╔══════════════════════════════════════════════════════════════════╗
-          ║  mautrix-signal deployed successfully                           ║
+          ║  mautrix-signal deployed successfully                            ║
           ╠══════════════════════════════════════════════════════════════════╣
-          ║  NEXT STEPS (manual or bolt onto your Synapse playbook):        ║
+          ║  NEXT STEPS (manual or bolt onto your Synapse playbook):         ║
           ║                                                                  ║
           ║  1. Mount the registration ConfigMap in Synapse:                 ║
-          ║     ConfigMap: {{ release_name }}-mautrix-signal-registration   ║
+          ║     ConfigMap: {{ release_name }}-mautrix-signal-registration    ║
           ║     namespace: {{ synapse_namespace }}                           ║
           ║     Mount path in Synapse pod:                                   ║
-          ║       /bridges/mautrix-signal-registration.yaml                 ║
+          ║       /bridges/mautrix-signal-registration.yaml                  ║
           ║                                                                  ║
           ║  2. Add to Synapse homeserver.yaml (or Helm values):             ║
           ║     app_service_config_files:                                    ║
-          ║       - /bridges/mautrix-signal-registration.yaml               ║
+          ║       - /bridges/mautrix-signal-registration.yaml                ║
           ║                                                                  ║
           ║  3. Restart Synapse, then DM the bridge bot:                     ║
-          ║       @signalbot:{{ matrix_domain }}                             ║
+          ║       @signal_bot:{{ matrix_domain }}                            ║
           ║     and run:  help                                               ║
           ╚══════════════════════════════════════════════════════════════════╝
+
+
+# kubectl patch cm mautrix-signal-registration -n matrix --type='json' -p='[
+#   {
+#     "op": "replace",
+#     "path": "/data/appservice-registration-signal.yaml",
+#     "value": "id: \"signal\"\nurl: \"http://mautrix-signal.matrix.svc.cluster.local:29328\"\nas_token: \"nas_token\"\nhs_token: \"nhs_token\"\nsender_localpart: \"signal_bot\"\nrate_limited: false\nnamespaces:\n  users:\n    - exclusive: true\n      regex: '\''@signal_.*:matrix.thekor.eu'\''"
+#   }
+# ]'
+
+
+# kubectl rollout restart deployment/matrix-synapse -n matrix
+
+# kubectl exec -n matrix deploy/matrix-synapse -- cat /synapse/config/conf.d/mautrix-signal.yaml
+
+# kubectl patch svc mautrix-signal -n matrix --type='json' -p='[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 29328}]'
+
+# There is still a dependency problem when creating the mautrix-signal because the configmap "mautrix-signal-registration" is created/managed by the helm chart

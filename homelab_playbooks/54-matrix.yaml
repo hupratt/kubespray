@@ -142,17 +142,6 @@
         name: ananace-charts
         repo_url: https://ananace.gitlab.io/charts
 
-    # - name: Clean up orphaned Synapse hook resources
-    #   kubernetes.core.k8s:
-    #     state: absent
-    #     api_version: "{{ item.api_version }}"
-    #     kind: "{{ item.kind }}"
-    #     name: "{{ item.name }}"
-    #     namespace: "{{ matrix_namespace }}"
-    #   loop:
-    #     - { api_version: v1, kind: Secret, name: matrix-synapse-signingkey }
-    #     - { api_version: v1, kind: ConfigMap, name: matrix-synapse-scripts }
-
     - name: Deploy Synapse
       kubernetes.core.helm:
         name: matrix-synapse
@@ -182,11 +171,13 @@
               remote_media_lifetime: 30d
             app_service_config_files:
               - /synapse/config/conf.d/mautrix-discord.yaml
+              - /synapse/config/conf.d/mautrix-signal.yaml
             # Allow Synapse to connect back to bridge pods (default blacklist blocks RFC1918)
             ip_range_whitelist:
               - "10.233.0.0/16"
               - "127.0.0.1/8"
- 
+            ip_range_blacklist: []
+            federation_ip_range_blacklist: []
           synapse:
             extraVolumes:
               - name: mautrix-discord-registration
@@ -195,12 +186,21 @@
                   items:
                     - key: registration.yaml
                       path: mautrix-discord.yaml
+              - name: mautrix-signal-registration
+                configMap:
+                  name: mautrix-signal-registration
+                  items:
+                    - key: appservice-registration-signal.yaml
+                      path: mautrix-signal.yaml
             extraVolumeMounts:
               - name: mautrix-discord-registration
                 mountPath: /synapse/config/conf.d/mautrix-discord.yaml
                 subPath: mautrix-discord.yaml
                 readOnly: true
- 
+              - name: mautrix-signal-registration
+                mountPath: /synapse/config/conf.d/mautrix-signal.yaml
+                subPath: mautrix-signal.yaml
+                readOnly: true
           # Disable bundled PostgreSQL — we use CNPG
           postgresql:
             enabled: false
