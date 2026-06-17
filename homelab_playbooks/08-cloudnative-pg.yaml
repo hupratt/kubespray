@@ -32,7 +32,7 @@
         vault_path: linkwarden 
       - owner: synapse
         vault_path: synapse
-      - owner: mautrixsignal
+      - owner: mautrix
         vault_path: mautrixsignal
     databases:
       - name: grafana
@@ -68,7 +68,7 @@
       - name: synapse
         owner: synapse
       - name: mautrixsignal
-        owner: mautrixsignal
+        owner: mautrix
 
   tasks:
     - name: Deploy CNPG operator via Helm
@@ -263,3 +263,7 @@
             cluster:
               name: "{{ shared_cluster_name }}"
       loop: "{{ databases }}"
+
+# check role reconciliation
+
+# kubectl get cluster shared-pg -n cn-postgres -o yaml | grep -A20 managedRoles
