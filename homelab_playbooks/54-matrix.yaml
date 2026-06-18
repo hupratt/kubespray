@@ -165,6 +165,8 @@
             allowGuestAccess: false
  
           extraConfig:
+            experimental_features:
+              msc3202_transaction_extensions: true
             max_upload_size: "{{ synapse_max_upload_size }}"
             suppress_key_server_warning: true
             media_retention:
@@ -172,6 +174,7 @@
             app_service_config_files:
               - /synapse/config/conf.d/mautrix-discord.yaml
               - /synapse/config/conf.d/mautrix-signal.yaml
+              - /synapse/config/conf.d/mautrix-whatsapp.yaml
             # Allow Synapse to connect back to bridge pods (default blacklist blocks RFC1918)
             ip_range_whitelist:
               - "10.233.0.0/16"
@@ -192,6 +195,12 @@
                   items:
                     - key: appservice-registration-signal.yaml
                       path: mautrix-signal.yaml
+              - name: mautrix-whatsapp-registration
+                configMap:
+                  name: mautrix-whatsapp-registration
+                  items:
+                    - key: whatsapp-registration.yaml
+                      path: mautrix-whatsapp.yaml
             extraVolumeMounts:
               - name: mautrix-discord-registration
                 mountPath: /synapse/config/conf.d/mautrix-discord.yaml
@@ -200,6 +209,10 @@
               - name: mautrix-signal-registration
                 mountPath: /synapse/config/conf.d/mautrix-signal.yaml
                 subPath: mautrix-signal.yaml
+                readOnly: true
+              - name: mautrix-whatsapp-registration
+                mountPath: /synapse/config/conf.d/mautrix-whatsapp.yaml
+                subPath: mautrix-whatsapp.yaml
                 readOnly: true
           # Disable bundled PostgreSQL — we use CNPG
           postgresql:

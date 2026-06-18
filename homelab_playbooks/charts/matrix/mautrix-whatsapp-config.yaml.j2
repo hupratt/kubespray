@@ -1,0 +1,48 @@
+homeserver:
+  address: {{ homeserver_url }}
+  domain: {{ homeserver_domain }}
+  async_media: false
+
+appservice:
+  address: {{ bridge_private_url }}
+  hostname: 0.0.0.0
+  port: {{ bridge_port }}
+  id: whatsapp
+  bot:
+    username: whatsappbot
+    displayname: WhatsApp Bridge Bot
+    avatar: mxc://maunium.net/NeXNQarUbrlYBiPCpprYsRqr
+  as_token: {{ mautrix_whatsapp_as_token }}
+  hs_token: {{ mautrix_whatsapp_hs_token }}
+  {% raw %}username_template: whatsapp_{{.}}{% endraw %}
+
+database:
+  type: postgres
+  uri: {{ mautrix_whatsapp_db_uri }}
+
+bridge:
+  command_prefix: "!wa"
+  permissions:
+    "{{ homeserver_domain }}": user
+    "@admin:{{ homeserver_domain }}": admin
+
+network:
+  history_sync:
+    request_full_sync: false
+    max_initial_conversations: -1
+    media_requests:
+      auto_request_media: true
+      request_method: immediate
+
+encryption:
+  allow: false
+  default: false
+  require: false
+#   appservice: true
+#   pickle_key: "{{ mautrix_whatsapp_pickle_key }}"
+
+logging:
+  min_level: warn
+  writers:
+    - type: stdout
+      format: json

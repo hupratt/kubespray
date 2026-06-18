@@ -12,6 +12,9 @@
   connection: local
   gather_facts: false
 
+  vars_files:
+    - group_vars/all/matrix-vault.yml
+
   vars:
     # ── Namespaces & names ────────────────────────────────────────────────
     bridge_namespace: matrix
@@ -20,7 +23,7 @@
 
     # ── Matrix / Synapse ──────────────────────────────────────────────────
     # Internal cluster service URL for Synapse (no TLS needed inside cluster)
-    homeserver_url: "http://matrix-synapse.svc.cluster.local:8008"
+    homeserver_url: "http://matrix-synapse.matrix.svc.cluster.local:8008"
     # Public-facing domain for your Matrix server
     homeserver_domain: "matrix.thekor.eu"
     # Where Synapse's appservice registration files live (mounted into Synapse pod)
@@ -29,7 +32,7 @@
 
     # ── Bridge public address ─────────────────────────────────────────────
     # The URL Synapse uses to reach the bridge (via HAProxy Ingress)
-    bridge_private_url: "https://whatsapp-bridge.svc.cluster.local"
+    bridge_private_url: "http://mautrix-whatsapp.matrix.svc.cluster.local"
     # Internal listen port inside the container
     bridge_port: 29318
     bridge_private_uri: "{{ bridge_private_url }}:{{ bridge_port }}"
@@ -135,53 +138,7 @@
             namespace: "{{ bridge_namespace }}"
             labels: "{{ kyverno_required_labels }}"
           data:
-            # mautrix-whatsapp config.yaml — only non-default values shown.
-            # The bridge merges this with its built-in defaults at startup.
-            config.yaml: |
-              homeserver:
-                address: {{ homeserver_url }}
-                domain: {{ homeserver_domain }}
-                async_media: false
-
-              appservice:
-                address: {{ bridge_private_url }}
-                hostname: 0.0.0.0
-                port: {{ bridge_port }}
-                # Tokens are injected from the Secret via env vars (see Deployment).
-                # The bridge reads AS_TOKEN / HS_TOKEN env vars automatically.
-                database:
-                  type: postgres
-                  # Injected via MAUTRIX_WHATSAPP_APPSERVICE_DATABASE_URI env var
-                  uri: ""
-                id: whatsapp
-                bot:
-                  username: whatsappbot
-                  displayname: WhatsApp Bridge Bot
-                  avatar: mxc://maunium.net/NeXNQarUbrlYBiPCpprYsRqr
-
-              bridge:
-                username_template: "whatsapp_{{.}}"
-                displayname_template: "{{if .BusinessName}}{{.BusinessName}}{{else if .PushName}}{{.PushName}}{{else}}{{.JID}}{{end}} (WA)"
-                command_prefix: "!wa"
-                # Allow all users on your homeserver to use the bridge
-                permissions:
-                  "{{ homeserver_domain }}": user
-                  "@admin:{{ homeserver_domain }}": admin
-                encryption:
-                  allow: true
-                  default: true
-                  require: false
-                history_sync:
-                  request_full_sync: false
-                  max_initial_conversations: -1
-                  media:
-                    autorequest_largest: true
-
-              logging:
-                min_level: warn
-                writers:
-                  - type: stdout
-                    format: json
+            config.yaml: "{{ lookup('template', 'charts/matrix/mautrix-whatsapp-config.yaml.j2') }}"
 
     # ════════════════════════════════════════════════════════════════════════
     # 3. CONFIGMAP – Synapse appservice registration
@@ -202,8 +159,8 @@
               id: whatsapp
               url: {{ bridge_private_uri }}
               # Tokens must match the Secret values — update if you rotate them.
-              as_token: "CHANGE_ME_AS_TOKEN_32BYTES_HEX"
-              hs_token: "CHANGE_ME_HS_TOKEN_32BYTES_HEX"
+              as_token: {{ mautrix_whatsapp_as_token }}
+              hs_token: {{ mautrix_whatsapp_hs_token }}
               sender_localpart: whatsappbot
               rate_limited: false
               namespaces:
@@ -284,36 +241,54 @@
                   fsGroup: 1337
                   seccompProfile:
                     type: RuntimeDefault
+                initContainers:
+                  - name: copy-config
+                    image: "{{ bridge_image }}"
+                    command: ["cp", "/config-src/config.yaml", "/data/config.yaml"]
+                    volumeMounts:
+                      - name: config
+                        mountPath: /config-src/config.yaml
+                        subPath: config.yaml
+                        readOnly: true
+                      - name: data
+                        mountPath: /data
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: false
+                      capabilities:
+                        drop: [ALL]
                 containers:
                   - name: bridge
                     image: "{{ bridge_image }}"
                     imagePullPolicy: Always
+                    command: ["/usr/bin/mautrix-whatsapp"]
+                    args: ["--config", "/data/config.yaml", "--no-update"]
                     ports:
                       - name: http
                         containerPort: "{{ bridge_port }}"
                         protocol: TCP
                     env:
+                      - name: MAUTRIX_WA_NETWORK__DISPLAYNAME_TEMPLATE
+                        value: !unsafe '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}} (WA)'
+                      - name: MAUTRIX_WA_APPSERVICE__USERNAME_TEMPLATE
+                        value: !unsafe 'whatsapp_{{.}}'
                       # Inject secrets as env vars; the bridge reads these automatically
-                      - name: MAUTRIX_WHATSAPP_APPSERVICE_AS_TOKEN
+                      - name: MAUTRIX_WA_APPSERVICE__AS_TOKEN
                         valueFrom:
                           secretKeyRef:
                             name: mautrix-whatsapp-creds
                             key: as_token
-                      - name: MAUTRIX_WHATSAPP_APPSERVICE_HS_TOKEN
+                      - name: MAUTRIX_WA_APPSERVICE__HS_TOKEN
                         valueFrom:
                           secretKeyRef:
                             name: mautrix-whatsapp-creds
                             key: hs_token
-                      - name: MAUTRIX_WHATSAPP_APPSERVICE_DATABASE_URI
+                      - name: MAUTRIX_WA_DATABASE__URI
                         valueFrom:
                           secretKeyRef:
                             name: mautrix-whatsapp-creds
                             key: uri
                     volumeMounts:
-                      - name: config
-                        mountPath: /data/config.yaml
-                        subPath: config.yaml
-                        readOnly: true
                       - name: data
                         mountPath: /data
                     resources: "{{ resources }}"
@@ -326,14 +301,16 @@
                       httpGet:
                         path: /_matrix/mau/live
                         port: http
-                      initialDelaySeconds: 15
+                      initialDelaySeconds: 300
                       periodSeconds: 30
+                      failureThreshold: 10
                     readinessProbe:
                       httpGet:
                         path: /_matrix/mau/ready
                         port: http
-                      initialDelaySeconds: 5
-                      periodSeconds: 10
+                      initialDelaySeconds: 300
+                      periodSeconds: 30
+                      failureThreshold: 10
                 volumes:
                   - name: config
                     configMap:
@@ -356,13 +333,14 @@
             namespace: "{{ bridge_namespace }}"
             labels: "{{ kyverno_required_labels }}"
           spec:
+            publishNotReadyAddresses: true
             selector:
               app.kubernetes.io/name: "{{ bridge_name }}"
             ports:
               - name: http
                 port: "{{ bridge_port }}"
-                targetPort: http
                 protocol: TCP
+                targetPort: "{{ bridge_port }}"
 
     # ════════════════════════════════════════════════════════════════════════
     # 9. INGRESS (HAProxy)
