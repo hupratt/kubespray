@@ -161,12 +161,13 @@
               # Tokens must match the Secret values — update if you rotate them.
               as_token: {{ mautrix_whatsapp_as_token }}
               hs_token: {{ mautrix_whatsapp_hs_token }}
-              sender_localpart: whatsappbot
+              sender_localpart: whatsappreg
               rate_limited: false
+              deactivate_login_for_users_under_this_as: false
               namespaces:
                 users:
                   - exclusive: true
-                    regex: "@whatsapp_.*:{{ homeserver_domain }}"
+                    regex: "@whatsapp.*:{{ homeserver_domain }}"
                 aliases: []
                 rooms: []
 

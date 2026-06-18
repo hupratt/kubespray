@@ -22,9 +22,10 @@ database:
 
 bridge:
   command_prefix: "!wa"
+  sync_with_custom_puppets: false
   permissions:
     "{{ homeserver_domain }}": user
-    "@admin:{{ homeserver_domain }}": admin
+    "@wazinsky:{{ homeserver_domain }}": admin
 
 network:
   history_sync:
@@ -35,11 +36,10 @@ network:
       request_method: immediate
 
 encryption:
-  allow: false
-  default: false
-  require: false
-#   appservice: true
-#   pickle_key: "{{ mautrix_whatsapp_pickle_key }}"
+  allow: true
+  default: true
+  require: true
+  pickle_key: "{{ mautrix_whatsapp_pickle_key }}"
 
 logging:
   min_level: warn
