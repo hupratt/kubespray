@@ -71,9 +71,9 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/postgresql.svg" width="16"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon |
-| <img src="./icons/mariadb.svg" width="16"/> | **MariaDB** | MySQL-compatible DB managed via Kubernetes operator |
-| <img src="./icons/mongodb.svg" width="16"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
+| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon |
+| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator |
+| <img src="./icons/mongo.svg" width="16"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
 
 ### 4. Productivity & Tools
 
@@ -91,6 +91,9 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 | <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | Listening analytics dashboard |
 | 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example |
 | 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes |
+| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication |
+| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed |
+| 🌐 | **ilo exporter** | rest api that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO) |
 
 ### 5. AI Powered
 
@@ -111,6 +114,8 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 | <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
 | <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
 | <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs |
+
 
 ### Critical dependencies
 
