@@ -289,19 +289,14 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 
 | Flow             | Tool               | Destinations                                                                                 | Schedule          |
 |------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
-| Postgres statefulset      | custom bash script | sql dump stored in an external S3 storage       | hourly            |
-| Mongodb statefulset       | custom bash script | tar dump stored in an external S3 storage       | hourly            |
-| Mariadb statefulset       | custom bash script | sql dump stored in an external S3 storage       | hourly            |
-| etcd       | custom bash script | *.db stored in an S3 storage       | hourly            |
-| Database and filesystems | volsync and restic | PVCs get snapshoted and the incrementals get stored on an external S3 storage | hourly |
-| Proxmox backup server | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | once a week |
-| Proxmox replication | first proxmox backup server gets replicated to the second proxmox backup server | Sync | once a week |
+| Application level data -> S3 | volsync and restic | PVCs get snapshoted and the incrementals get stored on an external S3 storage + databases get dumped into compressed archives into that same S3 storage | see below |
+| Block based backups -> Proxmox backup server | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | manual trigger once a week |
+| Block based backups -> Proxmox replication | first proxmox backup server gets replicated to the second proxmox backup server | Sync | manual trigger once a week |
 
 
 #### Backup strategy per service
 
-All backups are sent to the cloud based offsite VPS to an S3 storage hosted at hetzner on an ext4 luks encrypted partition
-
+The Application level data gets backed up to a cloud based offsite VPS to an S3 storage hosted at hetzner on an ext4 luks encrypted partition
 
 ![Backup Matrix](./backup-matrix/backup-matrix.png)
 
