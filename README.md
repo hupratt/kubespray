@@ -27,102 +27,15 @@ This is the repository I use to version control the kubernetes cluster I deploy 
 
 ### Core Components
 
+<details>
+  <summary>Click to see the components</summary>
+
 - **Networking**: [cilium](https://github.com/cilium/cilium) provides eBPF-based (kernel-based) networking replacing kube-proxy, [haproxy](https://www.haproxy.com/) is the cluster's ingress and [harbor](https://goharbor.io/) works as a cluster-local proxy-cache (egress) and scan for vulnerabilities. [Containerd is configured here to use a fallback mirror in case harbor is unavailable](https://github.com/hupratt/kubespray/blob/homelab/inventory/homelab-prod/group_vars/all/offline.yml)
 - **HTTPS**: [cert-manager](https://github.com/cert-manager/cert-manager) is in charge of TLS certificates and i have [DNS acme challenge with hetzner](https://github.com/hetzner/cert-manager-webhook-hetzner/blob/main/docs/guides/quickstart.md) in order to issue and update my wildcard certificate. Gitlab and ansible read the secrets from a local [ansible-vault](https://docs.ansible.com/projects/ansible/latest/cli/ansible-vault.html) for continuous delivery. And i use a handy helper function to soft link the secret in the cert-manager namespace to other namespaces.
 - **Storage & Data Protection**: [rook](https://github.com/rook/rook) provides distributed block storage with Ceph. I have an hourly bash script that does an pull-based sql dump of all databases and stores it in an S3 storage hosted at hetzner on an ext4 luks encrypted partition. CephFS and RBD volumes are backed up once a week and stored in the same S3 storage as well.
 - **Single source of truth**: I don't apply patches at the yaml level or edit helm charts on the fly so having this repo be my single source of truth for my infrastructure as code makes my installs as reproducible as I can. Other popular projects like Flux or ArgoCD can do this as well but I'm already configuring my infrastructure with ansible and it [has extensive support for kubernetes](https://galaxy.ansible.com) via its community hub so I decided to stick to it. As long as you make sure to create a process that your team can understand, that's what matters. Whether you achieve eventual consistency through control loops or with imperative playbooks, with helm charts, no helm charts, git, svn, k8s operators or manual configs it's all the same in the end.
 - **Compliance**: I have [kyverno policies here](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/00-kyverno.yaml) enforcing a number of ClusterAdmissionPolicies such as disallowing privileged containers, requiring resource limits, requiring health probes, blocking latest image tags in production namespaces, blocking containers from running with root privileges and blocking containers from running with SYS_ADMIN and NET_ADMIN permissions so that malicious containers can't impact the host kernel or host network stack.
 - **CI/CD Continuous integration & deployment**: I'm managing the continuous integration and continuous deployment with [a self hosted gitlab instance](https://gitlab.thekor.eu/docker/chirpy/-/blob/master/.gitlab-ci.yml?ref_type=heads) at the project level. The docker build command builds the artifacts and the ```kubectl rollout``` command deploys it and waits for the health checks to be up before replacing the container. I'm self hosting my helm repo in gitlab as a git repository but i'm planning to have an oci repository with [harbor](https://goharbor.io/) soon. Another improvement in the roadmap is to have oauth2 integration between hashicorp's vault and gitlab so that I don't need to share passwords and kubeconfig files as parameters in my gitlab runner's jobs.
-
-
-### What I'm running on my cluster
-
-<details>
-  <summary>Click to see the applications deployed in this repo</summary>
-
-### 1. Infrastructure
-
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | eBPF-based CNI — networking, load balancing, network policies, and TLS secret management |
-| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | Distributed storage: block (RBD), filesystem (CephFS), object (S3-compatible) |
-| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME |
-| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing |
-| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus |
-| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache |
-| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3 |
-| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots |
-| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks |
-| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
-| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
-| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain |
-| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO  |
-
-
-### 2. Identity & Security
-
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync |
-| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities |
-
-### 3. Databases
-
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon |
-| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator |
-| <img src="./icons/mongo.svg" width="16"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
-
-### 4. Productivity & Tools
-
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi |
-| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search |
-| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving |
-| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates |
-| 🌐 | **Chirpy** | Self-hosted microblogging platform |
-| 🌐 | **Youtube-clone** | Self-hosted video platform |
-| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | SFTP / FTP / WebDAV server with S3 backend support |
-| 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
-| <img src="./icons/posthog.svg" width="16"/> | **PostHog** | Product analytics and event tracking |
-| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | Listening analytics dashboard |
-| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example |
-| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes |
-| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication |
-| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed |
-| 🌐 | **ilo exporter** | rest api that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO) |
-
-### 5. AI Powered
-
-| | Application | Description |
-|---|---|---|
-| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat |
-| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection |
-| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts |
-| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
-
-### 6. My Projects
-
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system |
-| <img src="./icons/mongodb.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
-| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs |
-
-
-### Critical dependencies
-
-My most important bits are arguably storage (rook and zfs), DNS and the ingress routing rules. Hashicorp vault and gitlab are arguably come in close second place because I didn't migrate all of my secrets to the vault yet and because I managed to get harbor as a backup proxy registry so if gitlab should fail I can rely on harbor. I'm doing dual NAT so that the mistakes only impact my playground and reduce the blast radius significantly. 
-
----
-</details>
 
 ### Directory Helper
 
@@ -182,8 +95,100 @@ This repository uses the following layout. As a high level overview, the network
 └── 📝 requirements.yml
 
 ```
+---
+</details>
 
-### 🌐 Networking
+### What I'm running in the cluster
+
+<details>
+  <summary>Click to see the applications deployed in this repo</summary>
+
+### 1. Infrastructure
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | eBPF-based CNI — networking, load balancing, network policies, and TLS secret management |
+| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | Distributed storage: block (RBD), filesystem (CephFS), object (S3-compatible) |
+| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME |
+| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing |
+| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus |
+| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache |
+| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3 |
+| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots |
+| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks |
+| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
+| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
+| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain |
+| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO  |
+
+
+### 2. Identity & Security
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync |
+| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities |
+
+### 3. Databases
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon |
+| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator |
+| <img src="./icons/mongo.svg" width="25"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
+
+### 4. Productivity & Tools
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi |
+| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search |
+| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving |
+| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates |
+| 🌐 | **Chirpy** | Self-hosted microblogging platform |
+| 🌐 | **Youtube-clone** | Self-hosted video platform |
+| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | SFTP / FTP / WebDAV server with S3 backend support |
+| 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
+| <img src="./icons/posthog.svg" width="16"/> | **PostHog** | Product analytics and event tracking |
+| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | Listening analytics dashboard |
+| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example |
+| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes |
+| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication |
+| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed |
+| 🌐 | **ilo exporter** | [Rest api](https://github.com/MauveSoftware/ilo_exporter) that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO) |
+
+### 5. AI Powered
+
+| | Application | Description |
+|---|---|---|
+| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat |
+| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection |
+| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts |
+| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
+
+### 6. My Projects
+
+| | Application | Description |
+|---|---|---|
+| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
+| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs |
+
+
+### Critical dependencies
+
+My most important bits are arguably storage (rook and zfs), DNS and the ingress routing rules. Hashicorp vault and gitlab are arguably come in close second place because I didn't migrate all of my secrets to the vault yet and because I managed to get harbor as a backup proxy registry so if gitlab should fail I can rely on harbor. I'm doing dual NAT so that the mistakes only impact my playground and reduce the blast radius significantly. 
+
+---
+</details>
+
+
+### Networking
 
 <details>
   <summary>Click to expand network architecture</summary>
@@ -228,7 +233,7 @@ I went a bit overboard with the number of vlans but I wanted to test out all pos
 | Media Net           | 8    | For devices that need to communicate with jellyfin                                                           |
 | Guest network       | 99   | I didn't have to define this one on my firewall as my router creates this special VLAN                       |
 
-#### 🌐 DNS
+#### DNS
 
 I'm doing split-horizon DNS meaning I have two networks. The first one for my homelab and the second for my family in order to avoid any disturbance. LAN clients on the homelab's network resolve to the pfsense gateway and other devices go straight to the internet.
 
@@ -255,7 +260,7 @@ flowchart LR
 
 ```
 
-#### ☁️ Cloud Dependencies
+#### Cloud Dependencies
 
 While most of my infrastructure and workloads are self-hosted I do rely upon the cloud for certain key parts of my setup. This saves me from dealing with services I critically need for my cluster:
 
@@ -272,7 +277,7 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 </details>
 
 
-### 💾 Backup Architecture
+### Backup Architecture
 
 <details>
   <summary>Click to expand backup strategy</summary>
@@ -306,7 +311,10 @@ All backups are sent to the cloud based offsite VPS to an S3 storage hosted at h
 
 
 
-### 🔧 Hardware
+### Hardware
+
+<details>
+  <summary>Click to see the hardware</summary>
 
 When deciding to move into distributed storage system like ceph or longhorn it's important to use fast and modern hardware. The hardware I'm using is at the very least 10 years old so I had to make some tweaks (larger bluestore cache and disabling compression) to make it work but as a rule of thumb I'd get at least a 6gbit/s consumer SSD to get started. Those can sustain a couple of users writing to it occasionally. If you're on a budget I would also stay away from 10/25/100 Gbit networking as you probably don't have a use case for it and is not as easy to setup as you might think. You're much better off investing into a hyper converged setup and invest into a good enough platform that won't be bottlenecked by your cpu or your storage.
 
@@ -337,6 +345,7 @@ If I ever want to get fewer kubeapi errors due to my storage latency (long fsync
 
 
 ---
+</details>
 </details>
 
 
