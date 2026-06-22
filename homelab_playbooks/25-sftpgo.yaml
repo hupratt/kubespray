@@ -15,7 +15,7 @@
         path: "{{ sftpgo_dir }}"
       register: repo_dir
 
-    - name: Clone netbox git repo
+    - name: Clone git repo
       ansible.builtin.git:
         repo: "{{ sftpgo_repo }}"
         dest: "{{ sftpgo_dir }}"
