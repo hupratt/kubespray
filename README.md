@@ -126,44 +126,43 @@ This repository uses the following layout. As a high level overview, the network
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync |
-| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities |
+| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync. Deployed [via the official chart](https://charts.goauthentik.io) with a homelab_playbook |
+| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync. Deployed via [my custom helm chart](https://gitlab.thekor.eu/kube/vaultwarden) forked [from github](https://github.com/guerzon/vaultwarden) |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities. Deployed [via the official chart](https://kyverno.github.io/kyverno) with a homelab_playbook |
 
 ### 3. Databases
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon |
-| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator |
-| <img src="./icons/mongo.svg" width="25"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone |
+| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon. Deployed [via the official chart](https://cloudnative-pg.github.io/charts) with the operator |
+| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator. Deployed [via the official chart](https://helm.mariadb.com/mariadb-operator) with the operator |
+| <img src="./icons/mongo.svg" width="25"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone. Statefulset deployed via plain yaml files in homelab_playbooks |
 
 ### 4. Productivity & Tools
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi |
-| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search |
-| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving |
-| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates |
-| 🌐 | **Chirpy** | Self-hosted microblogging platform |
-| 🌐 | **Youtube-clone** | Self-hosted video platform |
-| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | SFTP / FTP / WebDAV server with S3 backend support |
+| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi. Deployed [via the official chart](https://immich-app.github.io/immich-charts) |
+| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search. Deployed via a [custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/paperless-ngx/Chart.yaml) loaded in this repository |
+| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving. Deployed via a custom chart that slightly deviates from [this one](https://fmjstudios.github.io/helm) |
+| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates. Deployment spawns from plain yaml files in homelab_playbooks |
+| 🌐 | **Chirpy** | Self-hosted [microblogging platform](https://github.com/cotes2020/jekyll-theme-chirpy). Deployment spawns from plain yaml files in homelab_playbooks |
+| 🌐 | **Youtube-clone** | Self-hosted [video platform](https://github.com/manikandanraji/youtubeclone-backend). Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | [SFTP / FTP / WebDAV server](https://sftpgo.com/) with S3 backend support. Deployed via a slightly [customized version of this chart on github](https://github.com/sftpgo/helm-chart) |
 | 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
-| <img src="./icons/posthog.svg" width="16"/> | **PostHog** | Product analytics and event tracking |
-| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | Listening analytics dashboard |
-| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example |
-| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes |
-| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication |
-| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed |
-| 🌐 | **ilo exporter** | [Rest api](https://github.com/MauveSoftware/ilo_exporter) that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO) |
+| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | [Listening analytics](https://github.com/Yooooomi/your_spotify) dashboard. Deployment spawns from plain yaml files in homelab_playbooks |
+| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example. Deployment spawns from plain yaml files in homelab_playbooks |
+| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes. Deployed from the [official helm chart](https://helm.mittwald.de) |
+| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication. The synapse server is deployed from [the official helm chart](ananace-charts/element-web), the signal plugin is [a helm chart as well](https://github.com/cyclikal94/matrix-helm-charts.git), the whatsapp plugin is deployed [by a custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/matrix/mautrix-whatsapp-config.yaml.j2) in this repo and the discord plugin on the other hand is a custom deployment provisioned by yaml files |
+| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed. Deployment spawns from plain yaml files in homelab_playbooks |
+| 🌐 | **ilo exporter** | [Rest api](https://github.com/MauveSoftware/ilo_exporter) that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO). Deployment spawns from plain yaml files in homelab_playbooks |
 
 ### 5. AI Powered
 
 | | Application | Description |
 |---|---|---|
 | 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat |
-| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection |
+| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection. Deployment is handled by [a custom chart in this repo](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/frigate/Chart.yaml) |
 | <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts |
 | <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
 
