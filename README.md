@@ -105,79 +105,77 @@ This repository uses the following layout. As a high level overview, the network
 
 ### 1. Infrastructure
 
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | [eBPF-based CNI](https://cilium.io/) — networking, load balancing, network policies, and TLS secret management. Provisionned via kubespray, ansible [installs cilium with the downloaded cilium CLI](https://github.com/hupratt/kubespray/blob/homelab/roles/network_plugin/cilium/tasks/apply.yml) which is configured to grab [the cilium_version defined here](https://github.com/hupratt/kubespray/blob/homelab/roles/kubespray_defaults/defaults/main/download.yml) |
-| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | [Distributed storage](https://rook.io/docs/rook/v1.9/ceph-storage.html): block (RBD), filesystem (CephFS), object (S3-compatible). I'm provisioning rook through [a custom helm chart](https://gitlab.thekor.eu/kube/rook/-/blob/homelab/deploy/examples/ceph-cluster.yml?ref_type=heads) defined in homelab_playbook which spawns the rook operator and [the ceph-cluster](https://quay.io/repository/ceph/ceph?tab=tags)|
-| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME. I'm provisioning the bot through [the official jetstack helm chart](https://charts.jetstack.io) and [hetzner's webhook official chart](https://charts.hetzner.cloud) |
-| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing. I'm provisioning the controller via plain yaml files defined in homelab_playbook which grab the image haproxytech/kubernetes-ingress from [dockerhub](https://hub.docker.com/r/haproxytech/kubernetes-ingress) |
-| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus. This deployment is provisioned by ansible's homelab_playbooks using [the official helm chart](https://prometheus-community.github.io/helm-charts) |
-| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache. The chart gets provisioned by ansible's homelab_playbooks using [the official helm chart](https://helm.goharbor.io)|
-| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3. These jobs are provisioned by plain kubernetes Cronjobs and Volsync's replicationsource CRD in the case of volsync backups |
-| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots. mqtt gets provisioned by plain yaml files in the homelab_playbooks which grabs the eclipse-mosquitto:latest from [dockerhub](https://hub.docker.com/_/eclipse-mosquitto/)|
-| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks. Patchmon is provisioned [by a custom helm chart](https://gitlab.thekor.eu/kube/patchmon/-/blob/main/Chart.yaml?ref_type=heads) that deviates slightly from the official helm chart. I'm still using ghcr's patchmon/patchmon-server image though. |
-| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access. I'm provisioning the vault via [the official helm chart](https://helm.releases.hashicorp.com) |
-| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically. I'm provisioning ESO from [the official helm chart](https://charts.external-secrets.io) |
-| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain. Technitium is provisioned by [this helm chart](https://charts.obeone.cloud) |
-| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO. I'm provisioning Volsync via [the official helm chart](https://backube.github.io/helm-charts/)  |
-
+| | Application | Description | Helm |
+|---|---|---|:---:|
+| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | [eBPF-based CNI](https://cilium.io/) — networking, load balancing, network policies, and TLS secret management. Provisionned via kubespray, ansible [installs cilium with the downloaded cilium CLI](https://github.com/hupratt/kubespray/blob/homelab/roles/network_plugin/cilium/tasks/apply.yml) which is configured to grab [the cilium_version defined here](https://github.com/hupratt/kubespray/blob/homelab/roles/kubespray_defaults/defaults/main/download.yml) | — |
+| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | [Distributed storage](https://rook.io/docs/rook/v1.9/ceph-storage.html): block (RBD), filesystem (CephFS), object (S3-compatible). I'm provisioning rook through [a custom helm chart](https://gitlab.thekor.eu/kube/rook/-/blob/homelab/deploy/examples/ceph-cluster.yml?ref_type=heads) defined in homelab_playbook which spawns the rook operator and [the ceph-cluster](https://quay.io/repository/ceph/ceph?tab=tags) | 🔧 |
+| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME. I'm provisioning the bot through [the official jetstack helm chart](https://charts.jetstack.io) and [hetzner's webhook official chart](https://charts.hetzner.cloud) | ✅ |
+| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing. I'm provisioning the controller via plain yaml files defined in homelab_playbook which grab the image haproxytech/kubernetes-ingress from [dockerhub](https://hub.docker.com/r/haproxytech/kubernetes-ingress) | — |
+| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus. This deployment is provisioned by ansible's homelab_playbooks using [the official helm chart](https://prometheus-community.github.io/helm-charts) | ✅ |
+| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache. The chart gets provisioned by ansible's homelab_playbooks using [the official helm chart](https://helm.goharbor.io) | ✅ |
+| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3. These jobs are provisioned by plain kubernetes Cronjobs and Volsync's replicationsource CRD in the case of volsync backups | — |
+| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots. mqtt gets provisioned by plain yaml files in the homelab_playbooks which grabs the eclipse-mosquitto:latest from [dockerhub](https://hub.docker.com/_/eclipse-mosquitto/) | — |
+| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks. Patchmon is provisioned [by a custom helm chart](https://gitlab.thekor.eu/kube/patchmon/-/blob/main/Chart.yaml?ref_type=heads) that deviates slightly from the official helm chart. I'm still using ghcr's patchmon/patchmon-server image though. | 🔧 |
+| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access. I'm provisioning the vault via [the official helm chart](https://helm.releases.hashicorp.com) | ✅ |
+| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically. I'm provisioning ESO from [the official helm chart](https://charts.external-secrets.io) | ✅ |
+| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain. Technitium is provisioned by [this helm chart](https://charts.obeone.cloud) | ✅ |
+| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO. I'm provisioning Volsync via [the official helm chart](https://backube.github.io/helm-charts/) | ✅ |
 
 ### 2. Identity & Security
 
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync. Deployed [via the official chart](https://charts.goauthentik.io) with a homelab_playbook |
-| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync. Deployed via [my custom helm chart](https://gitlab.thekor.eu/kube/vaultwarden) forked [from github](https://github.com/guerzon/vaultwarden) |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities. Deployed [via the official chart](https://kyverno.github.io/kyverno) with a homelab_playbook |
+| | Application | Description | Helm |
+|---|---|---|:---:|
+| <img src="./icons/authentik.svg" width="16"/> | **Authentik** | SSO via OIDC / OAuth2 / LDAP with MFA and AD sync. Deployed [via the official chart](https://charts.goauthentik.io) with a homelab_playbook | ✅ |
+| <img src="./icons/bitwarden.svg" width="16"/> | **Vaultwarden** | Self-hosted password manager with browser and mobile sync. Deployed via [my custom helm chart](https://gitlab.thekor.eu/kube/vaultwarden) forked [from github](https://github.com/guerzon/vaultwarden) | 🔧 |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Kyverno** | Admission controller — no privileged/root containers, required resource limits, no `latest` tags, blocked dangerous capabilities. Deployed [via the official chart](https://kyverno.github.io/kyverno) with a homelab_playbook | ✅ |
 
 ### 3. Databases
 
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon. Deployed [via the official chart](https://cloudnative-pg.github.io/charts) with the operator |
-| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator. Deployed [via the official chart](https://helm.mariadb.com/mariadb-operator) with the operator |
-| <img src="./icons/mongo.svg" width="25"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone. Statefulset deployed via plain yaml files in homelab_playbooks |
+| | Application | Description | Helm |
+|---|---|---|:---:|
+| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon. Deployed [via the official chart](https://cloudnative-pg.github.io/charts) with the operator | ✅ |
+| <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator. Deployed [via the official chart](https://helm.mariadb.com/mariadb-operator) with the operator | ✅ |
+| <img src="./icons/mongo.svg" width="25"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone. Statefulset deployed via plain yaml files in homelab_playbooks | — |
 
 ### 4. Productivity & Tools
 
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi. Deployed [via the official chart](https://immich-app.github.io/immich-charts) |
-| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search. Deployed via a [custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/paperless-ngx/Chart.yaml) loaded in this repository |
-| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving. Deployed via a custom chart that slightly deviates from [this one](https://fmjstudios.github.io/helm) |
-| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates. Deployment spawns from plain yaml files in homelab_playbooks |
-| 🌐 | **Chirpy** | Self-hosted [microblogging platform](https://github.com/cotes2020/jekyll-theme-chirpy). Deployment spawns from plain yaml files in homelab_playbooks |
-| 🌐 | **Youtube-clone** | Self-hosted [video platform](https://github.com/manikandanraji/youtubeclone-backend). Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | [SFTP / FTP / WebDAV server](https://sftpgo.com/) with S3 backend support. Deployed via a slightly [customized version of this chart on github](https://github.com/sftpgo/helm-chart) |
-| 🌐 | **NetBox** | CMDB + IPAM + rack modeling |
-| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | [Listening analytics](https://github.com/Yooooomi/your_spotify) dashboard. Deployment spawns from plain yaml files in homelab_playbooks |
-| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example. Deployment spawns from plain yaml files in homelab_playbooks |
-| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes. Deployed from the [official helm chart](https://helm.mittwald.de) |
-| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication. The synapse server is deployed from [the official helm chart](ananace-charts/element-web), the signal plugin is [a helm chart as well](https://github.com/cyclikal94/matrix-helm-charts.git), the whatsapp plugin is deployed [by a custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/matrix/mautrix-whatsapp-config.yaml.j2) in this repo and the discord plugin on the other hand is a custom deployment provisioned by yaml files |
-| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed. Deployment spawns from plain yaml files in homelab_playbooks |
-| 🌐 | **ilo exporter** | [Rest api](https://github.com/MauveSoftware/ilo_exporter) that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO). Deployment spawns from plain yaml files in homelab_playbooks |
+| | Application | Description | Helm |
+|---|---|---|:---:|
+| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi. Deployed [via the official chart](https://immich-app.github.io/immich-charts) | ✅ |
+| <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search. Deployed via a [custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/paperless-ngx/Chart.yaml) loaded in this repository | 🔧 |
+| <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving. Deployed via a custom chart that slightly deviates from [this one](https://fmjstudios.github.io/helm) | 🔧 |
+| <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| 🌐 | **Chirpy** | Self-hosted [microblogging platform](https://github.com/cotes2020/jekyll-theme-chirpy). Deployment spawns from plain yaml files in homelab_playbooks | — |
+| 🌐 | **Youtube-clone** | Self-hosted [video platform](https://github.com/manikandanraji/youtubeclone-backend). Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/filezilla.svg" width="16"/> | **SFTPGo** | [SFTP / FTP / WebDAV server](https://sftpgo.com/) with S3 backend support. Deployed via a slightly [customized version of this chart on github](https://github.com/sftpgo/helm-chart) | 🔧 |
+| 🌐 | **NetBox** | CMDB + IPAM + rack modeling | — |
+| <img src="./icons/spotify.svg" width="16"/> | **Spotify Collector** | [Listening analytics](https://github.com/Yooooomi/your_spotify) dashboard. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| 🌐 | **Kromgo** | [Small kubernetes deployment](https://github.com/kashalls/kromgo) that exposes a json api with prometheus metrics like cpu usage or kubernetes version for example. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| 🌐 | **Replicator** | [Helm project](https://github.com/mittwald/kubernetes-replicator) that watches for changes in secrets and syncs in case the source changes. Deployed from the [official helm chart](https://helm.mittwald.de) | ✅ |
+| <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication. The synapse server is deployed from [the official helm chart](ananace-charts/element-web), the signal plugin is [a helm chart as well](https://github.com/cyclikal94/matrix-helm-charts.git), the whatsapp plugin is deployed [by a custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/matrix/mautrix-whatsapp-config.yaml.j2) in this repo and the discord plugin on the other hand is a custom deployment provisioned by yaml files | ✅🔧 |
+| <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| 🌐 | **ilo exporter** | [Rest api](https://github.com/MauveSoftware/ilo_exporter) that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO). Deployment spawns from plain yaml files in homelab_playbooks | — |
 
 ### 5. AI Powered
 
-| | Application | Description |
-|---|---|---|
-| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat. Deployed using the [official helm chart](https://helm.openwebui.com) |
-| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection. Deployment is handled by [a custom chart in this repo](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/frigate/Chart.yaml) |
-| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging. Deployed using the [official helm chart](https://immich-app.github.io/immich-charts) |
+| | Application | Description | Helm |
+|---|---|---|:---:|
+| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat. Deployed using the [official helm chart](https://helm.openwebui.com) | ✅ |
+| <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection. Deployment is handled by [a custom chart in this repo](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/frigate/Chart.yaml) | 🔧 |
+| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging. Deployed using the [official helm chart](https://immich-app.github.io/immich-charts) | ✅ |
 
 ### 6. My Projects
 
-| | Application | Description |
-|---|---|---|
-| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS. Deployment spawns from plain yaml files in homelab_playbooks |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs. Deployment spawns from plain yaml files in homelab_playbooks |
-
+| | Application | Description | Helm |
+|---|---|---|:---:|
+| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS. Deployment spawns from plain yaml files in homelab_playbooks | — |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs. Deployment spawns from plain yaml files in homelab_playbooks | — |
 
 ### Critical dependencies
 
