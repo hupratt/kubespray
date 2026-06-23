@@ -107,19 +107,19 @@ This repository uses the following layout. As a high level overview, the network
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | eBPF-based CNI — networking, load balancing, network policies, and TLS secret management |
-| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | Distributed storage: block (RBD), filesystem (CephFS), object (S3-compatible) |
-| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME |
-| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing |
-| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus |
-| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache |
-| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3 |
-| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots |
-| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks |
-| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access |
-| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically |
-| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain |
-| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO  |
+| <img src="./icons/cilium.svg" width="16"/> | **Cilium** | [eBPF-based CNI](https://cilium.io/) — networking, load balancing, network policies, and TLS secret management. Provisionned via kubespray, ansible [installs cilium with the downloaded cilium CLI](https://github.com/hupratt/kubespray/blob/homelab/roles/network_plugin/cilium/tasks/apply.yml) which is configured to grab [the cilium_version defined here](https://github.com/hupratt/kubespray/blob/homelab/roles/kubespray_defaults/defaults/main/download.yml) |
+| <img src="./icons/ceph.svg" width="16"/> | **Rook-Ceph** | [Distributed storage](https://rook.io/docs/rook/v1.9/ceph-storage.html): block (RBD), filesystem (CephFS), object (S3-compatible). I'm provisioning rook through [a custom helm chart](https://gitlab.thekor.eu/kube/rook/-/blob/homelab/deploy/examples/ceph-cluster.yml?ref_type=heads) defined in homelab_playbook which spawns the rook operator and [the ceph-cluster](https://quay.io/repository/ceph/ceph?tab=tags)|
+| <img src="./icons/letsencrypt.svg" width="16"/> | **cert-manager** | Automatic TLS provisioning via ACME. I'm provisioning the bot through [the official jetstack helm chart](https://charts.jetstack.io) and [hetzner's webhook official chart](https://charts.hetzner.cloud) |
+| 🔀 | **HAProxy Ingress** | Ingress controller with TLS termination and external traffic routing. I'm provisioning the controller via plain yaml files defined in homelab_playbook which grab the image haproxytech/kubernetes-ingress from [dockerhub](https://hub.docker.com/r/haproxytech/kubernetes-ingress) |
+| <img src="./icons/grafana.svg" width="16"/> | **Grafana** | Metrics dashboards and alerting via Prometheus. This deployment is provisioned by ansible's homelab_playbooks using [the official helm chart](https://prometheus-community.github.io/helm-charts) |
+| <img src="./icons/harbor.svg" width="16"/> | **Harbor** | Container registry — image storage, signing, Trivy scanning, OCI/Helm support, mirror cache. The chart gets provisioned by ansible's homelab_playbooks using [the official helm chart](https://helm.goharbor.io)|
+| 💾 | **Backup** | CronJobs pushing DB dumps, RBD snapshots, and CephFS archives to S3. These jobs are provisioned by plain kubernetes Cronjobs and Volsync's replicationsource CRD in the case of volsync backups |
+| <img src="./icons/mosquitto.svg" width="16"/> | **Mosquitto** | MQTT broker bridging Frigate and Home Assistant for detection events and snapshots. mqtt gets provisioned by plain yaml files in the homelab_playbooks which grabs the eclipse-mosquitto:latest from [dockerhub](https://hub.docker.com/_/eclipse-mosquitto/)|
+| <img src="./icons/patchmon.svg" width="16"/> | **Patchmon** | Patch management and ansible inventory for all my playbooks. Patchmon is provisioned [by a custom helm chart](https://gitlab.thekor.eu/kube/patchmon/-/blob/main/Chart.yaml?ref_type=heads) that deviates slightly from the official helm chart. I'm still using ghcr's patchmon/patchmon-server image though. |
+| <img src="./icons/vault.svg" width="16"/> | **HashiCorp Vault** | Secrets management — API keys, DB creds, dynamic secrets, transit encryption, policy-based access. I'm provisioning the vault via [the official helm chart](https://helm.releases.hashicorp.com) |
+| <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically. I'm provisioning ESO from [the official helm chart](https://charts.external-secrets.io) |
+| <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain. Technitium is provisioned by [this helm chart](https://charts.obeone.cloud) |
+| <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO. I'm provisioning Volsync via [the official helm chart](https://backube.github.io/helm-charts/)  |
 
 
 ### 2. Identity & Security
