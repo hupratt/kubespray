@@ -161,22 +161,22 @@ This repository uses the following layout. As a high level overview, the network
 
 | | Application | Description |
 |---|---|---|
-| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat |
+| 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat. Deployed using the [official helm chart](https://helm.openwebui.com) |
 | <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection. Deployment is handled by [a custom chart in this repo](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/frigate/Chart.yaml) |
-| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts |
-| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging |
+| <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging. Deployed using the [official helm chart](https://immich-app.github.io/immich-charts) |
 
 ### 6. My Projects
 
 | | Application | Description |
 |---|---|---|
-| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website |
-| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS |
-| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Booking Clone** | Django-based reservation system. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Amazon Clone** | React + Django e-commerce app with MongoDB. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Thrifty** | Budget tracker with charts and summaries. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Makita** | Travel diary with S3-backed image storage. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Portfolio** | Static personal website. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/kubernetes.svg" width="16"/> | **HLS Streaming** | Live streaming via FFmpeg + HLS. Deployment spawns from plain yaml files in homelab_playbooks |
+| <img src="./icons/kubernetes.svg" width="16"/> | **Backup PNG** | Small utility tool where i can document my backup jobs. Deployment spawns from plain yaml files in homelab_playbooks |
 
 
 ### Critical dependencies
