@@ -69,20 +69,20 @@ spec:
           volumeMounts:
             {{- include "dawarich.volumeMounts" . | nindent 12 }}
           ## Sidekiq doesn't expose HTTP, so use exec probe against the process
-          startupProbe:
-            exec:
-              command: ["pgrep", "-f", "sidekiq"]
-            initialDelaySeconds: 15
-            periodSeconds: 5
-            failureThreshold: 20
-            timeoutSeconds: 5
           livenessProbe:
             exec:
               command: ["pgrep", "-f", "sidekiq"]
             periodSeconds: 30
             timeoutSeconds: 5
             failureThreshold: 3
-          ## No readiness probe needed – Sidekiq pulls from Redis, it's not a server
+          ## Kyverno require-probes policy mandates this field exists
+          readinessProbe:
+            exec:
+              command: ["pgrep", "-f", "sidekiq"]
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.sidekiqDeployment.resources | nindent 12 }}
       volumes:

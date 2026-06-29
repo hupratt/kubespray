@@ -157,6 +157,7 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 | <img src="./icons/matrix.svg" width="16"/> | **Matrix** | [Messaging service](https://github.com/element-hq/synapse) that i use to bridge discord, signal and whatsapp communication. The synapse server is deployed from [the official helm chart](ananace-charts/element-web), the signal plugin is [a helm chart as well](https://github.com/cyclikal94/matrix-helm-charts.git), the whatsapp plugin is deployed [by a custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/matrix/mautrix-whatsapp-config.yaml.j2) in this repo and the discord plugin on the other hand is a custom deployment provisioned by yaml files | ✅🔧 |
 | <img src="./icons/reolink.svg" width="16"/> | **Neolink** | [Converts the proprietary Reolink stream into rtsp](https://github.com/thirtythreeforty/neolink) so that frigate, and by extension home assistant, can process the video feed. Deployment spawns from plain yaml files in homelab_playbooks | — |
 | 🌐 | **ilo exporter** | [Rest api](https://github.com/MauveSoftware/ilo_exporter) that acts as a middleware between prometheus and HPE's out-of-band management controller (iLO). Deployment spawns from plain yaml files in homelab_playbooks | — |
+| 🌐 | **dawarich** | Google location [alternative](github.com/Freika/dawarich). It comes with an android app that I use to log my location | 🔧 |
 
 ### 5. AI Powered
 

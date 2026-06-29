@@ -27,14 +27,37 @@
     storage_class_rwx: "rook-cephfs"   # for shared PVCs (public/storage/watched)
     storage_class_rwo: "rook-ceph-block"   # for postgres/redis
 
-    cnpg_host: "cnpg-cluster-rw.cn-postgres.svc.cluster.local"
+    cnpg_host: "shared-pg-rw.cn-postgres.svc.cluster.local"
     cnpg_database: "dawarich"
     cnpg_username: "dawarich"
-    cnpg_password: "{{ lookup('community.hashi_vault.hashi_vault', 'dawarich:pg_password') }}"
-    cnpg_database_url: "postgresql://{{ cnpg_username }}:{{ cnpg_password }}@{{ cnpg_host }}:5432/{{ cnpg_database }}"
-    dawarich_secret_key_base: "{{ lookup('community.hashi_vault.hashi_vault', 'dawarich:secret_key_base') }}"
 
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
   tasks:
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Read Dawarich secrets from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/dawarich"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: dawarich_vault_secrets
+
+    # - name: Debug Vault response
+    #   ansible.builtin.debug:
+    #     var: dawarich_vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        cnpg_password: "{{ dawarich_vault_secrets.data.data.data.pg_password }}"
+        dawarich_secret_key_base: "{{ dawarich_vault_secrets.data.data.data.secret_key_base }}"
+
+    - name: Set CNPG database URL
+      ansible.builtin.set_fact:
+        cnpg_database_url: "postgresql://{{ cnpg_username }}:{{ cnpg_password }}@{{ cnpg_host }}:5432/{{ cnpg_database }}"
 
     - name: Deploy ExternalSecret for Dawarich
       kubernetes.core.k8s:
@@ -66,7 +89,11 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: pg_password
-
+              - secretKey: DATABASE_URL
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: database_url
+                  
     - name: Deploy Dawarich via Helm
       kubernetes.core.helm:
         name: "{{ helm_release_name }}"
@@ -90,7 +117,7 @@
           externalDatabase:
             uri: "{{ cnpg_database_url }}"
             host: "{{ cnpg_host }}"
-            
+
           ingress:
             host: "{{ dawarich_host }}"
 
