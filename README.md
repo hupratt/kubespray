@@ -105,6 +105,8 @@ This repository uses the following layout. As a high level overview, the network
 
 ### 1. Infrastructure
 
+Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](https://github.com/hupratt/kubespray/blob/homelab/cluster.yml) which simply runs a kubeadm init command [as specified in the template](https://github.com/hupratt/kubespray/blob/homelab/roles/download/templates/kubeadm-images.yaml.j2). The ansible playbook downloads and caches the binaries it needs on the nodes as explained [in the official documentation](https://github.com/hupratt/kubespray/blob/homelab/docs/advanced/downloads.md)
+
 | | Application | Description | Helm |
 |---|---|---|:---:|
 | <img src="./icons/cilium.svg" width="16"/> | **Cilium** | [eBPF-based CNI](https://cilium.io/) — networking, load balancing, network policies, and TLS secret management. Provisionned via kubespray, ansible [installs cilium with the downloaded cilium CLI](https://github.com/hupratt/kubespray/blob/homelab/roles/network_plugin/cilium/tasks/apply.yml) which is configured to grab [the cilium_version defined here](https://github.com/hupratt/kubespray/blob/homelab/roles/kubespray_defaults/defaults/main/download.yml) | — |
