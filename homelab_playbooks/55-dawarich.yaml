@@ -1,0 +1,145 @@
+---
+# Usage:
+#   ansible-playbook deploy-dawarich.yml
+#   ansible-playbook deploy-dawarich.yml -e "dawarich_image_tag=1.7.9"
+#   ansible-playbook deploy-dawarich.yml -e "helm_action=uninstall"
+
+- name: Deploy Dawarich to Kubernetes
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    helm_release_name: dawarich
+    helm_chart_path: "{{ playbook_dir }}/charts/dawarich"   # relative to this playbook
+    helm_namespace: dawarich
+    helm_action: upgrade   # 'upgrade' (install+upgrade) or 'uninstall'
+
+    dawarich_image_tag: "1.7.9"
+    dawarich_host: "dawarich.thekor.eu"
+    dawarich_timezone: "Europe/Berlin"
+
+    ## Vault / ESO config
+    vault_kv_path: "dawarich"        # KV v2 path in your Vault
+    external_secret_name: "dawarich-dawarich-secret"   # must match helm_release_name + "-dawarich-secret"
+    external_secret_namespace: "{{ helm_namespace }}"
+
+    storage_class_rwx: "rook-cephfs"   # for shared PVCs (public/storage/watched)
+    storage_class_rwo: "rook-ceph-block"   # for postgres/redis
+
+    cnpg_host: "cnpg-cluster-rw.cn-postgres.svc.cluster.local"
+    cnpg_database: "dawarich"
+    cnpg_username: "dawarich"
+    cnpg_password: "{{ lookup('community.hashi_vault.hashi_vault', 'dawarich:pg_password') }}"
+    cnpg_database_url: "postgresql://{{ cnpg_username }}:{{ cnpg_password }}@{{ cnpg_host }}:5432/{{ cnpg_database }}"
+    dawarich_secret_key_base: "{{ lookup('community.hashi_vault.hashi_vault', 'dawarich:secret_key_base') }}"
+
+  tasks:
+
+    - name: Deploy ExternalSecret for Dawarich
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ external_secret_name }}"
+            namespace: "{{ external_secret_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ external_secret_name }}"
+              creationPolicy: Owner
+            data:
+              - secretKey: SECRET_KEY_BASE
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: secret_key_base
+              - secretKey: DATABASE_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+              - secretKey: POSTGRES_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+
+    - name: Deploy Dawarich via Helm
+      kubernetes.core.helm:
+        name: "{{ helm_release_name }}"
+        chart_ref: "{{ helm_chart_path }}"
+        release_namespace: "{{ helm_namespace }}"
+        create_namespace: false          # already created above
+        wait: true
+        timeout: "10m0s"
+        state: "{{ 'present' if helm_action == 'upgrade' else 'absent' }}"
+        values:
+          image:
+            tag: "{{ dawarich_image_tag }}"
+
+          ## Tell the chart to use the secret we created above
+          existingSecret: "{{ helm_release_name }}-dawarich-secret"
+
+          app:
+            applicationHosts: "{{ dawarich_host }},127.0.0.1,::1"
+            timeZone: "{{ dawarich_timezone }}"
+
+          externalDatabase:
+            uri: "{{ cnpg_database_url }}"
+            host: "{{ cnpg_host }}"
+            
+          ingress:
+            host: "{{ dawarich_host }}"
+
+          postgresql:
+            persistence:
+              storageClass: "{{ storage_class_rwo }}"
+
+          redis:
+            persistence:
+              storageClass: "{{ storage_class_rwo }}"
+
+          persistence:
+            public:
+              storageClass: "{{ storage_class_rwx }}"
+            storage:
+              storageClass: "{{ storage_class_rwx }}"
+            watched:
+              storageClass: "{{ storage_class_rwx }}"
+      when: helm_action in ['upgrade', 'install']
+
+    - name: Uninstall Dawarich Helm release
+      kubernetes.core.helm:
+        name: "{{ helm_release_name }}"
+        release_namespace: "{{ helm_namespace }}"
+        state: absent
+      when: helm_action == 'uninstall'
+
+    - name: Wait for app Deployment to be ready
+      kubernetes.core.k8s_info:
+        kind: Deployment
+        name: "{{ helm_release_name }}-dawarich-app"
+        namespace: "{{ helm_namespace }}"
+      register: app_deploy
+      until: >
+        app_deploy.resources | length > 0 and
+        (app_deploy.resources[0].status.readyReplicas | default(0)) ==
+        (app_deploy.resources[0].spec.replicas | default(1))
+      retries: 30
+      delay: 10
+      when: helm_action != 'uninstall'
+
+    - name: Print deployment summary
+      ansible.builtin.debug:
+        msg:
+          - "✅ Dawarich deployed successfully"
+          - "   Release : {{ helm_release_name }}"
+          - "   Namespace: {{ helm_namespace }}"
+          - "   Version  : {{ dawarich_image_tag }}"
+          - "   URL      : https://{{ dawarich_host }}"
+          - "   Default creds: demo@dawarich.app / safepassword"
+          - "   ⚠️  Change the default password immediately!"
+      when: helm_action != 'uninstall'

@@ -15,6 +15,7 @@
       - chirpy
       - cilium-secrets
       - cn-postgres
+      - dawarich
       - donetick
       - etcd-backup
       - external-secrets

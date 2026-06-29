@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dawarich.fullname" . }}-sidekiq
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dawarich.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidekiq
+spec:
+  replicas: {{ .Values.sidekiqDeployment.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "dawarich.name" . }}
+      app.kubernetes.io/component: sidekiq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "dawarich.name" . }}
+        app.kubernetes.io/component: sidekiq
+    spec:
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.36
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "dawarich.dbHost" . }} 5432; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+        - name: wait-for-redis
+          image: busybox:1.36
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ include "dawarich.fullname" . }}-redis 6379; do
+                echo "waiting for redis..."
+                sleep 2
+              done
+      containers:
+        - name: sidekiq
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ## sidekiq-entrypoint.sh is the upstream entrypoint for background workers
+          command: ["sidekiq-entrypoint.sh", "sidekiq"]
+          env:
+            {{- include "dawarich.commonEnv" . | nindent 12 }}
+            ## Sidekiq should NOT run its own Prometheus exporter
+            - name: PROMETHEUS_EXPORTER_ENABLED
+              value: "false"
+          volumeMounts:
+            {{- include "dawarich.volumeMounts" . | nindent 12 }}
+          ## Sidekiq doesn't expose HTTP, so use exec probe against the process
+          startupProbe:
+            exec:
+              command: ["pgrep", "-f", "sidekiq"]
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 20
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pgrep", "-f", "sidekiq"]
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          ## No readiness probe needed – Sidekiq pulls from Redis, it's not a server
+          resources:
+            {{- toYaml .Values.sidekiqDeployment.resources | nindent 12 }}
+      volumes:
+        {{- include "dawarich.volumes" . | nindent 8 }}

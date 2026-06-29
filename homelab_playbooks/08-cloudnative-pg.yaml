@@ -36,6 +36,8 @@
         vault_path: mautrixsignal
       - owner: mautrixwhatsapp
         vault_path: mautrixwhatsapp
+      - owner: dawarich
+        vault_path: dawarich
     databases:
       - name: grafana
         owner: grafana
@@ -73,6 +75,8 @@
         owner: mautrix
       - name: mautrixwhatsapp
         owner: mautrixwhatsapp
+      - name: dawarich
+        owner: dawarich
   tasks:
     - name: Deploy CNPG operator via Helm
       kubernetes.core.helm:
@@ -184,7 +188,7 @@
           | selectattr('status', 'eq', 'True')
           | list | length
         ) > 0
-      retries: 12
+      retries: 22
       delay: 10
       loop: "{{ db_owners }}"
 

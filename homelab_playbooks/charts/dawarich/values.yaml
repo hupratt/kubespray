@@ -1,0 +1,146 @@
+## -----------------------------------------------------------------------
+## Dawarich Helm Values
+## Tune per environment; secrets come from an ExternalSecret or a
+## manually-created Secret named <release>-dawarich-secret.
+## -----------------------------------------------------------------------
+
+image:
+  repository: freikin/dawarich
+  tag: "1.7.9"         # pin explicitly; never use 'latest' in prod
+  pullPolicy: IfNotPresent
+
+## Run everything as uid/gid 1000 (non-root)
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false   # Rails needs to write tmp/
+  capabilities:
+    drop: ["ALL"]
+
+## -----------------------------------------------------------------------
+## Application config  (non-secret env vars)
+## -----------------------------------------------------------------------
+app:
+  railsEnv: production
+  applicationHosts: "dawarich.thekor.eu,127.0.0.1,::1"
+  applicationProtocol: "https"
+  timeZone: "Europe/Berlin"
+  selfHosted: "true"
+  storeGeodata: "true"
+  photonApiHost: "photon.komoot.io"   # set to "" to disable reverse geocoding
+  backgroundProcessingConcurrency: "5"
+  railsLogToStdout: "true"
+  prometheusExporterEnabled: "false"
+
+## -----------------------------------------------------------------------
+## Secret reference
+## The chart expects a Secret called "<release>-dawarich-secret" with keys:
+##   SECRET_KEY_BASE, DATABASE_PASSWORD, POSTGRES_PASSWORD
+## Create it yourself or via ESO before installing the chart.
+## -----------------------------------------------------------------------
+existingSecret: ""   # leave empty → chart creates a placeholder (change values!)
+secret:
+  secretKeyBase: "CHANGE_ME_generate_with_openssl_rand_hex_64"
+  databasePassword: "CHANGE_ME"
+  postgresPassword: "CHANGE_ME"
+
+## -----------------------------------------------------------------------
+## PostgreSQL – external CNPG cluster
+## -----------------------------------------------------------------------
+postgresql:
+  enabled: false   # no in-chart StatefulSet
+
+externalDatabase:
+  # Full CNPG connection URI – injected by Ansible, not stored in git
+  # Format: postgresql://user:password@host:5432/dbname
+  uri: "ANSIBLE_PLACEHOLDER_DATABASE_URL"
+  host: "ANSIBLE_PLACEHOLDER_DATABASE_HOST"   # e.g. cnpg-cluster-rw.postgres.svc.cluster.local
+## -----------------------------------------------------------------------
+## Secret – values injected by Ansible at deploy time, never committed
+## -----------------------------------------------------------------------
+secret:
+  secretKeyBase: "ANSIBLE_PLACEHOLDER_SECRET_KEY_BASE"
+  databasePassword: "ANSIBLE_PLACEHOLDER_DB_PASSWORD"
+  postgresPassword: "ANSIBLE_PLACEHOLDER_POSTGRES_PASSWORD"
+
+## -----------------------------------------------------------------------
+## Redis
+## -----------------------------------------------------------------------
+redis:
+  enabled: true
+  image: redis:7.4-alpine
+  persistence:
+    size: 1Gi
+    storageClass: ""
+
+## -----------------------------------------------------------------------
+## Persistence (shared between app and sidekiq pods)
+## -----------------------------------------------------------------------
+persistence:
+  public:
+    size: 2Gi
+    storageClass: ""
+  storage:
+    size: 20Gi
+    storageClass: ""
+  watched:
+    size: 5Gi
+    storageClass: ""
+
+## -----------------------------------------------------------------------
+## App Deployment
+## -----------------------------------------------------------------------
+appDeployment:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+## -----------------------------------------------------------------------
+## Sidekiq Deployment
+## -----------------------------------------------------------------------
+sidekiqDeployment:
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+## -----------------------------------------------------------------------
+## Service
+## -----------------------------------------------------------------------
+service:
+  type: ClusterIP
+  port: 3000
+
+## -----------------------------------------------------------------------
+## Ingress  (HAProxy IngressClass)
+## -----------------------------------------------------------------------
+ingress:
+  enabled: true
+  ingressClassName: haproxy
+  host: dawarich.thekor.eu
+  tls:
+    enabled: true
+    secretName: dawarich-tls       # managed by cert-manager
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    haproxy.org/request-set-header: "X-Forwarded-Proto https"
+    haproxy.org/timeout-connect: "5s"
+    haproxy.org/timeout-client: "60s"
+    haproxy.org/timeout-server: "60s"
+    # WebSocket / ActionCable (live location updates)
+    haproxy.org/abortonclose: "true"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"  # ignored by haproxy, but harmless
