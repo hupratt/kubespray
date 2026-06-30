@@ -145,20 +145,6 @@
         state: absent
       when: helm_action == 'uninstall'
 
-    - name: Wait for app Deployment to be ready
-      kubernetes.core.k8s_info:
-        kind: Deployment
-        name: "{{ helm_release_name }}-dawarich-app"
-        namespace: "{{ helm_namespace }}"
-      register: app_deploy
-      until: >
-        app_deploy.resources | length > 0 and
-        (app_deploy.resources[0].status.readyReplicas | default(0)) ==
-        (app_deploy.resources[0].spec.replicas | default(1))
-      retries: 30
-      delay: 10
-      when: helm_action != 'uninstall'
-
     - name: Print deployment summary
       ansible.builtin.debug:
         msg:

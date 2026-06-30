@@ -136,12 +136,18 @@ spec:
           startupProbe:
             tcpSocket:
               port: http
+            periodSeconds: 5
+            failureThreshold: 24   # 120s total to come up
           livenessProbe:
             tcpSocket:
               port: http
+            periodSeconds: 10
+            failureThreshold: 3
           readinessProbe:
             tcpSocket:
               port: http
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.appDeployment.resources | nindent 12 }}
       volumes:
