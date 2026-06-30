@@ -5,7 +5,7 @@
     cnpg_namespace: cn-postgres
     cnpg_version: "0.23.0"
     storage_class: rook-ceph-block
-    pg_image: ghcr.io/cloudnative-pg/postgresql:16
+    pg_image: ghcr.io/cloudnative-pg/postgis:16-3.5
     homelab_domain: "thekor.eu"
     vault_addr: "https://vault.{{ homelab_domain }}"
     vault_init_json: "group_vars/all/vault_init.json"
@@ -271,6 +271,16 @@
               name: "{{ shared_cluster_name }}"
       loop: "{{ databases }}"
 
+    - name: Enable PostGIS extensions in dawarich database
+      kubernetes.core.k8s_exec:
+        namespace: "{{ cnpg_namespace }}"
+        pod: "{{ shared_cluster_name }}-1"
+        command: >
+          psql -U postgres dawarich -c
+          "CREATE EXTENSION IF NOT EXISTS postgis;
+          CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+      register: postgis_ext
+      failed_when: postgis_ext.return_code != 0
 # check role reconciliation
 
 # kubectl get cluster shared-pg -n cn-postgres -o yaml | grep -A20 managedRoles

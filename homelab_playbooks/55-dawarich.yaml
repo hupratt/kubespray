@@ -57,7 +57,7 @@
 
     - name: Set CNPG database URL
       ansible.builtin.set_fact:
-        cnpg_database_url: "postgresql://{{ cnpg_username }}:{{ cnpg_password }}@{{ cnpg_host }}:5432/{{ cnpg_database }}"
+        cnpg_database_url: "postgis://{{ cnpg_username }}:{{ cnpg_password }}@{{ cnpg_host }}:5432/{{ cnpg_database }}"
 
     - name: Deploy ExternalSecret for Dawarich
       kubernetes.core.k8s:

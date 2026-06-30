@@ -132,32 +132,16 @@ spec:
           volumeMounts:
             {{- include "dawarich.volumeMounts" . | nindent 12 }}
           ## Startup probe – Rails boot can be slow on first start
+          ## Startup probe – Rails boot can be slow on first start
           startupProbe:
-            httpGet:
-              path: /api/v1/health
+            tcpSocket:
               port: http
-            initialDelaySeconds: 20
-            periodSeconds: 10
-            failureThreshold: 30    # allow up to 5 min total
-            timeoutSeconds: 5
-          ## Liveness – restart if the process hangs
           livenessProbe:
-            httpGet:
-              path: /api/v1/health
+            tcpSocket:
               port: http
-            initialDelaySeconds: 0   # covered by startupProbe
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 3
-          ## Readiness – remove from service endpoints while not ready
           readinessProbe:
-            httpGet:
-              path: /api/v1/health
+            tcpSocket:
               port: http
-            initialDelaySeconds: 0
-            periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 3
           resources:
             {{- toYaml .Values.appDeployment.resources | nindent 12 }}
       volumes:
