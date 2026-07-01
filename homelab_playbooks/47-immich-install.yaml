@@ -295,7 +295,7 @@
             name: immich-pg
             namespace: "{{ immich_namespace }}"
           spec:
-            instances: 1
+            instances: 2
             enableSuperuserAccess: true
             imageName: "{{ immich_db_image }}"
             affinity:
@@ -324,7 +324,6 @@
             storage:
               pvcTemplate:
                 accessModes: [ReadWriteOnce]
-                volumeName: "{{ immich_db_pv }}"
                 storageClassName: "{{ immich_db_storage_class }}"
                 resources:
                   requests:

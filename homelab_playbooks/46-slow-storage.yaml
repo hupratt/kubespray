@@ -87,6 +87,32 @@
                         values:
                           - slow-services
 
+    - name: Create PersistentVolumes immich db space
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolume
+          metadata:
+            name: immich-pg-2
+          spec:
+            capacity:
+              storage: 100Gi
+            accessModes:
+              - ReadWriteOnce
+            persistentVolumeReclaimPolicy: Retain
+            storageClassName: "{{ storage_class }}"
+            local:
+              path: "/opt/immich/immich-pg-2"
+            nodeAffinity:
+              required:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: node-role
+                        operator: In
+                        values:
+                          - slow-services
+                          
     - name: Create PersistentVolumes tmp restore
       kubernetes.core.k8s:
         state: present

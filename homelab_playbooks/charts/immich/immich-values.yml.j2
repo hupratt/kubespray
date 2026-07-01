@@ -55,6 +55,8 @@ server:
           effect: NoSchedule
       containers:
         main:
+          env:
+            TZ: Europe/Berlin
           image:
             tag: "v2.7.5"
           resources:
@@ -91,6 +93,10 @@ machine-learning:
         node-role: slow-services
       containers:
         main:
+      containers:
+        main:
+          env:
+            TZ: Europe/Berlin
           image:
             tag: "v2.7.5"
           env:
