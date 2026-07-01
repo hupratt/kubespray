@@ -6,7 +6,7 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_repo: "git@gitlab.thekor.eu:kube/vaultwarden.git"
-    vault_dir: "/home/hugo/vaultwarden"
+    vault_dir: "~/vaultwarden"
 
   tasks:
 
