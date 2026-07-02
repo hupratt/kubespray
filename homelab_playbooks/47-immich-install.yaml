@@ -43,6 +43,26 @@
 
   tasks:
 
+    # ── Idempotency check ──────────────────────────────────────────────────
+
+    - name: Check if Immich Helm release is already installed
+      kubernetes.core.helm_info:
+        name: "{{ immich_release_name }}"
+        release_namespace: "{{ immich_namespace }}"
+      register: immich_release_info
+
+    # - name: Debug Immich release info
+    #   ansible.builtin.debug:
+    #     var: immich_release_info
+
+    - name: Set fact for install state
+      ansible.builtin.set_fact:
+        immich_already_installed: "{{ immich_release_info.status is defined and immich_release_info.status.status == 'deployed' }}"
+
+    - name: Debug Immich release info
+      ansible.builtin.debug:
+        var: immich_already_installed
+
     # ── ExternalSecrets ──────────────────────────────────────────────────────
 
     - name: Deploy ExternalSecret for Immich DB credentials
@@ -388,3 +408,90 @@
             namespace: immich
           spec:
             ingressClassName: haproxy
+
+    # ── One-time cache permission fix (idempotent, declarative) ──────────
+
+    - name: Create temporary PolicyException for cache-perms fix job
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kyverno.io/v2
+          kind: PolicyException
+          metadata:
+            name: immich-cache-fix-temp
+            namespace: "{{ immich_namespace }}"
+          spec:
+            exceptions:
+              - policyName: disallow-root-user
+                ruleNames:
+                  - mutate-runAsNonRoot
+                  - validate-runAsNonRoot
+            match:
+              any:
+                - resources:
+                    kinds: [Pod]
+                    namespaces: ["{{ immich_namespace }}"]
+                    names: ["fix-cache-perms*"]
+      when: not immich_already_installed
+
+    - name: Run chown job for machine-learning cache PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: fix-cache-perms
+            namespace: "{{ immich_namespace }}"
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: fix-cache-perms
+                    image: busybox
+                    command: ["chown", "-R", "1000:0", "/cache"]
+                    volumeMounts:
+                      - name: cache
+                        mountPath: /cache
+                    securityContext:
+                      runAsUser: 0
+                volumes:
+                  - name: cache
+                    persistentVolumeClaim:
+                      claimName: immich-machine-learning
+      when: not immich_already_installed
+
+    - name: Wait for chown job to complete
+      kubernetes.core.k8s_info:
+        api_version: batch/v1
+        kind: Job
+        namespace: "{{ immich_namespace }}"
+        name: fix-cache-perms
+      register: chown_job
+      until: >-
+        chown_job.resources | length > 0 and
+        chown_job.resources[0].status.succeeded is defined and
+        chown_job.resources[0].status.succeeded >= 1
+      retries: 12
+      delay: 5
+      when: not immich_already_installed
+
+    - name: Remove chown job
+      kubernetes.core.k8s:
+        state: absent
+        api_version: batch/v1
+        kind: Job
+        namespace: "{{ immich_namespace }}"
+        name: fix-cache-perms
+      when: not immich_already_installed
+
+    - name: Remove temporary PolicyException
+      kubernetes.core.k8s:
+        state: absent
+        api_version: kyverno.io/v2
+        kind: PolicyException
+        namespace: "{{ immich_namespace }}"
+        name: immich-cache-fix-temp
+      when: not immich_already_installed

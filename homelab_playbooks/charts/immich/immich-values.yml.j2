@@ -93,14 +93,11 @@ machine-learning:
         node-role: slow-services
       containers:
         main:
-      containers:
-        main:
           env:
             TZ: Europe/Berlin
+            GUNICORN_CMD_ARGS: "--no-control-socket"
           image:
             tag: "v2.7.5"
-          env:
-            GUNICORN_CMD_ARGS: "--no-control-socket"
           resources:
             requests:
               cpu: 200m
