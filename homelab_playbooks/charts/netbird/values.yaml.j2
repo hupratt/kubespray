@@ -26,29 +26,26 @@ fullnameOverride: {{ netbird_release }}
 {% endif %}
 
 management:
-  # management.json — mounted at /etc/netbird/management.json.
-  # {{ "{{ .VAR }}" }} placeholders are resolved by the container entrypoint
-  # from envFromSecret below, they are NOT Jinja/Ansible variables.
   configmap: |-
     {
       "Stuns": [
         {
           "Proto": "udp",
-          "URI": "{{ '{{ .STUN_SERVER }}' }}",
+          "URI": "stun:{{ netbird_stun_domain }}:3478",
           "Username": "",
           "Password": ""
         }
       ],
       "TURNConfig": {
-        "TimeBasedCredentials": false,
-        "CredentialsTTL": "12h0m0s",
-        "Secret": "secret",
+        "TimeBasedCredentials": true,
+        "CredentialsTTL": "24h0m0s",
+        "Secret": "{{ '{{ .TURN_SECRET }}' }}",
         "Turns": [
           {
             "Proto": "udp",
-            "URI": "{{ '{{ .TURN_SERVER }}' }}",
-            "Username": "{{ '{{ .TURN_SERVER_USER }}' }}",
-            "Password": "{{ '{{ .TURN_SERVER_PASSWORD }}' }}"
+            "URI": "turn:{{ netbird_stun_domain }}:3478",
+            "Username": "",
+            "Password": ""
           }
         ]
       },
@@ -82,7 +79,7 @@ management:
           "Issuer": "{{ idp_base_url }}",
           "TokenEndpoint": "{{ idp_base_url | regex_replace('/o/[^/]+$', '/o/token/') }}",
           "ClientID": "{{ '{{ .IDP_CLIENT_ID }}' }}",
-          "ClientSecret": "",
+          "ClientSecret": "{{ '{{ .IDP_CLIENT_SECRET }}' }}",
           "GrantType": "client_credentials"
         },
         "ExtraConfig": {
@@ -98,7 +95,7 @@ management:
         "Provider": "hosted",
         "ProviderConfig": {
           "ClientID": "{{ '{{ .IDP_CLIENT_ID }}' }}",
-          "ClientSecret": "",
+          "ClientSecret": "{{ '{{ .IDP_CLIENT_SECRET }}' }}",
           "Domain": "{{ idp_base_url }}",
           "Audience": "{{ '{{ .IDP_CLIENT_ID }}' }}",
           "TokenEndpoint": "{{ idp_base_url | regex_replace('/o/[^/]+$', '/o/token/') }}",
@@ -140,19 +137,16 @@ management:
 {% if netbird_use_postgres %}
     NETBIRD_STORE_ENGINE_POSTGRES_DSN: netbird/postgresDSN
 {% endif %}
-    STUN_SERVER: netbird/stunServer
-    TURN_SERVER: netbird/turnServer
-    TURN_SERVER_USER: netbird/turnServerUser
-    TURN_SERVER_PASSWORD: netbird/turnServerPassword
+    TURN_SECRET: netbird/turnServerPassword
     RELAY_PASSWORD: netbird/relayPassword
     IDP_CLIENT_ID: netbird/idpClientID
+    IDP_CLIENT_SECRET: netbird/idpClientSecret
     IDP_SERVICE_ACCOUNT_USER: netbird/idpServiceAccountUser
     IDP_SERVICE_ACCOUNT_PASSWORD: netbird/idpServiceAccountPassword
     DATASTORE_ENCRYPTION_KEY: netbird/datastoreEncryptionKey
 
   useBackwardsGrpcService: true
 
-  # /api goes over plain HTTP/1.1
   ingress:
     enabled: true
     className: {{ haproxy_ingress_class }}
@@ -170,7 +164,6 @@ management:
         hosts:
           - {{ netbird_domain }}
 
-  # /management.ManagementService needs h2c/gRPC to the backend
   ingressGrpc:
     enabled: true
     className: {{ haproxy_ingress_class }}
@@ -232,14 +225,26 @@ relay:
 
 dashboard:
   enabled: true
+
+  livenessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    httpGet:
+      path: /
+      port: 80
+    initialDelaySeconds: 5
+    periodSeconds: 10
   env:
     NETBIRD_MGMT_API_ENDPOINT: "https://{{ netbird_domain }}:443"
     NETBIRD_MGMT_GRPC_API_ENDPOINT: "https://{{ netbird_domain }}:443"
-    AUTH_CLIENT_SECRET: ""
     AUTH_AUTHORITY: "{{ idp_base_url }}/"
     USE_AUTH0: "false"
     AUTH_SUPPORTED_SCOPES: "openid profile email offline_access api"
-    AUTH_REDIRECT_URI: ""
+    AUTH_REDIRECT_URI: "/oauth2/callback"
     AUTH_SILENT_REDIRECT_URI: ""
     NETBIRD_TOKEN_SOURCE: accessToken
     NGINX_SSL_PORT: ""
@@ -248,6 +253,7 @@ dashboard:
   envFromSecret:
     AUTH_CLIENT_ID: netbird/idpClientID
     AUTH_AUDIENCE: netbird/idpClientID
+    AUTH_CLIENT_SECRET: netbird/idpClientSecret
   ingress:
     enabled: true
     className: {{ haproxy_ingress_class }}

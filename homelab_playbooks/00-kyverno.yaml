@@ -116,6 +116,7 @@
                           - trellis
                           - www-portfolio
                           - backup
+                          - netbird
                 mutate:
                   patchStrategicMerge:
                     spec:
@@ -171,6 +172,7 @@
                           - trellis
                           - www-portfolio
                           - backup
+                          - netbird
                 validate:
                   message: "Running as root is not allowed."
                   pattern:
@@ -233,6 +235,7 @@
                           - external-secrets
                           - kyverno
                           - volsync
+                          - netbird
                 validate:
                   message: "Liveness and readiness probes are required."
                   pattern:

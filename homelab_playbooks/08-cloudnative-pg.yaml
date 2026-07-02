@@ -38,6 +38,8 @@
         vault_path: mautrixwhatsapp
       - owner: dawarich
         vault_path: dawarich
+      - owner: netbirduser
+        vault_path: netbird
     databases:
       - name: grafana
         owner: grafana
@@ -77,6 +79,8 @@
         owner: mautrixwhatsapp
       - name: dawarich
         owner: dawarich
+      - name: netbird
+        owner: netbirduser
   tasks:
     - name: Deploy CNPG operator via Helm
       kubernetes.core.helm:

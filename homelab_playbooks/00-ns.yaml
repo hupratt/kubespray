@@ -32,6 +32,7 @@
       - mongo-express
       - mongodb
       - monitoring
+      - netbird
       - netbox
       - open-webui
       - paperless

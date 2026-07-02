@@ -122,6 +122,7 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 | <img src="./icons/externalsecrets.svg" width="16"/> | **External Secrets Operator** | Syncs Vault secrets into native Kubernetes Secrets, kept up to date automatically. I'm provisioning ESO from [the official helm chart](https://charts.external-secrets.io) | ✅ |
 | <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain. Technitium is provisioned by [this helm chart](https://charts.obeone.cloud) | ✅ |
 | <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO. I'm provisioning Volsync via [the official helm chart](https://backube.github.io/helm-charts/) | ✅ |
+| 🌐 | **Netbird** | Manage peer to peer VPN with firewall rules and much more. Provisioned via [the official helm chart](https://netbirdio.github.io/helms) | ✅ |
 
 ### 2. Identity & Security
 
