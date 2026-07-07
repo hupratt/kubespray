@@ -12,6 +12,14 @@ env:
   DNS_SERVER_RECURSION: "AllowOnlyForPrivateNetworks"
   DNS_SERVER_QNAME_MINIMIZATION: "true"
   DNS_SERVER_DNSSEC_VALIDATION: "true"
+  DNS_SERVER_SSO_ENABLED: "true"
+  DNS_SERVER_SSO_AUTHORITY: "https://auth.thekor.eu/application/o/technitium/"
+  DNS_SERVER_SSO_CLIENT_ID: "{{ technitium_sso_client_id }}"
+  DNS_SERVER_SSO_CLIENT_SECRET_FILE: "/run/dns-secrets/technitium_sso_client_secret"
+  DNS_SERVER_SSO_SCOPES: "openid,profile,email"
+  DNS_SERVER_SSO_ALLOW_SIGNUP: "true"
+  DNS_SERVER_SSO_ALLOW_SIGNUP_ONLY_FOR_MAPPED_USERS: "true"
+  DNS_SERVER_SSO_GROUP_MAP: "Technitium Admins:Administrators"
 
 # IMPORTANT: needed for port 53 on the node
 hostNetwork: true
