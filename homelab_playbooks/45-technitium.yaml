@@ -2,8 +2,6 @@
 - name: Deploy Technitium
   hosts: localhost
   gather_facts: false
-  # vars_files:
-  #   - group_vars/all/patchmon_vault.yml
   vars:
     technitium_namespace: technitium
     technitium_release_name: technitium
@@ -15,8 +13,14 @@
     vault_kv_path: "technitium"
     technitium_node_ip: "10.10.85.24"
     technitium_clusterissuer: "letsencrypt-dns-hetzner"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
 
   tasks:
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
 
     - name: Deploy ExternalSecret for Technitium admin password
       kubernetes.core.k8s:
@@ -40,6 +44,26 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: admin_password
+              - secretKey: technitium_sso_client_id
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: technitium_sso_client_id
+              - secretKey: technitium_sso_client_secret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: technitium_sso_client_secret
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/technitium"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: technitium_vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        technitium_sso_client_id: "{{ technitium_vault_secrets.data.data.data.technitium_sso_client_id }}"
+        technitium_sso_client_secret: "{{ technitium_vault_secrets.data.data.data.technitium_sso_client_secret }}"
 
     - name: Add obeone Helm repo
       kubernetes.core.helm_repository:
@@ -77,8 +101,7 @@
           - "app.kubernetes.io/name=technitium-dnsserver"
       register: technitium_pods
       until: >
-        technitium_pods.resources | length > 0 and
-        technitium_pods.resources[0].status.phase == "Running"
+        technitium_pods.resources | length > 0
       retries: 12
       delay: 10
 

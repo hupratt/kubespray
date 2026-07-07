@@ -17,7 +17,7 @@
 
   tasks:
 
-    - name: Create secret for Uptime Kuma database
+    - name: Create secret
       kubernetes.core.k8s:
         state: present
         namespace: "{{ technitium_namespace }}"

@@ -1,6 +1,6 @@
 image:
   repository: technitium/dns-server
-  tag: ""
+  tag: "15.3.0"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
@@ -8,11 +8,10 @@ replicaCount: 1
 env:
   TZ: Europe/Berlin
   DNS_SERVER_DOMAIN: "{{ technitium_ingress_host }}"
-  DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/secrets/admin-password"
+  DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/dns-secrets/admin-password"
   DNS_SERVER_RECURSION: "AllowOnlyForPrivateNetworks"
   DNS_SERVER_QNAME_MINIMIZATION: "true"
   DNS_SERVER_DNSSEC_VALIDATION: "true"
-  DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/dns-secrets/admin-password"
 
 # IMPORTANT: needed for port 53 on the node
 hostNetwork: true
