@@ -172,3 +172,17 @@
 
 # kubectl patch svc -n technitium technitium-technitium-dnsserver \
 #   -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'
+
+
+# pods on core-wk-4 can reach technitium's dns ip 10.10.85.24 but the way back is blocked somehow
+# the solution is to have coredns serve the cluster pods on coreos-wk-4 and everyone else points to 10.10.85.24
+# the change should be made at the kubelet config level
+
+# make a deployment spawn on a specific node everytime and use the node's dns
+# kubectl -n monitoring patch deploy prometheus-grafana --type merge -p '{
+#   "spec":{"template":{"spec":{
+#     "dnsPolicy":"ClusterFirst",
+#     "dnsConfig":null,
+#     "nodeSelector":{"kubernetes.io/hostname":"coreos-wk-4"}
+#   }}}}'
+# kubectl -n monitoring rollout status deploy prometheus-grafana
