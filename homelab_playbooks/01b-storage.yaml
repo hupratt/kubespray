@@ -1,5 +1,5 @@
 ---
-- name: Deploy Ceph Rook cluster
+- name: Deploy Ceph toolbox
   hosts: localhost
   connection: local
   gather_facts: false
