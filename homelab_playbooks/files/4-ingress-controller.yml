@@ -116,6 +116,7 @@ data:
   use-forwarded-for: "true"
   healthz-port: "1042"   # or any port you want for the stats/health endpoint
   disable-backend-checks: "false"
+  hard-stop-after: "600s"   # or higher, depending on your longest-lived connection type
 
 ---
 apiVersion: networking.k8s.io/v1
