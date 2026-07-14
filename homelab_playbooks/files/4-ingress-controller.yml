@@ -14,11 +14,7 @@ spec:
     spec:
       hostNetwork: true
       serviceAccountName: haproxy-ingress
-      tolerations:
-        - key: "dedicated"
-          operator: "Equal"
-          value: "slow-services"
-          effect: "NoSchedule"
+
       securityContext:
         seccompProfile:
           type: RuntimeDefault
@@ -28,7 +24,9 @@ spec:
           image: haproxytech/kubernetes-ingress:3.0.6
 
           args:
-            - --configmap=default/haproxy-ingress-config
+            # Point at the ConfigMap that actually exists (this namespace),
+            # otherwise the controller reads defaults and ignores it.
+            - --configmap=haproxy/haproxy-ingress-config
             - --http-port=8080
             - --https-port=8443
             - --default-backend-service=haproxy/nginx-service
@@ -107,8 +105,8 @@ metadata:
   name: haproxy-ingress-config
   namespace: haproxy
 data:
-  # optional tweaks, leave minimal for now
-  syslog-endpoint: "stdout"
+  # Emit HAProxy access logs to the pod's stdout (visible via kubectl logs).
+  syslog-server: "address:stdout, format: raw, facility: daemon"
   ssl-redirect: "false"
   max-connections: "2000"
   ssl-ciphers: "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384"
@@ -125,3 +123,7 @@ metadata:
   name: haproxy
 spec:
   controller: haproxy.org/ingress-controller
+
+# debug why lose connection
+
+# kubectl logs -n haproxy haproxy-ingress-4ztvq --all-containers --since=2h | grep -i "reloaded\|hard-stop"
