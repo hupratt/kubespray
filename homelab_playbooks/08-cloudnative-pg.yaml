@@ -81,7 +81,21 @@
         owner: dawarich
       - name: netbird
         owner: netbirduser
+      - name: netbird-activity-log
+        owner: netbirduser
   tasks:
+
+    - name: Check if CNPG operator Helm release exists
+      kubernetes.core.helm_info:
+        name: cloudnative-pg
+        release_namespace: "{{ cnpg_namespace }}"
+      register: cnpg_helm_status
+      failed_when: false
+
+    - name: Debug CNPG Helm release status
+      ansible.builtin.debug:
+        var: cnpg_helm_status.status.status
+
     - name: Deploy CNPG operator via Helm
       kubernetes.core.helm:
         name: cloudnative-pg
@@ -94,6 +108,7 @@
         values:
           monitoring:
             podMonitorEnabled: true
+      when: cnpg_helm_status.status.status is not defined or cnpg_helm_status.status.status != "deployed"
 
     - name: Create ExternalSecret for shared cluster superuser
       kubernetes.core.k8s:

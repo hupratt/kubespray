@@ -29,6 +29,10 @@
 
     netbird_use_postgres: true
     values_out: "/tmp/netbird-values.yaml"
+    netbird_dashboard_image_tag: "v2.90.3"
+    netbird_signal_image_tag: "0.74.4"
+    netbird_relay_image_tag: "0.74.4"
+    netbird_management_image_tag: "0.74.4"
 
   tasks:
 
@@ -82,6 +86,14 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: idpClientSecret
+              - secretKey: activityStoreEngine
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: activityStoreEngine
+              - secretKey: activityPostgresDSN
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: activityPostgresDSN
 
     - name: Deploy Lightweight Co-located STUN/TURN Engine (eturnal)
       kubernetes.core.k8s:
@@ -185,6 +197,7 @@
       loop_control:
         label: "{{ item.metadata.name }}"
 
+
 # ACCESS_TOKEN=$(curl -s -X POST https://auth.adata.de/application/o/token/ \
 #   -d grant_type=client_credentials \
 #   -d client_id=$client_id \
@@ -192,5 +205,21 @@
 #   -d password=$password \
 #   -d scope="goauthentik.io/api" | jq -r .access_token)
 
+# curl -s -i -X GET "https://auth.adata.de/application/o/userinfo/" \
+#   -H "Origin: https://netbird.cloud2.adata.de" \
+#   -H "Accept: application/json" \
+#   -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# echo $ACCESS_TOKEN
+
 # curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
 #   "https://auth.adata.de/api/v3/core/users/?email=hpratt@adata.de" | jq .
+
+# curl -fsSL https://pkgs.netbird.io/install.sh | sh
+
+# netbird up \
+#   --management-url https://netbird.cloud2.adata.de \
+#   --admin-url https://netbird.cloud2.adata.de \
+#   --no-browser
+
+# netbird service uninstall
