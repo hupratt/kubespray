@@ -9,13 +9,19 @@
     vault_kv_path: "restic"
 
     backup_pvc:
+    
       - pvc_name: shared-pg-1
         namespace: cn-postgres
+
+      - pvc_name: shared-pg-2
+        namespace: cn-postgres
+
       - pvc_name: immich-library
         namespace: immich
         secret: volsync-restic-secret-library
         replication_name: immich-library-backup
         runas: 1000
+
       - pvc_name: immich-pg-1
         namespace: immich
         secret: volsync-restic-secret-db
