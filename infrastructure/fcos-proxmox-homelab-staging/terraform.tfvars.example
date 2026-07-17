@@ -1,0 +1,6 @@
+# Copy this file to terraform.tfvars and fill in your values
+proxmox_endpoint = "https://192.168.1.10:8006"
+proxmox_username = "root@pam"
+proxmox_password = "your-password" # Prefer: export TF_VAR_proxmox_password=...
+proxmox_node     = "pve"
+vm_count         = 4
