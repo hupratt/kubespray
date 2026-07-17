@@ -40,3 +40,15 @@ variable "agent_enabled" {
   type        = bool
   default     = true
 }
+
+variable "osd_datastores" {
+  description = "Thick-LVM Proxmox storage IDs, one per node, each backed by a dedicated physical disk"
+  type    = list(string)
+  default = ["vg-osd1", "vg-osd2", "vg-osd3"]
+}
+
+variable "osd_disk_size_gb" {
+  description = "Size in GB for each node's OSD disk (match actual physical capacity)"
+  type    = list(number)
+  default = [1500, 1500, 1500]
+}

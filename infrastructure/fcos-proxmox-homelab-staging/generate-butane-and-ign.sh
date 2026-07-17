@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Default configuration
 # NUM_NODES=3
-NUM_NODES=4
+NUM_NODES=3
 # SSH keys array - can be populated from config file or command line
 # Legacy single key support (for backwards compatibility with config file)
 SSH_KEY=""

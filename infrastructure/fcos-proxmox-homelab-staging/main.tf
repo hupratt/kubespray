@@ -37,9 +37,10 @@ resource "proxmox_virtual_environment_vm" "fcos" {
   node_name = var.proxmox_node
   vm_id     = 721 + count.index
   on_boot   = true
+  timeout_clone = 36000
 
   clone {
-    vm_id = 9000
+    vm_id = 9002
     full  = true
   }
 
@@ -65,13 +66,25 @@ resource "proxmox_virtual_environment_vm" "fcos" {
   }
 
   disk {
-    datastore_id = "local-lvm"
+    datastore_id = var.osd_datastores[count.index]
     interface    = "virtio0"
-    size         = 80
+    size         = 200
     discard      = "on"
     ssd          = true
     iothread     = true
-    cache        = "writeback"
+    cache        = "none"      # avoid host page cache for Ceph OSD block device
+    file_format  = "raw"       # required — thick LVM only supports raw
+  }
+
+  disk {
+    datastore_id = var.osd_datastores[count.index]
+    interface    = "virtio1"
+    size         = var.osd_disk_size_gb[count.index]
+    discard      = "on"
+    ssd          = true
+    iothread     = true
+    cache        = "none"      # avoid host page cache for Ceph OSD block device
+    file_format  = "raw"       # required — thick LVM only supports raw
   }
 
   hotplug = "cpu,memory,disk,network,usb"
@@ -82,8 +95,8 @@ resource "proxmox_virtual_environment_vm" "fcos" {
   }
 
   # Physical disk passthrough via kvm_arguments
-  kvm_arguments = "-device virtio-blk-pci,drive=drive0 -drive file=${var.passthrough_disks[count.index]},format=raw,if=none,id=drive0 -fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-node-${count.index + 1}.json"
-
+  kvm_arguments = "-fw_cfg name=opt/com.coreos/config,file=/var/lib/vz/snippets/ignition-node-${count.index + 1}.json"
+  
   operating_system {
     type = "l26"
   }
