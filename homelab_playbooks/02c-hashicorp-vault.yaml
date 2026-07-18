@@ -1,208 +1,77 @@
 ---
-- name: Setup ESO + Vault + Secrets
+- name: Initialise a new vault and unseal it or just unseal existing vault
   hosts: localhost
   gather_facts: false
-  connection: local
-  vars_files:
-    - group_vars/all/vault.yml       # your existing Ansible Vault file
+
   vars:
-    homelab_domain: "thekor.eu"
-    vault_addr: "https://vault.{{ homelab_domain }}"
-    vault_policy_name: "eso-policy"
-    vault_role_name: "eso-role"
-    # kv-v2 MOUNT only — no /data/ suffix. ESO injects that itself.
-    vault_kv_mount: "kv"
-    vault_kv_path: "myapp"           # path within the mount
-    eso_namespace: "external-secrets"
-    eso_sa_name: "external-secrets"  # default ESO service account name
-    external_secret_namespace: "myapp"
-    external_secret_name: "myapp-secrets"
-    vault_init_json: "group_vars/all/vault_init.json"
+    vault_namespace: vault
+    vault_pod: vault-0
+    unseal_key_dest: group_vars/all/vault_init.json
 
   tasks:
-
-    # -------------------------------------------------------------------------
-    # 0. Load unseal/init data (root token for bootstrap only)
-    # -------------------------------------------------------------------------
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
-
-    - name: Enable Kubernetes auth method
-      community.hashi_vault.vault_write:
-        path: "sys/auth/kubernetes"
-        data:
-          type: "kubernetes"
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
-      failed_when: false  # returns 400 if already enabled
-
-    # -------------------------------------------------------------------------
-    # 1. Configure Kubernetes auth backend in Vault
-    #    This must exist before the role can be created.
-    # -------------------------------------------------------------------------
-    - name: Configure Kubernetes auth backend
-      community.hashi_vault.vault_write:
-        path: "auth/kubernetes/config"
-        data:
-          # Vault will call your cluster's API server to verify SA tokens.
-          # In-cluster Vault can use the pod's own service account discovery.
-          kubernetes_host: "https://kubernetes.default.svc"
-          # Pull the cluster CA and JWT from the ESO service account secret
-          # if your cluster still creates SA secrets (k8s < 1.24).
-          # For 1.24+ use token_reviewer_jwt from a manually created secret or
-          # leave blank — Vault will use its own pod SA for token review.
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
-      # Idempotent — safe to re-run; Vault returns 204 if already configured.
-
-    # -------------------------------------------------------------------------
-    # 2. Ensure KV v2 engine is enabled at the mount path
-    # -------------------------------------------------------------------------
-    - name: Enable KV v2 secrets engine
-      community.hashi_vault.vault_write:
-        path: "sys/mounts/{{ vault_kv_mount }}"
-        data:
-          type: "kv"
-          options:
-            version: "2"
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
-      # Vault returns 400 if already mounted — ignore that specific error.
+    - name: Check Vault status
+      kubernetes.core.k8s_exec:
+        namespace: "{{ vault_namespace }}"
+        pod: "{{ vault_pod }}"
+        command: vault status -format=json
+      register: vault_status_raw
       failed_when: false
 
-    # -------------------------------------------------------------------------
-    # 3. As a test: seed secrets from Ansible Vault vars into Vault KV
-    #    Add every key from vault.yml you want ESO to serve here.
-    # -------------------------------------------------------------------------
-    - name: Write myapp secrets to Vault KV
-      community.hashi_vault.vault_kv2_write:
-        engine_mount_point: "kv"
-        path: "{{ vault_kv_path }}"
-        data:
-          db_password: "testing"
-          api_key: "myapp_api_key"
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
+    - name: Parse vault status
+      ansible.builtin.set_fact:
+        vault_status: "{{ vault_status_raw.stdout | from_json }}"
 
-    # -------------------------------------------------------------------------
-    # 4. Create a scoped policy — read-only on the app path
-    # -------------------------------------------------------------------------
-    - name: Create Vault policy for ESO
-      community.hashi_vault.vault_write:
-        path: "sys/policies/acl/{{ vault_policy_name }}"
-        data:
-          policy: |
-            # Allow ESO to read and list the KV v2 data path.
-            # kv-v2 stores data at <mount>/data/<path> and metadata at <mount>/metadata/<path>.
-            path "{{ vault_kv_mount }}/data/{{ vault_kv_path }}" {
-              capabilities = ["read"]
-            }
-            path "{{ vault_kv_mount }}/metadata/{{ vault_kv_path }}" {
-              capabilities = ["read", "list"]
-            }
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
+    - name: Initialise Vault
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} {{ vault_pod }}
+          -- vault operator init -key-shares=5 -key-threshold=3 -format=json
+      register: vault_init_raw
+      when: not vault_status.initialized
 
-    # -------------------------------------------------------------------------
-    # 5. Create the Kubernetes auth role bound to the ESO service account
-    # -------------------------------------------------------------------------
-    - name: Create Kubernetes auth role for ESO
-      community.hashi_vault.vault_write:
-        path: "auth/kubernetes/role/{{ vault_role_name }}"
-        data:
-          bound_service_account_names:
-            - "{{ eso_sa_name }}"
-          bound_service_account_namespaces:
-            - "{{ eso_namespace }}"
-          # token_policies is the correct field (not 'policies') in Vault's API
-          token_policies:
-            - "{{ vault_policy_name }}"
-          token_ttl: "3600"      # 1h
-          token_max_ttl: "14400" # 4h
-        token: "{{ vault_init.root_token }}"
-        url: "{{ vault_addr }}"
+    - name: Save init output locally
+      ansible.builtin.copy:
+        content: "{{ vault_init_raw.stdout }}"
+        dest: "{{ unseal_key_dest }}"
+        mode: "0600"
+      when: not vault_status.initialized
 
-    # -------------------------------------------------------------------------
-    # 5b. Install External Secrets Operator via Helm
-    # -------------------------------------------------------------------------
-    - name: Add ESO Helm repo
-      kubernetes.core.helm_repository:
-        name: external-secrets
-        repo_url: "https://charts.external-secrets.io"
+    - name: Set init data from fresh init
+      ansible.builtin.set_fact:
+        vault_init: "{{ vault_init_raw.stdout | from_json }}"
+      when: not vault_status.initialized
 
-    - name: Install ESO
-      kubernetes.core.helm:
-        name: external-secrets
-        chart_ref: external-secrets/external-secrets
-        release_namespace: "{{ eso_namespace }}"
-        create_namespace: true
-        wait: true
-        values:
-          installCRDs: true
+    - name: Set init data from saved file
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', unseal_key_dest) | from_json }}"
+      when: vault_status.initialized
 
-    # -------------------------------------------------------------------------
-    # 6. Deploy ClusterSecretStore
-    # -------------------------------------------------------------------------
-    - name: Deploy ClusterSecretStore
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: external-secrets.io/v1
-          kind: ClusterSecretStore
-          metadata:
-            name: vault-backend
-          spec:
-            provider:
-              vault:
-                server: "{{ vault_addr }}"
-                # path is the KV ENGINE MOUNT — not kv/data.
-                # ESO appends /data/ for kv-v2 automatically.
-                path: "{{ vault_kv_mount }}"
-                version: "v2"           # <-- required for kv-v2
-                auth:
-                  kubernetes:
-                    mountPath: "kubernetes"   # Vault auth mount path (no 'auth/' prefix)
-                    role: "{{ vault_role_name }}"
-                    serviceAccountRef:
-                      name: "{{ eso_sa_name }}"
-                      namespace: "{{ eso_namespace }}"
+    - name: Unseal vault-0
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-0
+          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]
 
-    - name: Ensure namespaces exist
-      kubernetes.core.k8s:
-        api_version: v1
-        kind: Namespace
-        name: "myapp"
-        state: present
-    # -------------------------------------------------------------------------
-    # 7. Deploy ExternalSecret
-    # -------------------------------------------------------------------------
-    - name: Deploy ExternalSecret for myapp
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: external-secrets.io/v1
-          kind: ExternalSecret
-          metadata:
-            name: "{{ external_secret_name }}"
-            namespace: "{{ external_secret_namespace }}"
-          spec:
-            refreshInterval: "1h"
-            secretStoreRef:
-              name: vault-backend
-              kind: ClusterSecretStore
-            target:
-              name: "{{ external_secret_name }}"
-              # Owner: ESO owns and garbage-collects the k8s Secret.
-              # Change to Merge only if this Secret already exists and you
-              # want ESO to add keys without replacing the whole object.
-              creationPolicy: Owner
-            data:
-              - secretKey: db_password      # key name in the resulting k8s Secret
-                remoteRef:
-                  key: "{{ vault_kv_path }}" # path within the KV mount (myapp)
-                  property: db_password      # field inside that KV secret
-              - secretKey: api_key
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: api_key
+    - name: Unseal vault-1
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-1
+          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]
+
+    - name: Unseal vault-2
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-2
+          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]
+
+## restore procedure
+# make sure to decrypt the secret
+# ansible-vault decrypt ./group_vars/all/vault_init.json
+# unseal the vault and then
+# mkdir -p ~/vault-restore
+# restic restore 1660720a --target ~/vault-restore
+# k cp ~/vault-restore/tmp/vault-snapshot-20260718-145809.snap vault-1:/tmp -n vault 
+# vault operator raft snapshot restore vault-snapshot-20260718-145809.snap

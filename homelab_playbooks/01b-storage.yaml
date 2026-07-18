@@ -1,5 +1,5 @@
 ---
-- name: Deploy Ceph toolbox
+- name: Deploy Ceph toolbox, cephfs and the storage classes
   hosts: localhost
   connection: local
   gather_facts: false
@@ -24,7 +24,41 @@
         update: true
         accept_hostkey: true
       when: not repo_dir.stat.exists
-      
+
+    - name: Apply RBD StorageClass
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/csi/rbd/storageclass.yaml"
+
+    - name: Apply the cephfs storage class
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ rook_dir }}/deploy/examples/csi/cephfs/storageclass.yaml"
+
+    - name: Apply CephFilesystem (myfs)
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: ceph.rook.io/v1
+          kind: CephFilesystem
+          metadata:
+            name: myfs
+            namespace: rook-ceph
+          spec:
+            metadataPool:
+              replicated:
+                size: 3
+            dataPools:
+              - name: data0
+                replicated:
+                  size: 3
+            metadataServer:
+              activeCount: 1
+              activeStandby: true
+
     - name: Apply the toolbox
       kubernetes.core.k8s:
         state: present

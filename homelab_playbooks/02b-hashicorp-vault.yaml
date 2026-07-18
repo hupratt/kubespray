@@ -1,68 +1,80 @@
 ---
-- name: Initialise and unseal Vault
+- name: Restore Vault from Raft snapshot
   hosts: localhost
   gather_facts: false
 
   vars:
     vault_namespace: vault
-    vault_pod: vault-0
-    unseal_key_dest: group_vars/all/vault_init.json
+    snapshot_local_path: /home/hugo/vault-restore/tmp/vault-snapshot-20260718-145809.snap
+    original_init_file: group_vars/all/vault_init.json   # the keys from BEFORE the snapshot was taken
+    temp_init_file: group_vars/all/vault_init_temp.json
 
   tasks:
-    - name: Check Vault status
-      kubernetes.core.k8s_exec:
-        namespace: "{{ vault_namespace }}"
-        pod: "{{ vault_pod }}"
-        command: vault status -format=json
-      register: vault_status_raw
-      failed_when: false
+    - name: Check if temp init already happened
+      ansible.builtin.stat:
+        path: "{{ temp_init_file }}"
+      register: temp_init_stat
 
-    - name: Parse vault status
-      ansible.builtin.set_fact:
-        vault_status: "{{ vault_status_raw.stdout | from_json }}"
-
-    - name: Initialise Vault
-      ansible.builtin.command:
-        cmd: >
-          kubectl exec -n {{ vault_namespace }} {{ vault_pod }}
-          -- vault operator init -key-shares=5 -key-threshold=3 -format=json
-      register: vault_init_raw
-      when: not vault_status.initialized
-
-    - name: Save init output locally
-      ansible.builtin.copy:
-        content: "{{ vault_init_raw.stdout }}"
-        dest: "{{ unseal_key_dest }}"
-        mode: "0600"
-      when: not vault_status.initialized
-
-    - name: Set init data from fresh init
-      ansible.builtin.set_fact:
-        vault_init: "{{ vault_init_raw.stdout | from_json }}"
-      when: not vault_status.initialized
-
-    - name: Set init data from saved file
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', unseal_key_dest) | from_json }}"
-      when: vault_status.initialized
-
-    - name: Unseal vault-0
+    - name: Initialise Vault with throwaway keys
       ansible.builtin.command:
         cmd: >
           kubectl exec -n {{ vault_namespace }} vault-0
-          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+          -- vault operator init -key-shares=5 -key-threshold=3 -format=json
+      register: vault_init_raw
+      when: not temp_init_stat.stat.exists
+
+    - name: Save temp init output
+      ansible.builtin.copy:
+        content: "{{ vault_init_raw.stdout }}"
+        dest: "{{ temp_init_file }}"
+        mode: "0600"
+      when: not temp_init_stat.stat.exists
+
+    - name: Load temp init data
+      ansible.builtin.set_fact:
+        vault_temp_init: "{{ lookup('file', temp_init_file) | from_json }}"
+
+    - name: Unseal vault-0 with temp keys
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-0
+          -- vault operator unseal {{ vault_temp_init.unseal_keys_b64[item] }}
       loop: [0, 1, 2]
 
-    - name: Unseal vault-1
+    - name: Copy snapshot into vault-0 pod
+      ansible.builtin.command:
+        cmd: >
+          kubectl cp {{ snapshot_local_path }} {{ vault_namespace }}/vault-0:/tmp/restore.snap
+
+    - name: Restore Raft snapshot (force)
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-0
+          -- env VAULT_TOKEN={{ vault_temp_init.root_token }}
+          vault operator raft snapshot restore -force /tmp/restore.snap
+      no_log: true
+
+    - name: Load ORIGINAL init data (from before the snapshot)
+      ansible.builtin.set_fact:
+        vault_original_init: "{{ lookup('file', original_init_file) | from_json }}"
+
+    - name: Unseal vault-0 with ORIGINAL keys post-restore
+      ansible.builtin.command:
+        cmd: >
+          kubectl exec -n {{ vault_namespace }} vault-0
+          -- vault operator unseal {{ vault_original_init.unseal_keys_b64[item] }}
+      loop: [0, 1, 2]
+
+    - name: Unseal vault-1 with ORIGINAL keys
       ansible.builtin.command:
         cmd: >
           kubectl exec -n {{ vault_namespace }} vault-1
-          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+          -- vault operator unseal {{ vault_original_init.unseal_keys_b64[item] }}
       loop: [0, 1, 2]
 
-    - name: Unseal vault-2
+    - name: Unseal vault-2 with ORIGINAL keys
       ansible.builtin.command:
         cmd: >
           kubectl exec -n {{ vault_namespace }} vault-2
-          -- vault operator unseal {{ vault_init.unseal_keys_b64[item] }}
+          -- vault operator unseal {{ vault_original_init.unseal_keys_b64[item] }}
       loop: [0, 1, 2]

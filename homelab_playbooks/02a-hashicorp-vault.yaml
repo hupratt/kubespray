@@ -95,4 +95,3 @@
 # helm upgrade vault hashicorp/vault -n vault --version 0.30.0 --reuse-values --set server.image.tag=1.19.0
 # helm upgrade vault hashicorp/vault -n vault --version 0.31.0 --reuse-values --set server.image.tag=1.20.4
 # helm upgrade vault hashicorp/vault -n vault --version 0.32.0 --reuse-values --set server.image.tag=1.21.2
-

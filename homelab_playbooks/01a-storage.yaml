@@ -80,26 +80,6 @@
       ansible.builtin.debug:
         var: ceph_clusters.resources
 
-    - name: Apply RBD StorageClass
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ rook_dir }}/deploy/examples/csi/rbd/storageclass.yaml"
-
-    - name: Apply the cephfs storage class
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ rook_dir }}/deploy/examples/csi/cephfs/storageclass.yaml"
-
-    - name: Apply cephfs
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-       - cephfs.yml
-    
 
 # in case ceph doesn't start because they can't elect:
 
