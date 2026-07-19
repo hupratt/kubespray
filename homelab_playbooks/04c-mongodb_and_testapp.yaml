@@ -8,8 +8,6 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_kv_path: "mongodb"
-    vault_init_json: "group_vars/all/vault_init.json"
-    vault_addr: "https://vault.thekor.eu"
   tasks:
 
     - name: Deploy ExternalSecret 

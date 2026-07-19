@@ -7,10 +7,8 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_kv_path: "mongodb"
-    vault_init_json: "group_vars/all/vault_init.json"
-    vault_addr: "https://vault.thekor.eu"
-  tasks:
 
+  tasks:
     - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
@@ -58,9 +56,7 @@
               template:
                 data:
                   MONGO_ENDPOINT: |-
-                    {% raw %}
-                    mongodb://{{ .mongo_testapp_username }}:{{ .mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/your_spotify?authSource=admin
-                    {% endraw %}
+                    {% raw %}mongodb://{{ .mongo_testapp_username }}:{{ .mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/your_spotify?authSource=admin{% endraw %}
             data:
               - secretKey: mongo_testapp_username
                 remoteRef:

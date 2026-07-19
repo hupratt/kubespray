@@ -7,39 +7,38 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_kv_path: "mongodb"
-    vault_init_json: "group_vars/all/vault_init.json"
-    vault_addr: "https://vault.thekor.eu"
+  
   tasks:
-
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
-
-    - name: Read secret from Vault
-      community.hashi_vault.vault_read:
-        path: "kv/data/mongodb"
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-      register: vault_secrets
-
-    - name: Set secret facts
-      ansible.builtin.set_fact:
-        mongo_testapp_username: "{{ vault_secrets.data.data.data.mongo_testapp_username }}"
-        mongo_testapp_password: "{{ vault_secrets.data.data.data.mongo_testapp_password }}"
-
-    - name: Create database URL
+    - name: Deploy ExternalSecret
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: amazon-database-url
             namespace: amazon-clone
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            amazon-database-url: "mongodb://{{ mongo_testapp_username }}:{{ mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/Amazon?authSource=admin"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: amazon-database-url
+              creationPolicy: Owner
+              template:
+                data:
+                  amazon-database-url: |-
+                    {% raw %}mongodb://{{ .mongo_testapp_username }}:{{ .mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/Amazon?authSource=admin{% endraw %}
+            data:
+              - secretKey: mongo_testapp_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_username
+              - secretKey: mongo_testapp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_password
 
     - name: Deploy Amazon clone stack to Kubernetes
       kubernetes.core.k8s:

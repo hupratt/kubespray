@@ -6,10 +6,6 @@
     cnpg_version: "0.23.0"
     storage_class: rook-ceph-block
     pg_image: ghcr.io/cloudnative-pg/postgis:16-3.5
-    homelab_domain: "thekor.eu"
-    vault_addr: "https://vault.{{ homelab_domain }}"
-    vault_init_json: "group_vars/all/vault_init.json"
-
     shared_cluster_name: shared-pg
     shared_cluster_storage: 50Gi
 

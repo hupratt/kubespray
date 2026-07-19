@@ -5,14 +5,8 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_kv_path: "registry"
-    vault_init_json: "group_vars/all/vault_init.json"
-    vault_addr: "https://vault.thekor.eu"
+
   tasks:
-
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
-
     - name: Deploy ExternalSecret for Docker Registry
       kubernetes.core.k8s:
         state: present
