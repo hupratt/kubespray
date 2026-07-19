@@ -1,14 +1,125 @@
 - name: provision vaultwarden
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_repo: "git@gitlab.thekor.eu:kube/vaultwarden.git"
     vault_dir: "~/vaultwarden"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
+    vault_kv_path: vaultwarden
 
   tasks:
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: vaultwarden-secret
+            namespace: vaultwarden
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: vaultwarden-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: dbName
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbName
+              - secretKey: host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: host
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: password
+              - secretKey: type
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: type
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: username
+
+              - secretKey: adminToken
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: adminToken
+              - secretKey: clientId
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: clientId
+              - secretKey: clientSecret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: clientSecret
+              - secretKey: smtp_from
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_from
+              - secretKey: smtp_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_host
+              - secretKey: smtp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_password
+              - secretKey: smtp_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_port
+              - secretKey: smtp_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_username
+
+
+    - name: Annotate vaultwarden-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: vaultwarden
+        name: vaultwarden-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/vaultwarden"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        username: "{{ vault_secrets.data.data.data.username }}"
+        type: "{{ vault_secrets.data.data.data.type }}"
+        password: "{{ vault_secrets.data.data.data.password }}"
+        host: "{{ vault_secrets.data.data.data.host }}"
+        dbName: "{{ vault_secrets.data.data.data.dbName }}"
+        adminToken: "{{ vault_secrets.data.data.data.adminToken }}"
+        clientId: "{{ vault_secrets.data.data.data.clientId }}"
+        clientSecret: "{{ vault_secrets.data.data.data.clientSecret }}"
+        smtp_from: "{{ vault_secrets.data.data.data.smtp_from }}"
+        smtp_host: "{{ vault_secrets.data.data.data.smtp_host }}"
+        smtp_password: "{{ vault_secrets.data.data.data.smtp_password }}"
+        smtp_port: "{{ vault_secrets.data.data.data.smtp_port }}"
+        smtp_username: "{{ vault_secrets.data.data.data.smtp_username }}"
 
     - name: Check if repo already exists
       ansible.builtin.stat:
@@ -23,30 +134,6 @@
         force: true
         accept_hostkey: true
       when: not repo_dir.stat.exists
-
-    - name: Create secret for vaultwarden's database
-      kubernetes.core.k8s:
-        state: present
-        namespace: vaultwarden
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: vaultwarden-secret
-          type: Opaque
-          stringData: "{{ vaultwarden_secret }}"
-      no_log: true
-
-    - name: Annotate vaultwarden-secret secret declaratively
-      kubernetes.core.k8s:
-        state: present
-        kind: Secret
-        namespace: vaultwarden
-        name: vaultwarden-secret
-        definition:
-          metadata:
-            annotations:
-              replicator.v1.mittwald.de/replicate-to: "mariadb"
 
     - name: Create MariaDB Database for vaultwarden
       kubernetes.core.k8s:
@@ -73,7 +160,7 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: User
           metadata:
-            name: "{{ vaultwarden_secret.username }}"
+            name: "{{ username }}"
             namespace: mariadb
           spec:
             mariaDbRef:
@@ -94,8 +181,8 @@
             name: vaultwarden-connection
             namespace: mariadb
           spec:
-            username: "{{ vaultwarden_secret.username }}"
-            database: "{{ vaultwarden_secret.dbName }}"
+            username: "{{ username }}"
+            database: "{{ dbName }}"
             mariaDbRef:
               name: mariadb
               namespace: mariadb
@@ -117,20 +204,32 @@
             mariaDbRef:
               name: mariadb
               namespace: mariadb
-            username: "{{ vaultwarden_secret.username }}"
-            database: "{{ vaultwarden_secret.dbName }}"
+            username: "{{ username }}"
+            database: "{{ dbName }}"
             table: "*"
             privileges:
               - ALL
             grantOption: false
 
-    - name: Install helm chart
-      community.kubernetes.helm:
+    - name: Render values
+      ansible.builtin.template:
+        src: charts/vaultwarden/values.yaml.j2
+        dest: /tmp/vaultwarden-values.yaml
+        mode: "0600"
+
+    - name: Deploy Technitium via Helm
+      kubernetes.core.helm:
         name: vaultwarden
         chart_ref: "{{ vault_dir }}/charts/vaultwarden"
         release_namespace: vaultwarden
-        values: "{{ vaultwarden_values | from_yaml }}"
+        create_namespace: false
+        values_files:
+          - /tmp/vaultwarden-values.yaml
 
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/technitium-values.yaml
+        state: absent
 
 # fix stuck orphaned pod after uninstall
 

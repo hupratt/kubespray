@@ -1,0 +1,83 @@
+image: 
+  registry: docker.io
+  repository: vaultwarden/server
+  tag: "1.36.0-alpine"
+timeZone: "Europe/Berlin"
+ingress:
+  enabled: true
+  class: haproxy
+  hostname: "{{ hostname }}"
+  path: "/"
+  pathType: ImplementationSpecific
+  tlsSecret: "wildcard-thekor"
+  additionalHostnames: []
+  annotations:
+    haproxy.org/ssl-redirect: "true"
+    haproxy.org/force-ssl-redirect: "true"
+
+database:
+  type: "{{ type }}"
+  host: "{{ host }}"
+  username: "{{ username }}"
+  password: "{{ password }}"
+  dbName: "{{ dbname }}"
+
+storage:
+  data: 
+    name: "vaultwarden-data"
+    size: "1Gi"
+    class: "rook-cephfs"
+    path: "/data"
+    keepPvc: false
+    accessMode: "ReadWriteOnce"
+
+domain: "https://{{ hostname }}"
+
+vaultwarden:
+  adminToken: "{{ adminToken }}"
+  timeZone: "Europe/Berlin"
+  
+smtp:
+  host: "{{ smtp_host }}"
+  from: "{{ smtp_from }}"
+  port: "{{ smtp_port }}"
+  security: starttls
+  username:
+    value: "{{ smtp_username }}"
+  password:
+    value: "{{ smtp_password }}"
+signupsAllowed: true
+signupsVerify: "true"
+invitationsAllowed: true
+
+sso:
+  enabled: true
+  authority: "https://auth.thekor.eu/application/o/vaultwarden/"
+  scopes: "email profile offline_access"
+  signupsMatchEmail: true
+  onlySSO: false
+  ignoreEmailVerification: false
+  cacheExpiration: 0
+  pkce: true
+  clientId:
+    value: "{{ clientId }}"
+  clientSecret:
+    value: "{{ clientSecret }}"
+strategy:
+  type: Recreate
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+containerSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false  # vaultwarden writes to /data
+  capabilities:
+    drop:
+      - ALL

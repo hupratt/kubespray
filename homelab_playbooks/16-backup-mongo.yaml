@@ -6,21 +6,35 @@
     - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
+    vault_kv_path: restic
 
   tasks:
-    - name: Create AWS credentials secret
+    - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: aws-credentials
             namespace: mongodb
-          type: Opaque
-          stringData:
-            AWS_ACCESS_KEY_ID: "{{ AWS_ACCESS_KEY_ID }}"
-            AWS_SECRET_ACCESS_KEY: "{{ AWS_SECRET_ACCESS_KEY }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: aws-credentials
+              creationPolicy: Owner
+            data:
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: AWS_SECRET_ACCESS_KEY
 
     - name: Deploy mongodump CronJob
       kubernetes.core.k8s:
