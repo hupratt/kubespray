@@ -19,7 +19,7 @@
         name: influxdb
         chart_ref: influxdata/influxdb2
         release_namespace: monitoring
-        values: "{{ lookup('file', 'group_vars/all/influx-vault.yml') | from_yaml }}"
+        values: "{{ lookup('file', 'charts/influx/influx-values.yml') | from_yaml }}"
         state: present
 # upgrades
 

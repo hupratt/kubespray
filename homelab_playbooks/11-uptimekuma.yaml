@@ -2,13 +2,76 @@
 - name: Deploy Uptime Kuma
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
+  # vars_files:
+  #   - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     uptime_repo: "git@gitlab.thekor.eu:kube/uptime-kuma.git"
     uptime_dir: "/home/hugo/uptime"
+    vault_kv_path: monitoring
   tasks:
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: uptime-kuma-secret
+            namespace: monitoring
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: uptime-kuma-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: UPTIME_KUMA_DB_HOSTNAME
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_DB_HOSTNAME
+              - secretKey: UPTIME_KUMA_DB_NAME
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_DB_NAME
+              - secretKey: UPTIME_KUMA_DB_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_DB_PASSWORD
+              - secretKey: UPTIME_KUMA_DB_PORT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_DB_PORT
+              - secretKey: UPTIME_KUMA_DB_TYPE
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_DB_TYPE
+              - secretKey: UPTIME_KUMA_DB_USERNAME
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_DB_USERNAME
+              - secretKey: UPTIME_KUMA_WEB_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_WEB_PASSWORD
+              - secretKey: UPTIME_KUMA_WEB_USERNAME
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: UPTIME_KUMA_WEB_USERNAME
+
+    - name: Annotate uptime-kuma-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: "monitoring"
+        name: uptime-kuma-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "mariadb"
 
     - name: Check if repo already exists
       ansible.builtin.stat:
@@ -23,30 +86,6 @@
         force: yes
         accept_hostkey: yes
       when: not repo_dir.stat.exists
-
-    - name: Create secret for Uptime Kuma database
-      kubernetes.core.k8s:
-        state: present
-        namespace: monitoring
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: uptime-kuma-secret
-          type: Opaque
-          stringData: "{{ uptime_kuma_secret }}"
-      no_log: true
-
-    - name: Annotate uptime-kuma-secret secret declaratively
-      kubernetes.core.k8s:
-        state: present
-        kind: Secret
-        namespace: "monitoring"
-        name: uptime-kuma-secret
-        definition:
-          metadata:
-            annotations:
-              replicator.v1.mittwald.de/replicate-to: "mariadb"
 
     - name: Create MariaDB Database for Uptime Kuma
       kubernetes.core.k8s:

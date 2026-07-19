@@ -2,53 +2,234 @@
 - name: Provision backup tooling
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
+  # vars_files:
+  #   - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
 
   tasks:
 
-    - name: Backup user permissions + cronjobs
+    - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - backup-clusterrole.yml
-        - backup-cronjob-ceph.yml
-        - backup-cronjob-mariadb.yml
-        # - grant-api-list-permissions.yml
-
-    - name: Create secret for referencing later on this script
-      kubernetes.core.k8s:
-        state: present
-        namespace: backup
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
-            name: backup-secret
-          type: Opaque
-          stringData: "{{ backup_secret }}"
-      no_log: true
+            name: backupsecret
+            namespace: backup
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: backupsecret
+              creationPolicy: Owner
+            data:
+              - secretKey: DB_PASSWORD
+                remoteRef:
+                  key: mariadb
+                  property: DB_PASSWORD
+              - secretKey: DB_USERNAME
+                remoteRef:
+                  key: mariadb
+                  property: DB_USERNAME
 
-    - name: Annotate backup-secret secret declaratively
+    - name: Annotate backupsecret secret declaratively
       kubernetes.core.k8s:
         state: present
         kind: Secret
         namespace: backup
-        name: backup-secret
+        name: backupsecret
         definition:
           metadata:
             annotations:
               replicator.v1.mittwald.de/replicate-to: "mariadb"
 
-    - name: Wait for backup-secret to appear in mariadb namespace
+    - name: Create backup-role ClusterRole
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRole
+          metadata:
+            name: backup-role
+          rules:
+            - apiGroups: ["", "apps", "extensions"]
+              resources:
+                - pods
+                - services
+                - deployments
+                - replicasets
+                - configmaps
+                - events
+                - persistentvolumeclaims
+                - persistentvolumes
+              verbs: ["get", "list", "watch"]
+            - apiGroups: [""]
+              resources:
+                - pods/exec
+              verbs:
+                - create
+            - apiGroups: ["batch"]
+              resources:
+                - cronjobs
+                - jobs
+              verbs:
+                - get
+                - list
+                - watch
+                - create
+                - delete
+                - patch
+                - update
+ 
+    - name: Create backup-role-binding ClusterRoleBinding
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: backup-role-binding
+          subjects:
+            - kind: ServiceAccount
+              name: backup
+              namespace: backup
+          roleRef:
+            kind: ClusterRole
+            name: backup-role
+            apiGroup: rbac.authorization.k8s.io
+ 
+    - name: Create delete-pushgateway-pods Role in monitoring namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: delete-pushgateway-pods
+            namespace: monitoring
+          rules:
+            - apiGroups: [""]
+              resources:
+                - pods
+              verbs:
+                - delete
+ 
+    - name: Create delete-pushgateway-pods-binding RoleBinding in monitoring namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: delete-pushgateway-pods-binding
+            namespace: monitoring
+          subjects:
+            - kind: ServiceAccount
+              name: backup
+              namespace: backup
+          roleRef:
+            kind: Role
+            name: delete-pushgateway-pods
+            apiGroup: rbac.authorization.k8s.io
+ 
+    - name: Create backup-mount-pvc PersistentVolumeClaim in rook-ceph namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: backup-mount-pvc
+            namespace: rook-ceph
+          spec:
+            storageClassName: rook-ceph-block
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 30Gi
+ 
+    - name: Create cephblock-backup-template CronJob (suspended, never scheduled) in rook-ceph namespace
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: CronJob
+          metadata:
+            name: cephblock-backup-template
+            namespace: rook-ceph
+          spec:
+            schedule: "0 0 31 2 *"  # Never runs (Feb 31st doesn't exist)
+            suspend: true
+            jobTemplate:
+              spec:
+                backoffLimit: 0
+                template:
+                  metadata:
+                    name: cephblock-backup
+                  spec:
+                    restartPolicy: Never
+                    securityContext:
+                      runAsUser: 0
+                    affinity:
+                      nodeAffinity:
+                        requiredDuringSchedulingIgnoredDuringExecution:
+                          nodeSelectorTerms:
+                            - matchExpressions:
+                                - key: kubernetes.io/hostname
+                                  operator: In
+                                  values:
+                                    - kube-node01
+                    containers:
+                      - name: cephblock-backup
+                        image: rook/ceph:v1.15.5
+                        command: ["/root/backupoutput/generated.sh"]
+                        stdin: true
+                        tty: true
+                        securityContext:
+                          privileged: true
+                        volumeMounts:
+                          - name: ceph-conf
+                            mountPath: /mnt/ceph
+                          - name: dev
+                            mountPath: /dev
+                          - name: backupoutput
+                            mountPath: /root/backupoutput
+                          - name: tmp-backup-dir
+                            mountPath: /tmp
+                    volumes:
+                      - name: ceph-conf
+                        hostPath:
+                          path: /etc/ceph
+                          type: Directory
+                      - name: dev
+                        hostPath:
+                          path: /dev
+                          type: Directory
+                      - name: tmp-backup-dir
+                        persistentVolumeClaim:
+                          claimName: backup-mount-pvc
+                      - name: backupoutput
+                        hostPath:
+                          path: /mnt/backupoutput
+                          type: DirectoryOrCreate
+ 
+
+    - name: Wait for backupsecret to appear in mariadb namespace
       kubernetes.core.k8s_info:
         kind: Secret
         namespace: mariadb
-        name: backup-secret
+        name: backupsecret
       register: replicated_secret
       retries: 10
       delay: 5
@@ -61,7 +242,7 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: User
           metadata:
-            name: "{{ backup_secret.DB_USERNAME }}"
+            name: fedora-backup-user
             namespace: mariadb
           spec:
             host: "%"
@@ -69,7 +250,7 @@
               name: mariadb
               namespace: mariadb
             passwordSecretKeyRef:
-              name: backup-secret
+              name: backupsecret
               key: DB_PASSWORD
             maxUserConnections: 20
 
@@ -78,7 +259,7 @@
         api_version: k8s.mariadb.com/v1alpha1
         kind: User
         namespace: mariadb
-        name: "{{ backup_secret.DB_USERNAME }}"
+        name: fedora-backup-user
       register: mariadb_user
       retries: 30
       delay: 5
@@ -97,7 +278,7 @@
           spec:
             mariaDbRef:
               name: mariadb
-            username: "{{ backup_secret.DB_USERNAME }}"
+            username: fedora-backup-user
             privileges:
               - SELECT
               - LOCK TABLES

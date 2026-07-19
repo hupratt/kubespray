@@ -2,8 +2,6 @@
 - name: Deploy the monitoring
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     vault_kv_path: monitoring
@@ -51,7 +49,7 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: GF_EMAIL_PASSWORD
-                  
+
     - name: Add Prometheus Helm repo
       ansible.builtin.command:
         cmd: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
