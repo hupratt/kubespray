@@ -95,10 +95,10 @@
           policy: |
             # Allow ESO to read and list the KV v2 data path.
             # kv-v2 stores data at <mount>/data/<path> and metadata at <mount>/metadata/<path>.
-            path "{{ vault_kv_mount }}/data/{{ vault_kv_path }}" {
+            path "{{ vault_kv_mount }}/data/*" {
               capabilities = ["read"]
             }
-            path "{{ vault_kv_mount }}/metadata/{{ vault_kv_path }}" {
+            path "{{ vault_kv_mount }}/metadata/*" {
               capabilities = ["read", "list"]
             }
         token: "{{ vault_init.root_token }}"

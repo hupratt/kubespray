@@ -1,0 +1,100 @@
+---
+- name: Deploy registry key
+  hosts: localhost
+  gather_facts: false
+  # vars_files:
+  #   - group_vars/all/vault.yml
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: "registry"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
+  tasks:
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: registry-secret
+            namespace: kube-system
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: registry-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: registry_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: registry_username
+              - secretKey: registry_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: registry_password
+              - secretKey: registry_url
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: registry_url
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/registry"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        registry_username: "{{ vault_secrets.data.data.data.registry_username }}"
+        registry_password: "{{ vault_secrets.data.data.data.registry_password }}"
+        registry_url: "{{ vault_secrets.data.data.data.registry_url }}"
+
+    # - name: Configure the deploy/examples/ceph-cluster.yml
+    #   ansible.builtin.pause:
+    #     prompt: "Configure the deploy/examples/ceph-cluster.yml before continuing. Press Enter to proceed or Ctrl+C to abort."
+
+    - name: Create Docker registry secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: docker-registry-secret
+            namespace: kube-system
+          type: kubernetes.io/dockerconfigjson
+          data:
+            .dockerconfigjson: "{{ dockerconfigjson | b64encode }}"
+      vars:
+        dockerconfigjson: |
+          {
+            "auths": {
+              "{{ registry_url }}": {
+                "username": "{{ registry_username }}",
+                "password": "{{ registry_password }}",
+                "auth": "{{ (registry_username + ':' + registry_password) | b64encode }}"
+              }
+            }
+          }
+
+    - name: Annotate docker-registry-secret secret declaratively
+      kubernetes.core.k8s:
+        state: present
+        kind: Secret
+        namespace: kube-system
+        name: docker-registry-secret
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,backup,booking,cert-manager,chirpy,cilium-secrets,cn-postgres,etcd-backup,frigate,haproxy,harbor,immich,kubewarden,linkwarden,makita,mariadb,mongo-express,mongodb,monitoring,netbox,open-webui,paperless,rook-ceph,sftpgo,spotify,thrifty,trellis,vault,vaultwarden,www-portfolio,youtube"
+

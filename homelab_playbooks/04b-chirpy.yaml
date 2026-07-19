@@ -2,45 +2,9 @@
 - name: Deploy chirpy
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
   tasks:
-    - name: Create Docker registry secret
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: docker-registry-secret
-            namespace: kube-system
-          type: kubernetes.io/dockerconfigjson
-          data:
-            .dockerconfigjson: "{{ dockerconfigjson | b64encode }}"
-      vars:
-        dockerconfigjson: |
-          {
-            "auths": {
-              "{{ registry_url }}": {
-                "username": "{{ registry_username }}",
-                "password": "{{ registry_password }}",
-                "auth": "{{ (registry_username + ':' + registry_password) | b64encode }}"
-              }
-            }
-          }
-
-    - name: Annotate docker-registry-secret secret declaratively
-      kubernetes.core.k8s:
-        state: present
-        kind: Secret
-        namespace: kube-system
-        name: docker-registry-secret
-        definition:
-          metadata:
-            annotations:
-              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,backup,booking,cert-manager,chirpy,cilium-secrets,cn-postgres,etcd-backup,frigate,haproxy,harbor,immich,kubewarden,linkwarden,makita,mariadb,mongo-express,mongodb,monitoring,netbox,open-webui,paperless,rook-ceph,sftpgo,spotify,thrifty,trellis,vault,vaultwarden,www-portfolio,youtube"
 
     - name: Deploy Jekyll Chirpy application and storage resources
       kubernetes.core.k8s:
