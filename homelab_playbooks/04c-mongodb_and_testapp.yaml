@@ -12,9 +12,40 @@
     vault_addr: "https://vault.thekor.eu"
   tasks:
 
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: mongodb-secret
+            namespace: mongodb
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: mongodb-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: mongo-root-username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_username
+              - secretKey: mongo-root-password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_password
+              - secretKey: mongo_backup_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_backup_username
+              - secretKey: mongo_backup_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_backup_password
 
     - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
@@ -23,7 +54,34 @@
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: mongodb-vault-secret
+            name: mongodb-secret
+            namespace: mongo-express
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: mongodb-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: mongo-root-username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_username
+              - secretKey: mongo-root-password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_password
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: mongodb-user-secret
             namespace: mongodb
           spec:
             refreshInterval: 1h
@@ -31,17 +89,15 @@
               name: vault-backend
               kind: ClusterSecretStore
             target:
-              name: mongodb-vault-secret
+              name: mongodb-user-secret
               creationPolicy: Owner
+              template:
+                data:
+                  mongo-database: Trellis
+                  # Bring the vault references explicitly into the template:
+                  mongo-username: "{% raw %}{{ .mongo_username }}{% endraw %}"
+                  mongo-password: "{% raw %}{{ .mongo_password }}{% endraw %}"
             data:
-              - secretKey: mongo_testapp_username
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: mongo_testapp_username
-              - secretKey: mongo_testapp_password
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: mongo_testapp_password
               - secretKey: mongo_username
                 remoteRef:
                   key: "{{ vault_kv_path }}"
@@ -50,70 +106,6 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: mongo_password
-
-    - name: Read secret from Vault
-      community.hashi_vault.vault_read:
-        path: "kv/data/mongodb"
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-      register: vault_secrets
-
-    - name: Set secret facts
-      ansible.builtin.set_fact:
-        mongo_testapp_username: "{{ vault_secrets.data.data.data.mongo_testapp_username }}"
-        mongo_testapp_password: "{{ vault_secrets.data.data.data.mongo_testapp_password }}"
-        mongo_username: "{{ vault_secrets.data.data.data.mongo_username }}"
-        mongo_password: "{{ vault_secrets.data.data.data.mongo_password }}"
-
-    # - name: Configure the deploy/examples/ceph-cluster.yml
-    #   ansible.builtin.pause:
-    #     prompt: "Configure the deploy/examples/ceph-cluster.yml before continuing. Press Enter to proceed or Ctrl+C to abort."
-
-    - name: Create DB credentials for the app
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: mongodb-secret
-            namespace: mongo-express
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            mongo-root-username: "{{ mongo_testapp_username }}"
-            mongo-root-password: "{{ mongo_testapp_password }}"
-
-    - name: Create root DB credentials
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: mongodb-secret
-            namespace: mongodb
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            mongo-root-username: "{{ mongo_testapp_username }}"
-            mongo-root-password: "{{ mongo_testapp_password }}"
-
-    - name: Create user DB credentials
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: mongodb-user-secret
-            namespace: mongodb
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            mongo-username: "{{ mongo_username }}"
-            mongo-password: "{{ mongo_password }}"
-            mongo-database: Trellis
 
     - name: Deploy MongoDB StatefulSet, headless service, and configuration
       kubernetes.core.k8s:
@@ -203,20 +195,6 @@
                       requests:
                         storage: 5Gi
                     storageClassName: rook-ceph-block
-
-          - apiVersion: v1
-            kind: ConfigMap
-            metadata:
-              name: mongodb-init-script
-              namespace: mongodb
-            data:
-              init.js: |
-                db = db.getSiblingDB("Trellis");
-                db.createUser({
-                  user: "{{ mongo_username }}",
-                  pwd: "{{ mongo_password }}",
-                  roles: [{ role: "readWrite", db: "Trellis" }]
-                });
 
           - apiVersion: v1
             kind: Service
@@ -369,16 +347,17 @@
                               number: 8081
 
     - name: Create MongoDB backup user
-      ansible.builtin.shell: >
-        kubectl --kubeconfig {{ kubeconfig_path }}
-        -n mongodb exec sts/mongodb-statefulset --
-        mongosh admin \
-              -u "{{ mongo_testapp_username }}" \
-              -p "{{ mongo_testapp_password }}" \
-              --authenticationDatabase admin \
-              --quiet \
-              --eval "if (!db.getUser('{{ mongo_backup_user }}')) { db.createUser({ user: '{{ mongo_backup_user }}', pwd: '{{ mongo_backup_password }}', roles: [ { role: 'readAnyDatabase', db: 'admin' }, { role: 'backup', db: 'admin' } ] }); }"
-
+      ansible.builtin.shell: |
+        BKP_USER=$(kubectl --kubeconfig {{ kubeconfig_path }} -n mongodb get secret mongodb-secret -o jsonpath='{.data.mongo_backup_username}' | base64 --decode)
+        BKP_PASS=$(kubectl --kubeconfig {{ kubeconfig_path }} -n mongodb get secret mongodb-secret -o jsonpath='{.data.mongo_backup_password}' | base64 --decode)
+        kubectl --kubeconfig {{ kubeconfig_path }} -n mongodb exec sts/mongodb-statefulset -- \
+          sh -c "mongosh admin \
+            -u \"\$MONGO_INITDB_ROOT_USERNAME\" \
+            -p \"\$MONGO_INITDB_ROOT_PASSWORD\" \
+            --authenticationDatabase admin \
+            --quiet \
+            --eval \"if (!db.getUser('$BKP_USER')) { db.createUser({ user: '$BKP_USER', pwd: '$BKP_PASS', roles: [ { role: 'readAnyDatabase', db: 'admin' }, { role: 'backup', db: 'admin' } ] }); }\""
+            
 # verify with 
 # mongosh
 # use admin

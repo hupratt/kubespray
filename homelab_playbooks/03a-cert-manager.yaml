@@ -12,10 +12,6 @@
     vault_addr: "https://vault.thekor.eu"
   tasks:
 
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
-
     - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
@@ -23,7 +19,7 @@
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: certmanager-secret
+            name: hetzner-dns-api-token
             namespace: "{{ cert_manager_namespace }}"
           spec:
             refreshInterval: 1h
@@ -31,28 +27,13 @@
               name: vault-backend
               kind: ClusterSecretStore
             target:
-              name: certmanager-secret
+              name: hetzner-dns-api-token
               creationPolicy: Owner
             data:
-              - secretKey: hetzner_api
+              - secretKey: token
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: hetzner_api
-
-    - name: Read secret from Vault
-      community.hashi_vault.vault_read:
-        path: "kv/data/certmanager"
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-      register: vault_secrets
-
-    - name: Set secret facts
-      ansible.builtin.set_fact:
-        hetzner_api: "{{ vault_secrets.data.data.data.hetzner_api }}"
-
-    # - name: Configure the deploy/examples/ceph-cluster.yml
-    #   ansible.builtin.pause:
-    #     prompt: "Configure the deploy/examples/ceph-cluster.yml before continuing. Press Enter to proceed or Ctrl+C to abort."
 
     - name: Add/update mittwald Helm repository
       kubernetes.core.helm_repository:
@@ -125,20 +106,6 @@
             - kind: ServiceAccount
               name: cert-manager-webhook-hetzner
               namespace: cert-manager
-
-    - name: Create api Secret
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: hetzner-dns-api-token
-            namespace: "{{ cert_manager_namespace }}"
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            token: "{{ hetzner_api }}"
 
     - name: Add Jetstack Helm repo
       community.kubernetes.helm_repository:

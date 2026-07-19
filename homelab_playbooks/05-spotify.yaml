@@ -11,60 +11,65 @@
     vault_addr: "https://vault.thekor.eu"
   tasks:
 
-    - name: Load vault_init.json
-      ansible.builtin.set_fact:
-        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
-
-    - name: Read secret from Vault
-      community.hashi_vault.vault_read:
-        path: "kv/data/{{ vault_kv_path }}"
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-      register: vault_secrets
-
-    - name: Read secret from Vault
-      community.hashi_vault.vault_read:
-        path: "kv/data/spotify"
-        url: "{{ vault_addr }}"
-        token: "{{ vault_init.root_token }}"
-      register: vault_spotify_secrets
-
-    - name: Set secret facts
-      ansible.builtin.set_fact:
-        mongo_testapp_username: "{{ vault_secrets.data.data.data.mongo_testapp_username }}"
-        mongo_testapp_password: "{{ vault_secrets.data.data.data.mongo_testapp_password }}"
-        spotify_public: "{{ vault_spotify_secrets.data.data.data.spotify_public }}"
-        spotify_secret: "{{ vault_spotify_secrets.data.data.data.spotify_secret }}"
-        
-
-    - name: Create oauth secrets
+    - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: spotify-secrets
             namespace: spotify
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            SPOTIFY_PUBLIC: "{{ spotify_public }}"
-            SPOTIFY_SECRET: "{{ spotify_secret }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: spotify-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: SPOTIFY_PUBLIC
+                remoteRef:
+                  key: spotify
+                  property: spotify_public
+              - secretKey: SPOTIFY_SECRET
+                remoteRef:
+                  key: spotify
+                  property: spotify_secret
 
-    - name: Create database URL
+    - name: Deploy ExternalSecret
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: spotify-database-url
             namespace: spotify
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            MONGO_ENDPOINT: "mongodb://{{ mongo_testapp_username }}:{{ mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/your_spotify?authSource=admin"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: spotify-database-url
+              creationPolicy: Owner
+              template:
+                data:
+                  MONGO_ENDPOINT: |-
+                    {% raw %}
+                    mongodb://{{ .mongo_testapp_username }}:{{ .mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/your_spotify?authSource=admin
+                    {% endraw %}
+            data:
+              - secretKey: mongo_testapp_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_username
+              - secretKey: mongo_testapp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_password
 
     - name: Deploy complete Spotify application stack to Kubernetes
       kubernetes.core.k8s:
