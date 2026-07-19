@@ -40,6 +40,10 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: host
+              - secretKey: hostname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostname
               - secretKey: password
                 remoteRef:
                   key: "{{ vault_kv_path }}"
@@ -217,7 +221,7 @@
         dest: /tmp/vaultwarden-values.yaml
         mode: "0600"
 
-    - name: Deploy Technitium via Helm
+    - name: Deploy via Helm
       kubernetes.core.helm:
         name: vaultwarden
         chart_ref: "{{ vault_dir }}/charts/vaultwarden"

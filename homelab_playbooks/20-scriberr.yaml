@@ -1,17 +1,151 @@
 ---
-- name: Deploy scriberr
+- name: Deploy Scriberr
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
-    kubeconfig_path: ~/.kube/config
-  tasks:
+    scriberr_namespace: scriberr
+    scriberr_image: ghcr.io/rishikanthc/scriberr:latest
+    scriberr_host: scrib.thekor.eu
+    scriberr_tls_secret: wildcard-thekor
+    scriberr_storage_class: rook-cephfs
+    scriberr_data_size: 30Gi
+    whisperx_env_size: 30Gi
 
-    - name: Apply scriber deployment, svc, pvc and the ingress
+  tasks:
+    - name: Create namespace
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - scriber.yml
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: "{{ scriberr_namespace }}"
+
+    - name: Create scriberr-data PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: scriberr-data-pvc
+            namespace: "{{ scriberr_namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteMany
+            storageClassName: "{{ scriberr_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ scriberr_data_size }}"
+
+    - name: Create whisperx-env PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: whisperx-env-pvc
+            namespace: "{{ scriberr_namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteMany
+            storageClassName: "{{ scriberr_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ whisperx_env_size }}"
+
+    - name: Create Scriberr deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: scriberr
+            namespace: "{{ scriberr_namespace }}"
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: scriberr
+            template:
+              metadata:
+                labels:
+                  app: scriberr
+              spec:
+                restartPolicy: Always
+                containers:
+                  - name: scriberr
+                    image: "{{ scriberr_image }}"
+                    ports:
+                      - containerPort: 8080
+                    env:
+                      - name: PUID
+                        value: "1000"
+                      - name: PGID
+                        value: "1000"
+                      - name: APP_ENV
+                        value: "production"
+                      - name: ALLOWED_ORIGINS
+                        value: "*"  # replace with your domain for production
+                    volumeMounts:
+                      - name: scriberr-data
+                        mountPath: /app/data
+                      - name: whisperx-env
+                        mountPath: /app/whisperx-env
+                volumes:
+                  - name: scriberr-data
+                    persistentVolumeClaim:
+                      claimName: scriberr-data-pvc
+                  - name: whisperx-env
+                    persistentVolumeClaim:
+                      claimName: whisperx-env-pvc
+
+    - name: Create Scriberr service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: scriberr
+            namespace: "{{ scriberr_namespace }}"
+          spec:
+            selector:
+              app: scriberr
+            ports:
+              - port: 8080
+                targetPort: 8080
+            type: ClusterIP
+
+    - name: Create Scriberr ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: scriberr-ingress
+            namespace: "{{ scriberr_namespace }}"
+            annotations:
+              haproxy.org/check: "disabled"
+              haproxy.org/backend-config-snippet: |
+                no option httpchk
+          spec:
+            ingressClassName: haproxy
+            tls:
+              - hosts:
+                  - "{{ scriberr_host }}"
+                secretName: "{{ scriberr_tls_secret }}"
+            rules:
+              - host: "{{ scriberr_host }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: scriberr
+                          port:
+                            number: 8080

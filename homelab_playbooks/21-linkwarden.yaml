@@ -7,8 +7,88 @@
     kubeconfig_path: ~/.kube/config
     link_repo: "git@gitlab.thekor.eu:kube/linkwarden.git"
     link_dir: "~/linkwarden"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
+    vault_kv_path: linkwarden
 
   tasks:
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: linkwarden-secret
+            namespace: linkwarden
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: linkwarden-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: dbName
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbName
+              - secretKey: host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: host
+              - secretKey: hostname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostname
+              - secretKey: pg_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+              - secretKey: pg_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_username
+              - secretKey: nextAuthSecret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: nextAuthSecret
+              - secretKey: clientId
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: clientId
+              - secretKey: clientSecret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: clientSecret
+              - secretKey: port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: port
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/linkwarden"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        pg_username: "{{ vault_secrets.data.data.data.pg_username }}"
+        nextAuthSecret: "{{ vault_secrets.data.data.data.nextAuthSecret }}"
+        pg_password: "{{ vault_secrets.data.data.data.pg_password }}"
+        host: "{{ vault_secrets.data.data.data.host }}"
+        dbName: "{{ vault_secrets.data.data.data.dbName }}"
+        clientId: "{{ vault_secrets.data.data.data.clientId }}"
+        clientSecret: "{{ vault_secrets.data.data.data.clientSecret }}"
+        hostname: "{{ vault_secrets.data.data.data.hostname }}"
+        pg_port: "{{ vault_secrets.data.data.data.port }}"
 
     - name: Check if repo already exists
       ansible.builtin.stat:
@@ -24,21 +104,34 @@
         accept_hostkey: true
       when: not repo_dir.stat.exists
 
-    - name: Install helm chart
-      community.kubernetes.helm:
-        name: my-linkwarden
-        chart_ref: "{{ link_dir }}/charts/linkwarden"
-        release_namespace: "linkwarden"
-        values: "{{ helm_linkwarden_values | from_yaml }}"
-
-    - name: Apply configmap
+    - name: Create linkwarden authentik ConfigMap
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - configmap-linkwarden.yml
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: my-linkwarden-auth-authentik
+            namespace: linkwarden
+          data:
+            AUTHENTIK_ISSUER: "https://auth.thekor.eu/application/o/linkwarden/"
 
-    - name: Parse linkwarden Helm values
-      set_fact:
-        linkwarden: "{{ helm_linkwarden_values | from_yaml }}"
+    - name: Render values
+      ansible.builtin.template:
+        src: charts/linkwarden/values.yaml.j2
+        dest: /tmp/linkwarden-values.yaml
+        mode: "0600"
+
+    - name: Deploy via Helm
+      kubernetes.core.helm:
+        name: my-linkwarden
+        chart_ref: "{{ link_dir }}/charts/linkwarden"
+        release_namespace: linkwarden
+        create_namespace: false
+        values_files:
+          - /tmp/linkwarden-values.yaml
+
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/linkwarden-values.yaml
+        state: absent
