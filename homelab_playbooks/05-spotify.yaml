@@ -2,11 +2,40 @@
 - name: Deploy spotify
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
+  # vars_files:
+  #   - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: "mongodb"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
   tasks:
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/{{ vault_kv_path }}"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/spotify"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_spotify_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        mongo_testapp_username: "{{ vault_secrets.data.data.data.mongo_testapp_username }}"
+        mongo_testapp_password: "{{ vault_secrets.data.data.data.mongo_testapp_password }}"
+        spotify_public: "{{ vault_spotify_secrets.data.data.data.spotify_public }}"
+        spotify_secret: "{{ vault_spotify_secrets.data.data.data.spotify_secret }}"
+        
 
     - name: Create oauth secrets
       kubernetes.core.k8s:
@@ -35,17 +64,195 @@
             namespace: spotify
           type: Opaque
           stringData:   # automatically base64-encoded by k8s
-            MONGO_ENDPOINT: "{{ MONGO_ENDPOINT }}"
+            MONGO_ENDPOINT: "mongodb://{{ mongo_testapp_username }}:{{ mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/your_spotify?authSource=admin"
 
-    - name: Apply spotify deployment, svc and the ingress
+    - name: Deploy complete Spotify application stack to Kubernetes
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - spotify-deploy.yml
-        - spotify-ingress.yml
-        
+        definition:
+          - apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: spotify-api
+              namespace: spotify
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: spotify-api
+              template:
+                metadata:
+                  labels:
+                    app: spotify-api
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-secret
+                  containers:
+                    - name: spotify-api
+                      image: registry.thekor.eu/docker/spotify-stats/api:latest
+                      ports:
+                        - containerPort: 8080
+                      livenessProbe:
+                        tcpSocket:
+                          port: 8080
+                        initialDelaySeconds: 10
+                        periodSeconds: 15
+                        failureThreshold: 3
+                      readinessProbe:
+                        tcpSocket:
+                          port: 8080
+                        initialDelaySeconds: 5
+                        periodSeconds: 10
+                        failureThreshold: 3
+                      env:
+                        - name: LOG_LEVEL
+                          value: "debug"
+                        - name: API_ENDPOINT
+                          value: "https://spotifyapi.thekor.eu"
+                        - name: CLIENT_ENDPOINT
+                          value: "https://spotify.thekor.eu"
+                        - name: MONGO_ENDPOINT
+                          valueFrom:
+                            secretKeyRef:
+                              name: spotify-database-url
+                              key: MONGO_ENDPOINT
+                        - name: SPOTIFY_PUBLIC
+                          valueFrom:
+                            secretKeyRef:
+                              name: spotify-secrets
+                              key: SPOTIFY_PUBLIC
+                        - name: SPOTIFY_SECRET
+                          valueFrom:
+                            secretKeyRef:
+                              name: spotify-secrets
+                              key: SPOTIFY_SECRET
+                        - name: CORS
+                          value: "http://localhost:3000,http://localhost:3001,https://spotifyapi.thekor.eu,https://spotify.thekor.eu"
+
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: spotify-api
+              namespace: spotify
+            spec:
+              selector:
+                app: spotify-api
+              ports:
+                - port: 8080
+                  targetPort: 8080
+                  protocol: TCP
+              type: ClusterIP
+
+          - apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: spotify-frontend
+              namespace: spotify
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: spotify-frontend
+              template:
+                metadata:
+                  labels:
+                    app: spotify-frontend
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-secret
+                  containers:
+                    - name: spotify-frontend
+                      image: registry.thekor.eu/docker/spotify-stats/web:latest
+                      ports:
+                        - containerPort: 3000
+                      livenessProbe:
+                        httpGet:
+                          path: /
+                          port: 3000
+                        initialDelaySeconds: 15
+                        periodSeconds: 20
+                        failureThreshold: 3
+                      readinessProbe:
+                        httpGet:
+                          path: /
+                          port: 3000
+                        initialDelaySeconds: 10
+                        periodSeconds: 10
+                        failureThreshold: 3
+                      env:
+                        - name: NODE_ENV
+                          value: "production"
+                        - name: API_ENDPOINT
+                          value: "https://spotifyapi.thekor.eu"
+
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: spotify-frontend
+              namespace: spotify
+            spec:
+              selector:
+                app: spotify-frontend
+              ports:
+                - port: 3000
+                  targetPort: 3000
+                  protocol: TCP
+              type: ClusterIP
+
+          - apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: spotify-backend-ingress
+              namespace: spotify
+              annotations:
+                haproxy.org/check: "disabled"
+                haproxy.org/backend-config-snippet: |
+                  no option httpchk
+            spec:
+              ingressClassName: haproxy
+              tls:
+                - hosts:
+                    - spotifyapi.thekor.eu
+                  secretName: wildcard-thekor
+              rules:
+                - host: spotifyapi.thekor.eu
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: spotify-api
+                            port:
+                              number: 8080
+
+          - apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: spotify-frontend-ingress
+              namespace: spotify
+              annotations:
+                haproxy.org/check: "disabled"
+                haproxy.org/backend-config-snippet: |
+                  no option httpchk
+            spec:
+              ingressClassName: haproxy
+              tls:
+                - hosts:
+                    - spotify.thekor.eu
+                  secretName: wildcard-thekor
+              rules:
+                - host: spotify.thekor.eu
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: spotify-frontend
+                            port:
+                              number: 3000
+                  
     - name: Wait for spotify-api to be ready
       kubernetes.core.k8s_info:
         api_version: apps/v1

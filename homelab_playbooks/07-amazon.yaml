@@ -2,11 +2,30 @@
 - name: Deploy amazon
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
+  # vars_files:
+  #   - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: "mongodb"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
   tasks:
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/mongodb"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        mongo_testapp_username: "{{ vault_secrets.data.data.data.mongo_testapp_username }}"
+        mongo_testapp_password: "{{ vault_secrets.data.data.data.mongo_testapp_password }}"
 
     - name: Create database URL
       kubernetes.core.k8s:
@@ -20,15 +39,195 @@
             namespace: amazon-clone
           type: Opaque
           stringData:   # automatically base64-encoded by k8s
-            amazon-database-url: "{{ amazon_url }}"
+            amazon-database-url: "mongodb://{{ mongo_testapp_username }}:{{ mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/Amazon?authSource=admin"
 
-    - name: Apply amazon deployment, svc and the ingress
+    - name: Deploy Amazon clone stack to Kubernetes
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - amazon.yml
+        definition:
+          - apiVersion: v1
+            kind: ConfigMap
+            metadata:
+              name: mongodb-configmap
+              namespace: amazon-clone
+            data:
+              database_url: mongodb-service.mongodb.svc.cluster.local
+              database_name: Amazon
+
+          - apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: amazon-backend
+              namespace: amazon-clone
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: amazon-backend
+              template:
+                metadata:
+                  labels:
+                    app: amazon-backend
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-secret
+                  containers:
+                    - name: amazon-backend
+                      image: registry.thekor.eu/docker/amazon/back:latest
+                      imagePullPolicy: Always
+                      ports:
+                        - containerPort: 8966
+                      env:
+                        - name: PORT
+                          value: "8966"
+                        - name: MONGO_URL
+                          valueFrom:
+                            secretKeyRef:
+                              name: amazon-database-url
+                              key: amazon-database-url
+                      securityContext:
+                        runAsUser: 1001
+                        runAsNonRoot: true
+                        capabilities:
+                          drop: ["ALL"]
+                      livenessProbe:
+                        httpGet:
+                          path: /health
+                          port: 8966
+                        initialDelaySeconds: 30
+                        periodSeconds: 20
+                      readinessProbe:
+                        httpGet:
+                          path: /health
+                          port: 8966
+                        initialDelaySeconds: 10
+                        periodSeconds: 10
+
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: amazon-backend
+              namespace: amazon-clone
+            spec:
+              selector:
+                app: amazon-backend
+              ports:
+                - port: 8966
+                  targetPort: 8966
+              type: ClusterIP
+
+          - apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: amazon-frontend
+              namespace: amazon-clone
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: amazon-frontend
+              template:
+                metadata:
+                  labels:
+                    app: amazon-frontend
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-secret
+                  containers:
+                    - name: amazon-frontend
+                      image: registry.thekor.eu/docker/amazon/front:latest
+                      imagePullPolicy: Always
+                      ports:
+                        - containerPort: 8965
+                      env:
+                        - name: REACT_APP_BACKEND_URL
+                          value: "https://retroapi.thekor.eu"
+                        - name: PORT
+                          value: "8965"
+                      securityContext:
+                        runAsUser: 1001
+                        runAsNonRoot: true
+                        capabilities:
+                          drop: ["ALL"]
+                      livenessProbe:
+                        httpGet:
+                          path: /
+                          port: 8965
+                        initialDelaySeconds: 600
+                        periodSeconds: 20
+                      readinessProbe:
+                        httpGet:
+                          path: /
+                          port: 8965
+                        initialDelaySeconds: 30
+                        periodSeconds: 10
+
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: amazon-frontend
+              namespace: amazon-clone
+            spec:
+              selector:
+                app: amazon-frontend
+              ports:
+                - port: 8965
+                  targetPort: 8965
+              type: ClusterIP
+
+          - apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: amazon-backend-ingress
+              namespace: amazon-clone
+              annotations:
+                haproxy.org/check: "disabled"
+                haproxy.org/backend-config-snippet: |
+                  no option httpchk
+            spec:
+              ingressClassName: haproxy
+              tls:
+                - hosts:
+                    - retroapi.thekor.eu
+                  secretName: wildcard-thekor
+              rules:
+                - host: retroapi.thekor.eu
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: amazon-backend
+                            port:
+                              number: 8966
+
+          - apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: amazon-frontend-ingress
+              namespace: amazon-clone
+              annotations:
+                haproxy.org/check: "disabled"
+                haproxy.org/backend-config-snippet: |
+                  no option httpchk
+            spec:
+              ingressClassName: haproxy
+              tls:
+                - hosts:
+                    - retro.thekor.eu
+                  secretName: wildcard-thekor
+              rules:
+                - host: retro.thekor.eu
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: amazon-frontend
+                            port:
+                              number: 8965
     - name: Wait for amazon-backend to be ready
       kubernetes.core.k8s_info:
         api_version: apps/v1

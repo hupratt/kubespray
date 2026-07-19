@@ -6,7 +6,28 @@
     - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: "mongodb"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
   tasks:
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/mongodb"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        mongo_testapp_username: "{{ vault_secrets.data.data.data.mongo_testapp_username }}"
+        mongo_testapp_password: "{{ vault_secrets.data.data.data.mongo_testapp_password }}"
+        mongo_username: "{{ vault_secrets.data.data.data.mongo_username }}"
+        mongo_password: "{{ vault_secrets.data.data.data.mongo_password }}"
 
     - name: Create database URL
       kubernetes.core.k8s:
@@ -20,15 +41,84 @@
             namespace: trellis
           type: Opaque
           stringData:   # automatically base64-encoded by k8s
-            trello_mongo_endpoint: "{{ trello_mongo_endpoint }}"
+            trello_mongo_endpoint: "mongodb://{{ mongo_testapp_username }}:{{ mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/Trellis?authSource=admin"
 
-    - name: Apply trello deployment, svc and the ingress
+    - name: Deploy Trellis ExpressJS stack to Kubernetes
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - trellis.yml
+        definition:
+          - apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: trellis-expressjs
+              namespace: trellis
+              labels:
+                app: trellis-expressjs
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: trellis-expressjs
+              template:
+                metadata:
+                  labels:
+                    app: trellis-expressjs
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-secret
+                  containers:
+                    - name: trellis-expressjs
+                      image: registry.thekor.eu/docker/trellis:latest
+                      ports:
+                        - containerPort: 1313
+                      env:
+                        - name: DATABASE_URL
+                          valueFrom:
+                            secretKeyRef:
+                              name: trello-database-url
+                              key: trello_mongo_endpoint
+
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: trellis-expressjs-svc
+              namespace: trellis
+            spec:
+              selector:
+                app: trellis-expressjs
+              type: ClusterIP
+              ports:
+                - protocol: TCP
+                  port: 1313
+                  targetPort: 1313
+
+          - apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: trellis-ingress
+              namespace: trellis
+              annotations:
+                haproxy.org/check: "disabled"
+                haproxy.org/backend-config-snippet: |
+                  no option httpchk
+            spec:
+              ingressClassName: haproxy
+              tls:
+                - hosts:
+                    - trello.thekor.eu
+                  secretName: wildcard-thekor
+              rules:
+                - host: trello.thekor.eu
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: trellis-expressjs-svc
+                            port:
+                              number: 1313
+
     - name: Wait for trellis-expressjs to be ready
       kubernetes.core.k8s_info:
         api_version: apps/v1
