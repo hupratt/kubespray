@@ -2,18 +2,10 @@
 - name: Deploy the mariadb operator
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
+  
   tasks:
-    - name: Ensure the namespace exists
-      kubernetes.core.k8s:
-        api_version: v1
-        kind: Namespace
-        name: mariadb
-        state: present
-
     - name: Add MariaDB Operator Helm repo
       community.kubernetes.helm_repository:
         name: mariadb-operator
@@ -46,7 +38,7 @@
         release_namespace: mariadb
         create_namespace: true
         values_files: 
-          - ./files/mariadb-operator-values.yml
+          - ./charts/mariadb/mariadb-operator-values.yml
         state: present
         wait: yes
 
@@ -64,29 +56,53 @@
       retries: 30
       delay: 10
 
-    - name: Create database secrets
+    - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: mariadb-root-secret
             namespace: mariadb
-          type: Opaque
-          stringData:
-            password: "{{ MARIADB_PASSWORD }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: mariadb-root-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: mariadb
+                  property: superuser_password
 
     - name: Sleep for 5 seconds
       ansible.builtin.wait_for:
         timeout: 5
 
-    - name: Apply MariaDB instance
+    - name: Deploy MariaDB Operator Instance
       kubernetes.core.k8s:
-        state: present
         kubeconfig: "{{ kubeconfig_path }}"
-        src: mariadb.yml
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: MariaDB
+          metadata:
+            name: mariadb
+            namespace: mariadb
+          spec:
+            version: "11.0"
+            storage:
+              size: 5Gi
+              storageClassName: rook-ceph-block
+            rootPasswordSecretKeyRef:
+              name: mariadb-root-secret
+              key: password
+            databases:
+              - name: uptimekuma
 
     - name: Wait for MariaDB instance to be ready
       kubernetes.core.k8s_info:
@@ -104,16 +120,58 @@
         selectattr('type', 'equalto', 'Ready') |
         selectattr('status', 'equalto', 'True') | list | length > 0
 
-    - name: Apply database schema (SqlJob)
+    - name: Deploy MariaDB Database Resource
       kubernetes.core.k8s:
-        state: present
         kubeconfig: "{{ kubeconfig_path }}"
-        src: mariadb-schema.yml
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: uptimekuma
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            characterSet: utf8
+            collate: utf8_general_ci
 
-    - name: Install toolbox
+    - name: Deploy MariaDB Toolbox Pod
       kubernetes.core.k8s:
-        state: present
         kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - mariadb-toolbox.yml
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: mariadb-toolbox
+            namespace: mariadb
+            labels:
+              app: mariadb-toolbox
+          spec:
+            containers:
+              - name: mariadb-client
+                image: mariadb:11.0
+                command:
+                  - sleep
+                  - "infinity"
+                env:
+                  - name: MARIADB_HOST
+                    value: "mariadb.mariadb.svc.cluster.local"
+                  - name: MARIADB_PORT
+                    value: "3306"
+                  - name: MARIADB_DATABASE
+                    value: "uptimekuma"
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: false
+                  runAsNonRoot: true
+                  runAsUser: 999
+                  runAsGroup: 999
+                  capabilities:
+                    drop:
+                      - ALL
+            restartPolicy: Always
