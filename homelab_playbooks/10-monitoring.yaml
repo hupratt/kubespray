@@ -6,8 +6,52 @@
     - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: monitoring
   tasks:
 
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: grafana-secret
+            namespace: monitoring
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: grafana-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+              - secretKey: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+              - secretKey: GF_SECURITY_ADMIN_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_SECURITY_ADMIN_PASSWORD
+              - secretKey: GF_DATABASE_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_DATABASE_PASSWORD
+              - secretKey: GF_EMAIL_USER
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_EMAIL_USER
+              - secretKey: GF_EMAIL_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_EMAIL_PASSWORD
+                  
     - name: Add Prometheus Helm repo
       ansible.builtin.command:
         cmd: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
@@ -28,25 +72,6 @@
         values_files: files/mon-pushgateway_values.yml
         state: present
 
-    - name: Create secrets
-      kubernetes.core.k8s:
-        state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: grafana-secret
-            namespace: monitoring
-          type: Opaque
-          stringData:   # automatically base64-encoded by k8s
-            GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ GF_AUTH_GENERIC_OAUTH_CLIENT_ID }}"
-            GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET }}"
-            GF_SECURITY_ADMIN_PASSWORD: "{{ GF_SECURITY_ADMIN_PASSWORD }}"
-            GF_DATABASE_PASSWORD: "{{ GF_DATABASE_PASSWORD }}"
-            GF_EMAIL_USER: "{{ GF_EMAIL_USER }}"
-            GF_EMAIL_PASSWORD: "{{ GF_EMAIL_PASSWORD }}"
-
     - name: Upgrade existing prometheus stack with grafana and alert manager
       community.kubernetes.helm:
         name: prometheus
@@ -54,5 +79,5 @@
         release_namespace: monitoring
         kubeconfig: "{{ kubeconfig_path }}"
         create_namespace: false
-        values_files: files/mon-grafana-values.yml
+        values_files: charts/kube-prometheus-stack/mon-grafana-values.yml
         state: present
