@@ -171,13 +171,36 @@
         values_files:
           - "{{ uptime_dir }}/values.yaml"
           
-    - name: Apply RBAC - prometheus needs to be able to read the secret in the servicemonitor
+
+    - name: Ensure Prometheus secret reading Role and RoleBinding exist
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - uptimekuma-rbac-servicemonitor.yml
+        definition:
+          # Role allowing secret access in the monitoring namespace
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              name: prometheus-secrets-reader
+              namespace: monitoring
+            rules:
+              - apiGroups: [""]
+                resources: ["secrets"]
+                verbs: ["get", "list", "watch"]
+
+          # RoleBinding granting access to the Prometheus ServiceAccount
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              name: prometheus-secrets-reader
+              namespace: monitoring
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: Role
+              name: prometheus-secrets-reader
+            subjects:
+              - kind: ServiceAccount
+                name: prometheus-kube-prometheus-prometheus
+                namespace: monitoring
 
 
 # mariadb -h $MARIADB_HOST -u root -p uptimekuma < uptimekuma-2026-04-14.sql 

@@ -1,17 +1,107 @@
 - name: provision authentik
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/authentik-vault.yml
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
+    vault_kv_path: "authentik"
 
   tasks:
 
-    - name: Load authentik values from vault file
-      ansible.builtin.set_fact:
-        authentik_values: "{{ lookup('file', 'group_vars/all/authentik-vault.yml') | from_yaml }}"
+    - name: ExternalSecret for backup credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: authentik-vault-secrets
+            namespace: authentik
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: authentik-vault-secrets
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+
+              - secretKey: pg_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_username
+
+              - secretKey: pg_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+
+              - secretKey: postgresql_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresql_port
+
+              - secretKey: postgresql_dbname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresql_dbname
+
+              - secretKey: postgresql_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresql_host
+
+              - secretKey: error_reporting_enabled
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: error_reporting_enabled
+
+              - secretKey: secret_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: secret_key
+
+              - secretKey: smtp_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_host
+
+              - secretKey: smtp_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_port
+
+              - secretKey: smtp_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_username
+
+              - secretKey: smtp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_password
+
+              - secretKey: smtp_use_tls
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_use_tls
+
+              - secretKey: smtp_use_ssl
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_use_ssl
+
+              - secretKey: smtp_timeout
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_timeout
+
+              - secretKey: smtp_from
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_from
 
     - name: Create rook-cephfs StorageClass
       k8s:
@@ -83,10 +173,30 @@
       ansible.builtin.command: helm repo update
       changed_when: false
 
+    - name: Read authentik secrets
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: authentik
+        name: authentik-vault-secrets
+      register: authentik_secret
+
+    - name: Render values template
+      ansible.builtin.template:
+        src: charts/authentik/values.yaml.j2
+        dest: /tmp/authentik-values.yaml
+        mode: "0600"
+
     - name: Install authentik official chart
       community.kubernetes.helm:
         name: my-authentik
         chart_ref: authentik/authentik
         release_namespace: authentik
         create_namespace: false
-        values: "{{ authentik_values }}"
+        timeout: "10m0s"
+        values_files:
+          - /tmp/authentik-values.yaml
+
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/authentik-values.yaml
+        state: absent

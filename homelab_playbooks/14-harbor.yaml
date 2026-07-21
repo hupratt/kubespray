@@ -53,10 +53,10 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: password
-              - secretKey: port
+              - secretKey: pg_port
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: port
+                  property: pg_port
               - secretKey: registry_htpasswd
                 remoteRef:
                   key: "{{ vault_kv_path }}"
@@ -137,7 +137,7 @@
           notary_server_database: "{{ harbor_secret_raw.resources[0].data.notary_server_database | b64decode }}"
           notary_signer_database: "{{ harbor_secret_raw.resources[0].data.notary_signer_database | b64decode }}"
           password: "{{ harbor_secret_raw.resources[0].data.password | b64decode }}"
-          port: "{{ harbor_secret_raw.resources[0].data.port | b64decode }}"
+          pg_port: "{{ harbor_secret_raw.resources[0].data.pg_port | b64decode }}"
           registry_htpasswd: "{{ harbor_secret_raw.resources[0].data.registry_htpasswd | b64decode }}"
           registry_password: "{{ harbor_secret_raw.resources[0].data.registry_password | b64decode }}"
           sslmode: "{{ harbor_secret_raw.resources[0].data.sslmode | b64decode }}"

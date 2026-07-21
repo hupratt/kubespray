@@ -1,14 +1,137 @@
 - name: provision netbox
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
-    - group_vars/all/netbox-vault.yaml
   vars:
     kubeconfig_path: ~/.kube/config
     netbox_repo: "git@gitlab.thekor.eu:kube/netbox.git"
     netbox_dir: "~/netbox"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
+    vault_kv_path: netbox
+
   tasks:
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: netbox-secrets
+            namespace: netbox
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: netbox-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: API_TOKEN_PEPPERS
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: API_TOKEN_PEPPERS
+              - secretKey: superuser_name
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: superuser_name
+              - secretKey: superuser_email
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: superuser_email
+              - secretKey: superuser_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: superuser_password
+              - secretKey: superuser_apitoken
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: superuser_apitoken
+              - secretKey: email_server
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: email_server
+              - secretKey: email_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: email_port
+              - secretKey: email_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: email_username
+              - secretKey: email_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: email_password
+              - secretKey: hostname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostname
+              - secretKey: pg_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_host
+              - secretKey: pg_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_port
+              - secretKey: pg_dbname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_dbname
+              - secretKey: pg_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_username
+              - secretKey: pg_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+              - secretKey: SOCIAL_AUTH_OIDC_ENDPOINT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SOCIAL_AUTH_OIDC_ENDPOINT
+              - secretKey: SOCIAL_AUTH_OIDC_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SOCIAL_AUTH_OIDC_KEY
+              - secretKey: SOCIAL_AUTH_OIDC_SECRET
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SOCIAL_AUTH_OIDC_SECRET                  
+
+    - name: Read secret from Vault
+      community.hashi_vault.vault_read:
+        path: "kv/data/netbox"
+        url: "{{ vault_addr }}"
+        token: "{{ vault_init.root_token }}"
+      register: vault_secrets
+
+    - name: Set secret facts
+      ansible.builtin.set_fact:
+        api_token_pepper: "{{ vault_secrets.data.data.data.API_TOKEN_PEPPERS }}"
+        superuser_name: "{{ vault_secrets.data.data.data.superuser_name }}"
+        superuser_email: "{{ vault_secrets.data.data.data.superuser_email }}"
+        superuser_password: "{{ vault_secrets.data.data.data.superuser_password }}"
+        superuser_apitoken: "{{ vault_secrets.data.data.data.superuser_apitoken }}"
+        email_server: "{{ vault_secrets.data.data.data.email_server }}"
+        email_port: "{{ vault_secrets.data.data.data.email_port }}"
+        email_username: "{{ vault_secrets.data.data.data.email_username }}"
+        email_password: "{{ vault_secrets.data.data.data.email_password }}"
+        hostname: "{{ vault_secrets.data.data.data.hostname }}"
+        pg_host: "{{ vault_secrets.data.data.data.pg_host }}"
+        pg_port: "{{ vault_secrets.data.data.data.pg_port }}"
+        pg_dbname: "{{ vault_secrets.data.data.data.pg_dbname }}"
+        pg_username: "{{ vault_secrets.data.data.data.pg_username }}"
+        pg_password: "{{ vault_secrets.data.data.data.pg_password }}"
+        SOCIAL_AUTH_OIDC_ENDPOINT: "{{ vault_secrets.data.data.data.SOCIAL_AUTH_OIDC_ENDPOINT }}"
+        SOCIAL_AUTH_OIDC_KEY: "{{ vault_secrets.data.data.data.SOCIAL_AUTH_OIDC_KEY }}"
+        SOCIAL_AUTH_OIDC_SECRET: "{{ vault_secrets.data.data.data.SOCIAL_AUTH_OIDC_SECRET }}"
 
     - name: Check if repo already exists
       ansible.builtin.stat:
@@ -23,14 +146,6 @@
         force: yes
         accept_hostkey: yes
       when: not repo_dir.stat.exists
-
-    - name: Get API_TOKEN_PEPPERS from extraEnvs list
-      ansible.builtin.set_fact:
-        api_token_pepper: "{{ extraEnvs | selectattr('name','equalto','API_TOKEN_PEPPERS') | map(attribute='value') | first }}"
-
-    - name: Print the pepper
-      ansible.builtin.debug:
-        msg: "API_TOKEN_PEPPERS is {{ api_token_pepper }}"
 
     - name: Ensure netbox-peppers ConfigMap exists
       kubernetes.core.k8s:
@@ -47,35 +162,23 @@
                 0: "{{ api_token_pepper }}"
               }
 
-    - name: Install helm chart
-      community.kubernetes.helm:
+    - name: Render values
+      ansible.builtin.template:
+        src: charts/netbox/values.yaml.j2
+        dest: /tmp/netbox-values.yaml
+        mode: "0600"
+
+    - name: Deploy via Helm
+      kubernetes.core.helm:
         name: netbox-thekor
         chart_ref: "{{ netbox_dir }}/charts/netbox"
         release_namespace: netbox
         dependency_update: yes
-        values: "{{ lookup('file', 'group_vars/all/netbox-vault.yml') | from_yaml }}"
-        state: present
-        force: no
-        create_namespace: yes
-        
-    - name: Patch NetBox Valkey StatefulSet node affinity
-      kubernetes.core.k8s:
-        state: present
-        kind: StatefulSet
-        name: netbox-thekor-valkey-replicas
-        namespace: netbox
-        merge_type:
-          - strategic-merge
-        definition:
-          spec:
-            template:
-              spec:
-                affinity:
-                  nodeAffinity:
-                    requiredDuringSchedulingIgnoredDuringExecution:
-                      nodeSelectorTerms:
-                        - matchExpressions:
-                            - key: kubernetes.io/hostname
-                              operator: NotIn
-                              values:
-                                - coreos-wk-4
+        create_namespace: false
+        values_files:
+          - /tmp/netbox-values.yaml
+
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/linkwarden-values.yaml
+        state: absent

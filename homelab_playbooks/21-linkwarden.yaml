@@ -1,8 +1,6 @@
 - name: provision linkwarden
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
     link_repo: "git@gitlab.thekor.eu:kube/linkwarden.git"
@@ -66,10 +64,10 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: clientSecret
-              - secretKey: port
+              - secretKey: pg_port
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: port
+                  property: pg_port
 
     - name: Read secret from Vault
       community.hashi_vault.vault_read:
@@ -88,7 +86,7 @@
         clientId: "{{ vault_secrets.data.data.data.clientId }}"
         clientSecret: "{{ vault_secrets.data.data.data.clientSecret }}"
         hostname: "{{ vault_secrets.data.data.data.hostname }}"
-        pg_port: "{{ vault_secrets.data.data.data.port }}"
+        pg_port: "{{ vault_secrets.data.data.data.pg_port }}"
 
     - name: Check if repo already exists
       ansible.builtin.stat:
