@@ -1,15 +1,13 @@
 - name: provision sftpgo
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: ~/.kube/config
     sftpgo_repo: "git@gitlab.thekor.eu:kube/sftpgo.git"
     sftpgo_dir: "~/sftpgo"
     vault_kv_path: sftpgo
-  tasks:
 
+  tasks:
     - name: Deploy ExternalSecret
       kubernetes.core.k8s:
         state: present
@@ -138,7 +136,7 @@
         kind: Secret
         namespace: authentik
         name: sftpgo-vault-secrets
-      register: authentik_secret
+      register: vault_secret
 
     - name: Check if repo already exists
       ansible.builtin.stat:
@@ -197,10 +195,6 @@
               requests:
                 storage: 10Gi
 
-    - name: Load SFTPGo chart values from file
-      ansible.builtin.set_fact:
-        sftpgo_values: "{{ lookup('file', 'group_vars/all/sftp-vault.yml') | from_yaml }}"
-
     - name: Create secret for the sftpgo database
       kubernetes.core.k8s:
         state: present
@@ -212,7 +206,7 @@
             name: sftpgo-secret
           type: Opaque
           stringData: 
-            sftpgo_secret_values: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__PASSWORD }}"
+            sftpgo_secret_values: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PASSWORD | b64decode }}"
       no_log: true
 
     - name: Annotate sftpgo-secret secret declaratively
@@ -233,7 +227,7 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: Database
           metadata:
-            name: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__NAME }}"
+            name: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
             namespace: mariadb
           spec:
             mariaDbRef:
@@ -251,7 +245,7 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: User
           metadata:
-            name: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__USERNAME }}"
+            name: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
             namespace: mariadb
           spec:
             mariaDbRef:
@@ -272,8 +266,8 @@
             name: sftpgo-connection
             namespace: mariadb
           spec:
-            username: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__USERNAME }}"
-            database: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__NAME }}"
+            username: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
+            database: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
             mariaDbRef:
               name: mariadb
               namespace: mariadb
@@ -295,23 +289,12 @@
             mariaDbRef:
               name: mariadb
               namespace: mariadb
-            username: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__USERNAME }}"
-            database: "{{ sftpgo_values.env.SFTPGO_DATA_PROVIDER__NAME }}"
+            username: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
+            database: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
             table: "*"
             privileges:
               - ALL
             grantOption: false
-
-    - name: Deploy SFTPGo Helm chart
-      community.kubernetes.helm:
-        name: my-sftpgo
-        chart_ref: "{{ sftpgo_dir }}/sftpgo"
-        release_namespace: sftpgo
-        dependency_update: yes
-        values: "{{ sftpgo_values }}"
-        state: present
-        force: no
-        create_namespace: no
 
     - name: Render values template
       ansible.builtin.template:

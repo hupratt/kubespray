@@ -2,8 +2,6 @@
 - name: Deploy www
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     namespace: www-portfolio
@@ -11,27 +9,87 @@
     frontend_image: registry.thekor.eu/docker/www/portfolio-frontend:latest
     backend_port: 9915
     frontend_port: 80
+    vault_kv_path: www
 
   tasks:
 
-    # -------------------------------------------------------------------------
-    # SECRET - built dynamically from ansible-vault variables
-    # Values come from group_vars/all/vault.yml (encrypted).
-    # The dict is constructed at runtime so no secret ever appears in plaintext
-    # in this playbook file.
-    # -------------------------------------------------------------------------
-    - name: Create backend env secret from vault
+    - name: Deploy ExternalSecret
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
-            name: portfolio-backend-env
+            name: portfolio-vault-secrets
             namespace: "{{ namespace }}"
-          type: Opaque
-          stringData: "{{ www_env }}"
-      # no_log: true
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: portfolio-vault-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: DJANGO_ALLOWED_HOSTS
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_ALLOWED_HOSTS
+              - secretKey: DJANGO_DEBUG
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_DEBUG
+              - secretKey: DJANGO_DEVELOPMENT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_DEVELOPMENT
+              - secretKey: DJANGO_SECRET_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_SECRET_KEY
+              - secretKey: REACT_APP_BASE
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: REACT_APP_BASE
+              - secretKey: SECRET_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SECRET_KEY
+              - secretKey: SENDGRID_API_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SENDGRID_API_KEY
+              - secretKey: SENTRY_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: SENTRY_KEY
+              - secretKey: dbpassword
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbpassword
+              - secretKey: dbuser
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbuser
+              - secretKey: enginedb
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: enginedb
+              - secretKey: hostip
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostip
+              - secretKey: pnumber
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pnumber
+
+    - name: Create env secret from vault
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ namespace }}"
+        name: portfolio-backend-env
+      register: vault_secret
 
     # -------------------------------------------------------------------------
     # BACKEND DEPLOYMENT (Django)

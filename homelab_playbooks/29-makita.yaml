@@ -2,34 +2,101 @@
 - name: Deploy makita
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     namespace: makita
     backend_image: registry.thekor.eu/docker/makita/makita-backend:latest
     backend_port: 9224
     frontend_port: 80
+    vault_kv_path: "makita-booking"
 
   tasks:
-    # -------------------------------------------------------------------------
-    # SECRET - built dynamically from ansible-vault variables
-    # Values come from group_vars/all/vault.yml (encrypted).
-    # The dict is constructed at runtime so no secret ever appears in plaintext
-    # in this playbook file.
-    # -------------------------------------------------------------------------
-    - name: Create backend env secret from vault
+    - name: Deploy ExternalSecret
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: makita-backend-env
             namespace: "{{ namespace }}"
-          type: Opaque
-          stringData: "{{ makita_env }}"
-      # no_log: true
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: makita-backend-env
+              creationPolicy: Owner
+            data:
+              - secretKey: DJANGO_SECRET_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_SECRET_KEY
+              - secretKey: DJANGO_DEBUG
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_DEBUG
+              - secretKey: DJANGO_ALLOWED_HOSTS
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_ALLOWED_HOSTS
+              - secretKey: enginedb
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: enginedb
+              - secretKey: hostip
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostip
+              - secretKey: pnumber
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pnumber
+              - secretKey: dbuser
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbuser
+              - secretKey: dbpassword
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbpassword
+              - secretKey: DJANGO_DEVELOPMENT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_DEVELOPMENT
+              - secretKey: REACT_APP_BASE
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: REACT_APP_BASE
+              - secretKey: DJANGO_SETTINGS_MODULE
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_SETTINGS_MODULE
+              - secretKey: DEEPL_API_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DEEPL_API_KEY
+              - secretKey: POSTHOG_DOMAIN
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: POSTHOG_DOMAIN
+              - secretKey: POSTHOG_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: POSTHOG_KEY
+              - secretKey: ENVIRONMENT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ENVIRONMENT
+              - secretKey: MAPTILER_JSON
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: MAPTILER_JSON
+              - secretKey: WHITENOISE
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: WHITENOISE
 
     - name: Create rook-cephfs StorageClass
       k8s:

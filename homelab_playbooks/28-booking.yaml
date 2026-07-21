@@ -2,35 +2,70 @@
 - name: Deploy booking
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     namespace: booking
     backend_image: registry.thekor.eu/docker/booking/booking-backend:latest
     backend_port: 9225
     frontend_port: 80
+    vault_kv_path: "makita-booking"
 
   tasks:
 
-    # -------------------------------------------------------------------------
-    # SECRET - built dynamically from ansible-vault variables
-    # Values come from group_vars/all/vault.yml (encrypted).
-    # The dict is constructed at runtime so no secret ever appears in plaintext
-    # in this playbook file.
-    # -------------------------------------------------------------------------
-    - name: Create backend env secret from vault
+    - name: Deploy ExternalSecret
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: v1
-          kind: Secret
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
           metadata:
             name: booking-backend-env
             namespace: "{{ namespace }}"
-          type: Opaque
-          stringData: "{{ booking_env }}"
-      # no_log: true
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: booking-backend-env
+              creationPolicy: Owner
+            data:
+              - secretKey: DJANGO_ALLOWED_HOSTS
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_ALLOWED_HOSTS
+              - secretKey: DJANGO_DEBUG
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_DEBUG
+              - secretKey: DJANGO_DEVELOPMENT
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_DEVELOPMENT
+              - secretKey: DJANGO_SECRET_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: DJANGO_SECRET_KEY
+              - secretKey: dbpassword
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbpassword
+              - secretKey: dbuser
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: dbuser
+              - secretKey: enginedb
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: enginedb
+              - secretKey: hostip
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostip
+              - secretKey: pnumber
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pnumber
 
     - name: Create rook-cephfs StorageClass
       k8s:

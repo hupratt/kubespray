@@ -5,9 +5,78 @@
   vars:
     kubeconfig_path: /home/hugo/.kube/config
     default_storage_class: rook-ceph-block
-  vars_files:
-     - group_vars/all/vault.yml
+    frigate_namespace: frigate
+    frigate_chart_path: "{{ playbook_dir }}/charts/frigate"
+  
   tasks:
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: frigate-vault-secrets
+            namespace: "{{ frigate_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: frigate-vault-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: frigate_rtsp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_rtsp_password
+              - secretKey: frigate_mqtt_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_mqtt_host
+              - secretKey: frigate_mqtt_user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_mqtt_user
+              - secretKey: frigate_mqtt_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_mqtt_password
+              - secretKey: ffmpeg_path
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ffmpeg_path
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: frigate-secret
+            namespace: "{{ frigate_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: frigate-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: FRIGATE_RTSP_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_rtsp_password
+
+    - name: Read secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ frigate_namespace }}"
+        name: frigate-vault-secrets
+      register: vault_secret
 
     - name: Set default StorageClass
       kubernetes.core.k8s:
@@ -45,7 +114,51 @@
             name: frigate-config
             namespace: "{{ frigate_namespace }}"
           data:
-            config.yml: "{{ frigate_config }}"
+            auth:
+              enabled: False
+            mqtt:
+              enabled: True
+              host: "{{ vault_secret.resources[0].data.frigate_mqtt_host | b64decode }}"
+              user: "{{ vault_secret.resources[0].data.frigate_mqtt_user | b64decode }}"
+              password: "{{ vault_secret.resources[0].data.frigate_mqtt_password | b64decode }}"
+            cameras:
+              reolink:
+                detect:
+                  enabled: True
+                  height: 480
+                  width: 704
+                  fps: 5
+                objects:
+                  track:
+                    - person
+                    - car
+                ffmpeg:
+                  inputs:
+                    - path: "{{ vault_secret.resources[0].data.ffmpeg_path | b64decode }}"
+                      roles:
+                        - detect
+                        - record
+                mqtt:
+                  enabled: True
+                  timestamp: True
+                  bounding_box: True
+                  crop: False
+                  height: 270
+                  quality: 70
+            record:
+              enabled: True
+              continuous:
+                days: 2
+              motion:
+                days: 2
+              alerts:
+                retain:
+                  days: 2
+                  mode: all
+              detections:
+                retain:
+                  days: 2
+                  mode: all
 
     - name: Deploy Frigate Helm chart
       kubernetes.core.helm:

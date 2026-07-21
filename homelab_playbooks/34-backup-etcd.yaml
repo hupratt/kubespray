@@ -3,12 +3,52 @@
   hosts: localhost
   connection: local
   gather_facts: false
-
-  vars_files:
-    # - group_vars/all/vault.yml
-    - group_vars/all/etcd-vault.yml
+  vars:
+    etcd_backup_namespace: etcd-backup
+    etcd_backup_schedule: "0 0 31 2 *"
+    # Number of days to retain backups in S3
+    etcd_backup_retention_days: 7
+    # etcdctl version to download in the init container — match your cluster's etcd version
+    # Check with: kubectl -n kube-system exec -it etcd-<node> -- etcdctl version
+    etcd_version: "3.5.12"
+    # Init container: copies etcdctl binary into the shared emptyDir volume
+    etcd_init_image: "registry.k8s.io/etcd:3.5.12-0"
+    # Main container: Alpine-based AWS CLI image — etcdctl is copied in by the init container
+    etcd_backup_image: "amazon/aws-cli:2.15.30"
+    # etcd endpoints — adjust to your control-plane IPs/hostnames
+    etcd_endpoints: "https://127.0.0.1:2379"
+    vault_s3_endpoint: "https://garage-s3.thekor.eu"
+    vault_s3_bucket: "garage.thekor.eu"
+    vault_s3_region: "garage"
 
   tasks:
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: frigate-secret
+            namespace: "{{ frigate_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: frigate-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: restic
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: restic
+                  property: AWS_SECRET_ACCESS_KEY
+
     - name: Create S3 credentials secret
       kubernetes.core.k8s:
         state: present
@@ -22,9 +62,9 @@
           stringData:
             S3_ENDPOINT: "{{ vault_s3_endpoint }}"
             S3_BUCKET: "{{ vault_s3_bucket }}"
+            AWS_DEFAULT_REGION: "{{ vault_s3_region }}"
             AWS_ACCESS_KEY_ID: "{{ vault_s3_access_key }}"
             AWS_SECRET_ACCESS_KEY: "{{ vault_s3_secret_key }}"
-            AWS_DEFAULT_REGION: "{{ vault_s3_region }}"
 
     - name: Create etcd client secret (certs)
       kubernetes.core.k8s:
