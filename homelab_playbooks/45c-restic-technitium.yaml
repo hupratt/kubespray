@@ -3,8 +3,6 @@
   hosts: localhost
   gather_facts: false
   connection: local
-  vars_files:
-    - group_vars/all/vault.yml
   vars:
     external_secret_namespace: "technitium"
     external_secret_name: "{{ external_secret_namespace }}-secret"

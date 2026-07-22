@@ -14,9 +14,41 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars:
+    vault_kv_path: "backup-matrix"
+    # ── Domains ──────────────────────────────────────────────────────────────
+    matrix_server_name: "matrix.thekor.eu"
+    matrix_public_hostname: "matrix.thekor.eu"
+    element_hostname: "element.thekor.eu"
 
-  vars_files:
-    - group_vars/all/matrix-vault.yml
+    # ── Namespace ─────────────────────────────────────────────────────────────
+    matrix_namespace: matrix
+
+    # ── Storage ───────────────────────────────────────────────────────────────
+    synapse_storage_class: rook-ceph-block
+    synapse_media_size: "20Gi"
+    bridge_data_size: "2Gi"
+
+    # ── CNPG ──────────────────────────────────────────────────────────────────
+    synapse_db_host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+    synapse_db_name: synapse
+    synapse_db_user: synapse
+
+    # ── Ingress / TLS ─────────────────────────────────────────────────────────
+    ingress_class: haproxy
+    cert_issuer: letsencrypt-prod
+
+    # ── Helm chart versions ───────────────────────────────────────────────────
+    synapse_chart_version: "3.12.28"
+    element_chart_version: "1.4.34"
+
+    # ── Synapse tuning ────────────────────────────────────────────────────────
+    synapse_max_upload_size: "50M"
+    synapse_enable_registration: true
+
+    # ── mautrix-discord ───────────────────────────────────────────────────────
+    mautrix_discord_image: "dock.mau.dev/mautrix/discord:latest"
+    mautrix_discord_port: 29334
 
   vars:
     # ── tunables with sane defaults ──────────────────────────────────────────

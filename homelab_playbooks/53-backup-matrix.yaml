@@ -6,6 +6,7 @@
     vault_kv_path: "backup-matrix"           # path within the mount
     external_secret_namespace: "backup"
     external_secret_name: "backupmatrix-secrets"
+    
   tasks:
     # -------------------------------------------------------------------------
     # Deploy ExternalSecret
