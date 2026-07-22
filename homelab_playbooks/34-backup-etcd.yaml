@@ -20,8 +20,10 @@
     vault_s3_endpoint: "https://garage-s3.thekor.eu"
     vault_s3_bucket: "garage.thekor.eu"
     vault_s3_region: "garage"
+    vault_kv_path: etcd
 
   tasks:
+
     - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
         state: present
@@ -29,42 +31,44 @@
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: frigate-secret
-            namespace: "{{ frigate_namespace }}"
+            name: etcd-backup-s3-credentials
+            namespace: "{{ etcd_backup_namespace }}"
           spec:
             refreshInterval: 1h
             secretStoreRef:
               name: vault-backend
               kind: ClusterSecretStore
             target:
-              name: frigate-secret
+              name: etcd-backup-s3-credentials
               creationPolicy: Owner
             data:
               - secretKey: AWS_ACCESS_KEY_ID
                 remoteRef:
-                  key: restic
+                  key: "{{ vault_kv_path }}"
                   property: AWS_ACCESS_KEY_ID
               - secretKey: AWS_SECRET_ACCESS_KEY
                 remoteRef:
-                  key: restic
+                  key: "{{ vault_kv_path }}"
                   property: AWS_SECRET_ACCESS_KEY
+              - secretKey: vault_etcd_ca_crt
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_etcd_ca_crt
+              - secretKey: vault_etcd_client_crt
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_etcd_client_crt
+              - secretKey: vault_etcd_client_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_etcd_client_key
 
-    - name: Create S3 credentials secret
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: etcd-backup-s3-credentials
-            namespace: "{{ etcd_backup_namespace }}"
-          type: Opaque
-          stringData:
-            S3_ENDPOINT: "{{ vault_s3_endpoint }}"
-            S3_BUCKET: "{{ vault_s3_bucket }}"
-            AWS_DEFAULT_REGION: "{{ vault_s3_region }}"
-            AWS_ACCESS_KEY_ID: "{{ vault_s3_access_key }}"
-            AWS_SECRET_ACCESS_KEY: "{{ vault_s3_secret_key }}"
+    - name: Read secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ etcd_backup_namespace }}"
+        name: etcd-backup-s3-credentials
+      register: vault_secret
 
     - name: Create etcd client secret (certs)
       kubernetes.core.k8s:
@@ -77,9 +81,9 @@
             namespace: "{{ etcd_backup_namespace }}"
           type: Opaque
           data:
-            ca.crt: "{{ vault_etcd_ca_crt | b64encode }}"
-            client.crt: "{{ vault_etcd_client_crt | b64encode }}"
-            client.key: "{{ vault_etcd_client_key | b64encode }}"
+            ca.crt: "{{ vault_secret.resources[0].data.vault_etcd_ca_crt }}"
+            client.crt: "{{ vault_secret.resources[0].data.vault_etcd_client_crt }}"
+            client.key: "{{ vault_secret.resources[0].data.vault_etcd_client_key }}"
 
     - name: Deploy etcd backup CronJob
       kubernetes.core.k8s:

@@ -287,6 +287,45 @@
             database: "*"
             table: "*"
 
+    - name: Create Role to allow scaling the volsync deployment needed for the garage dynip
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: Role
+          metadata:
+            name: scale-volsync
+            namespace: volsync
+          rules:
+            - apiGroups:
+                - apps
+              resources:
+                - deployments
+                - deployments/scale
+              resourceNames:
+                - volsync
+              verbs:
+                - get
+                - patch
+                - update
+
+    - name: Bind Role to backup service account needed for the garage dynip
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: RoleBinding
+          metadata:
+            name: scale-volsync
+            namespace: volsync
+          subjects:
+            - kind: ServiceAccount
+              name: backup
+              namespace: backup
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: Role
+            name: scale-volsync
 
 # \c grafana
 
