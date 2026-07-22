@@ -6,6 +6,7 @@
     kubeconfig_path: /home/hugo/.kube/config
     default_storage_class: rook-ceph-block
     frigate_namespace: frigate
+    vault_kv_path: frigate
     frigate_chart_path: "{{ playbook_dir }}/charts/frigate"
   
   tasks:

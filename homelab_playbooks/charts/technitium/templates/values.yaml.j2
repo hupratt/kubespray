@@ -13,8 +13,8 @@ env:
   DNS_SERVER_QNAME_MINIMIZATION: "true"
   DNS_SERVER_DNSSEC_VALIDATION: "true"
   DNS_SERVER_SSO_ENABLED: "true"
-  DNS_SERVER_SSO_AUTHORITY: "https://auth.thekor.eu/application/o/technitium/"
-  DNS_SERVER_SSO_CLIENT_ID: "{{ technitium_sso_client_id }}"
+  DNS_SERVER_SSO_AUTHORITY: "https://auth.thekor.eu/application/o/technitium/" 
+  DNS_SERVER_SSO_CLIENT_ID: "{{ vault_secret.resources[0].data.technitium_sso_client_id | b64decode }}"
   DNS_SERVER_SSO_CLIENT_SECRET_FILE: "/run/dns-secrets/technitium_sso_client_secret"
   DNS_SERVER_SSO_SCOPES: "openid,profile,email"
   DNS_SERVER_SSO_ALLOW_SIGNUP: "true"
@@ -49,7 +49,7 @@ persistence:
     type: pvc
     storageClass: "{{ technitium_storage_class }}"
     accessMode: ReadWriteOnce
-    size: "{{ technitium_storage_size }}"
+    size: "{{ technitium_storage_size }}" 
     mountPath: /etc/dns
   admin-secret:
     enabled: true

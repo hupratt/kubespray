@@ -9,24 +9,41 @@
     image: mauvesoftware/ilo_exporter:latest
     port: 9545
     ingress_host: ilo-exporter.thekor.eu
+    vault_kv_path: ilo
 
   tasks:
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: ilo-exporter-secret
+            namespace: "{{ namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: ilo-exporter-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ilo_api_password
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ilo_api_username
+
     - name: Deploy iLO exporter manifests
       kubernetes.core.k8s:
         state: present
         definition: "{{ item }}"
-      no_log: "{{ item.kind == 'Secret' }}"
       loop:
-        - apiVersion: v1
-          kind: Secret
-          metadata:
-            name: ilo-exporter-secret
-            namespace: "{{ namespace }}"
-          type: Opaque
-          stringData:
-            username: "{{ ilo_api_username }}"
-            password: "{{ ilo_api_password }}"
-
         - apiVersion: apps/v1
           kind: Deployment
           metadata:

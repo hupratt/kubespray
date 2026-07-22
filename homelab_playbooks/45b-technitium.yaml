@@ -13,22 +13,17 @@
     technitium_storage_size: "5Gi"
     technitium_tls_name: "wildcard-thekor"
     vault_kv_path: "technitium"
+    vault_kv_restic_path: "restic"
     technitium_node_ip: "10.10.85.24"
 
   tasks:
 
-    - name: Create secret
-      kubernetes.core.k8s:
-        state: present
+    - name: Read secret
+      kubernetes.core.k8s_info:
+        kind: Secret
         namespace: "{{ technitium_namespace }}"
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: technitium-secret
-          type: Opaque
-          stringData: "{{ technitium_secret }}"
-      no_log: true
+        name: technitium-admin-secret
+      register: vault_secret
 
     - name: Annotate secret secret declaratively
       kubernetes.core.k8s:
@@ -48,7 +43,7 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: Database
           metadata:
-            name: "{{ technitium_secret.db_name }}"
+            name: "{{ vault_secret.resources[0].data.db_name | b64decode }}"
             namespace: mariadb
           spec:
             mariaDbRef:
@@ -66,7 +61,7 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: User
           metadata:
-            name: "{{ technitium_secret.username }}"
+            name: "{{ vault_secret.resources[0].data.username | b64decode }}"
             namespace: mariadb
           spec:
             mariaDbRef:
@@ -87,8 +82,8 @@
             name: technitium-connection
             namespace: mariadb
           spec:
-            username: "{{ technitium_secret.username }}"
-            database: "{{ technitium_secret.db_name }}"
+            username: "{{ vault_secret.resources[0].data.username | b64decode }}"
+            database: "{{ vault_secret.resources[0].data.db_name | b64decode }}"
             mariaDbRef:
               name: mariadb
               namespace: mariadb
@@ -110,8 +105,8 @@
             mariaDbRef:
               name: mariadb
               namespace: mariadb
-            username: "{{ technitium_secret.username }}"
-            database: "{{ technitium_secret.db_name }}"
+            username: "{{ vault_secret.resources[0].data.username | b64decode }}"
+            database: "{{ vault_secret.resources[0].data.db_name | b64decode }}"
             table: "*"
             privileges:
               - ALL

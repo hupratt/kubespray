@@ -2,8 +2,6 @@
 - name: Deploy PatchMon
   hosts: localhost
   gather_facts: false
-  vars_files:
-    - group_vars/all/patchmon_vault.yml
   vars:
     patchmon_namespace: patchmon
     patchmon_chart_git: git@gitlab.thekor.eu:kube/patchmon.git

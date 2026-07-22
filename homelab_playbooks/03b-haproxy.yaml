@@ -68,6 +68,9 @@
                         - name: https
                           containerPort: 8443
                           hostPort: 8443
+                        - name: healthz
+                          containerPort: 1042
+                          hostPort: 1042
                       securityContext:
                         runAsNonRoot: true
                         runAsUser: 1000
