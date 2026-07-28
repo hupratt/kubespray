@@ -115,6 +115,7 @@
         type: "{{ vault_secrets.data.data.data.type }}"
         password: "{{ vault_secrets.data.data.data.password }}"
         host: "{{ vault_secrets.data.data.data.host }}"
+        hostname: "{{ vault_secrets.data.data.data.hostname }}"
         dbName: "{{ vault_secrets.data.data.data.dbName }}"
         adminToken: "{{ vault_secrets.data.data.data.adminToken }}"
         clientId: "{{ vault_secrets.data.data.data.clientId }}"
