@@ -31,10 +31,10 @@
     immich_storage_class: slow-local
 
     volsync_schedule: "0 2 * * *"
-    volsync_retain_hourly: 24
+    volsync_retain_hourly: 2
     volsync_retain_daily: 7
-    volsync_retain_weekly: 4
-    volsync_retain_monthly: 3
+    volsync_retain_weekly: 1
+    volsync_retain_monthly: 1
 
   tasks:
 
