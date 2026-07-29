@@ -28,6 +28,11 @@
                 type: Opaque
             data:
 
+              - secretKey: hostname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostname
+
               - secretKey: pg_username
                 remoteRef:
                   key: "{{ vault_kv_path }}"
