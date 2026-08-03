@@ -1,0 +1,41 @@
+---
+# Cluster infrastructure, split in two ordered layers.
+#
+# 1. controllers — operators installed via Helm (External Secrets Operator,
+#    cert-manager). These must be Ready (CRDs established) before anything that
+#    creates their custom resources.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-controllers
+  namespace: flux-system
+spec:
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  path: ./homelab_playbooks/flux/infrastructure/controllers
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system
+---
+# 2. configs — cluster resources that depend on the controllers' CRDs:
+#    namespaces and the ClusterSecretStore (needs the ESO CRD + ESO Ready).
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: infra-configs
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-controllers
+  interval: 1h
+  retryInterval: 1m
+  timeout: 5m
+  path: ./homelab_playbooks/flux/infrastructure/configs
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

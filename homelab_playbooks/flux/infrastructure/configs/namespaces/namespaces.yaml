@@ -1,0 +1,209 @@
+---
+# Migrated from 00a-ns.yaml.
+# `cert-manager` and `external-secrets` are intentionally omitted here — their
+# namespaces are declared alongside the controllers in infrastructure/controllers
+# so a single Kustomization owns each object.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: amazon-clone
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: authentik
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: backup
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: booking
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: chirpy
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cilium-secrets
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cn-postgres
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dawarich
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: donetick
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: etcd-backup
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: frigate
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: haproxy
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: harbor
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubewarden
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: linkwarden
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: makita
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mariadb
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: matrix
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mongo-express
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mongodb
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netbird
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: netbox
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: open-webui
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: paperless
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: patchmon
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: rook-ceph
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scriberr
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sftpgo
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: spotify
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: technitium
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: thrifty
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: trellis
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vault
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: vaultwarden
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: volsync
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: www-portfolio
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: youtube

@@ -1,0 +1,21 @@
+---
+# Application layer. Depends on infra-configs so that namespaces and the
+# ClusterSecretStore (vault-backend) exist before any ExternalSecret /
+# HelmRelease here is reconciled.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: apps
+  namespace: flux-system
+spec:
+  dependsOn:
+    - name: infra-configs
+  interval: 10m
+  retryInterval: 1m
+  timeout: 5m
+  path: ./homelab_playbooks/flux/apps/homelab
+  prune: true
+  wait: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

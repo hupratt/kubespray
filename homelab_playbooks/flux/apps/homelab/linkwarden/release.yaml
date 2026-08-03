@@ -1,0 +1,118 @@
+---
+# Replaces the "Render values" + "Deploy via Helm" tasks in 21-linkwarden.yaml.
+#
+# The Ansible flow rendered charts/linkwarden/values.yaml.j2 (interpolating
+# Vault secrets) then `helm install my-linkwarden`. Here:
+#   - the chart is pulled from the linkwarden GitRepository (charts/linkwarden),
+#   - non-secret values are committed inline under `values`,
+#   - secret scalars are injected at reconcile time from the ESO-managed Secret
+#     `linkwarden-secret` via valuesFrom + targetPath (no templating step).
+#
+# The valuesFrom targetPaths reproduce every `{{ ... }}` that the .j2 template
+# interpolated. If `linkwarden-secret` does not exist yet (ESO still syncing),
+# this HelmRelease will retry until it appears.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: my-linkwarden
+  namespace: linkwarden
+spec:
+  releaseName: my-linkwarden
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/linkwarden
+      sourceRef:
+        kind: GitRepository
+        name: linkwarden
+        namespace: linkwarden
+      interval: 30m
+  # Secret scalars injected from the ESO-managed Secret. Each targetPath mirrors
+  # a `{{ var }}` in charts/linkwarden/values.yaml.j2.
+  valuesFrom:
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: nextAuthSecret
+      targetPath: linkwarden.nextAuthSecret.value
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: pg_username
+      targetPath: linkwarden.database.user
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: pg_password
+      targetPath: linkwarden.database.password
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: host
+      targetPath: linkwarden.database.host
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: pg_port
+      targetPath: linkwarden.database.port
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: dbName
+      targetPath: linkwarden.database.name
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: clientId
+      targetPath: linkwarden.auth.sso[0].clientId
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: clientSecret
+      targetPath: linkwarden.auth.sso[0].clientSecret
+    - kind: Secret
+      name: linkwarden-secret
+      valuesKey: hostname
+      targetPath: ingress.tls[0].hosts[0]
+  # Non-secret values carried over from charts/linkwarden/values.yaml.j2.
+  values:
+    image:
+      registry: ghcr.io
+      repository: linkwarden/linkwarden
+      tag: "v2.13.5"
+      pullPolicy: Always
+    linkwarden:
+      app:
+        url: https://link.thekor.eu
+      replicas: 1
+      domain: "link.thekor.eu"
+      data:
+        storageType: filesystem
+        filesystem:
+          dataPath: data
+          pvc:
+            size: 5Gi
+            storageClass: rook-cephfs
+            reclaimPolicy: Retain
+      auth:
+        disableRegistration: false
+        enableCredentials: true
+        disableNewSSOUsers: false
+        # clientId / clientSecret are injected via valuesFrom above.
+        sso:
+          - provider: "authentik"
+            customName: "authentik-custom"
+            issuer: "https://auth.thekor.eu/application/o/linkwarden"
+      smtp:
+        enabled: false
+    ingress:
+      enabled: true
+      className: "haproxy"
+      # tls[0].hosts[0] is injected via valuesFrom above.
+      tls:
+        - secretName: wildcard-thekor
+          hosts: []
+    service:
+      type: ClusterIP
+      port: 8000
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+    podSecurityContext:
+      fsGroup: 1000
+    # Bundled Bitnami PostgreSQL subchart stays disabled — uses external cn-postgres.
+    postgresql:
+      enabled: false

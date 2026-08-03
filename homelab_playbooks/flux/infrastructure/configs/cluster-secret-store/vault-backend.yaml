@@ -1,0 +1,30 @@
+---
+# Migrated from the "Deploy ClusterSecretStore" task in 02d-hashicorp-vault.yaml.
+# Values that were Ansible vars are inlined:
+#   vault_addr      -> https://vault.thekor.eu
+#   vault_kv_mount  -> kv
+#   vault_role_name -> eso-role
+#   eso_sa_name     -> external-secrets  (namespace external-secrets)
+#
+# The one-time Vault-side bootstrap that 02d also performed with the root token
+# (enabling kubernetes auth, writing the eso-policy and eso-role) is NOT
+# GitOps-managed here — it stays a manual/Ansible bootstrap step because it
+# needs the Vault root token. See flux/README.md.
+apiVersion: external-secrets.io/v1
+kind: ClusterSecretStore
+metadata:
+  name: vault-backend
+spec:
+  provider:
+    vault:
+      server: "https://vault.thekor.eu"
+      # KV engine MOUNT only (no /data/ suffix). ESO appends /data/ for kv-v2.
+      path: "kv"
+      version: "v2"
+      auth:
+        kubernetes:
+          mountPath: "kubernetes"
+          role: "eso-role"
+          serviceAccountRef:
+            name: "external-secrets"
+            namespace: "external-secrets"
