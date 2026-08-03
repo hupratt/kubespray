@@ -81,8 +81,8 @@ resource "hcloud_network_subnet" "private_subnet" {
 resource "hcloud_server" "node" {
   count       = var.node_count
   name        = "fedora-coreos-node-${count.index + 1}"
-  server_type = "cx23"
-  location    = "nbg1"
+  server_type = "cpx22"
+  location    = "hel1"
   image       = var.fcos_image_id
   ssh_keys    = [data.hcloud_ssh_key.default.id]
   user_data   = jsonencode(local.ignition_configs[count.index])
