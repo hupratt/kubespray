@@ -1,0 +1,81 @@
+---
+# Migrated from 15-backup-immich.yaml
+#   task: "Deploy pgdump CronJob"
+# PGHOST/PGUSER/PGPASSWORD were Ansible-templated from vault vars; now sourced
+# from the `pg-backup-credentials` Secret (see external-secret.yaml).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: pgdump-backup
+  namespace: immich
+spec:
+  schedule: "0 0 31 2 *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 70
+            runAsGroup: 70
+            runAsNonRoot: true
+          imagePullSecrets:
+            - name: docker-registry-secret
+          nodeSelector:
+            kubernetes.io/hostname: coreos-cp-1
+          containers:
+            - name: pgdump
+              image: registry.thekor.eu/docker/k8s-fedora-backup/postgres-backup:17-alpine-awscli
+              command:
+                - /bin/bash
+                - -c
+                - /home/postgres/backupoutput/sql_postgres.sh
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: PGHOST
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-backup-credentials
+                      key: PGHOST
+                - name: PGUSER
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-backup-credentials
+                      key: PGUSER
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: pg-backup-credentials
+                      key: PGPASSWORD
+                - name: PG_TARGETS
+                  value: "immich"
+              volumeMounts:
+                - name: backupoutput
+                  mountPath: /home/postgres/backupoutput
+              livenessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+              readinessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+          volumes:
+            - name: backupoutput
+              hostPath:
+                path: /mnt/backupoutput
+                type: DirectoryOrCreate

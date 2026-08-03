@@ -1,0 +1,15 @@
+---
+# Migrated verbatim from 31-thrifty.yaml (task: "Create PVC for static files").
+# storage_size var (10Mi) inlined.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: thrifty-api-data
+  namespace: thrifty
+spec:
+  storageClassName: rook-cephfs-thrifty
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: "10Mi"

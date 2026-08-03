@@ -1,0 +1,235 @@
+---
+# Source: 08-cloudnative-pg.yaml — "Deploy Database CRDs" (loop expanded).
+# NOTE: the postgis extension enablement (kubectl exec psql on the dawarich DB)
+# is an imperative step and is NOT reproduced here — see BLOCKERS.
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: grafana-db
+  namespace: cn-postgres
+spec:
+  name: grafana
+  owner: grafana
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: netbox-db
+  namespace: cn-postgres
+spec:
+  name: netbox
+  owner: netbox
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: authentik-db
+  namespace: cn-postgres
+spec:
+  name: authentik
+  owner: authentik
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: patchmon-db
+  namespace: cn-postgres
+spec:
+  name: patchmon
+  owner: patchmon
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: harbor-core-db
+  namespace: cn-postgres
+spec:
+  name: harbor-core
+  owner: harbor
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: harbor-notary-server-db
+  namespace: cn-postgres
+spec:
+  name: harbor-notary-server
+  owner: harbor
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: harbor-notary-signer-db
+  namespace: cn-postgres
+spec:
+  name: harbor-notary-signer
+  owner: harbor
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: harbor-trivy-db
+  namespace: cn-postgres
+spec:
+  name: harbor-trivy
+  owner: harbor
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: booking-db
+  namespace: cn-postgres
+spec:
+  name: booking
+  owner: ubuntu
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: paperless-db
+  namespace: cn-postgres
+spec:
+  name: paperless
+  owner: paperless
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: makita-db
+  namespace: cn-postgres
+spec:
+  name: makita
+  owner: ubuntu
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: linkwarden-db
+  namespace: cn-postgres
+spec:
+  name: linkwarden
+  owner: linkwarden
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: craftstudios-db
+  namespace: cn-postgres
+spec:
+  name: craftstudios
+  owner: ubuntu
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: youtubeclone-db
+  namespace: cn-postgres
+spec:
+  name: youtubeclone
+  owner: ubuntu
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: backupmatrix-db
+  namespace: cn-postgres
+spec:
+  name: backupmatrix
+  owner: backupmatrix
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: synapse-db
+  namespace: cn-postgres
+spec:
+  name: synapse
+  owner: synapse
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mautrixsignal-db
+  namespace: cn-postgres
+spec:
+  name: mautrixsignal
+  owner: mautrix
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: mautrixwhatsapp-db
+  namespace: cn-postgres
+spec:
+  name: mautrixwhatsapp
+  owner: mautrixwhatsapp
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: dawarich-db
+  namespace: cn-postgres
+spec:
+  name: dawarich
+  owner: dawarich
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: netbird-db
+  namespace: cn-postgres
+spec:
+  name: netbird
+  owner: netbirduser
+  cluster:
+    name: shared-pg
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: netbird-activity-log-db
+  namespace: cn-postgres
+spec:
+  name: netbird-activity-log
+  owner: netbirduser
+  cluster:
+    name: shared-pg

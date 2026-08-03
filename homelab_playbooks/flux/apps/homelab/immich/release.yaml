@@ -1,0 +1,171 @@
+---
+# Migrated from the "Add Immich Helm repository" + "Deploy Immich via Helm" tasks
+# in 47-immich-install.yaml. External Helm repo (immich-app/immich-charts),
+# chart version 0.12.0 pinned. Non-secret values carried over from
+# charts/immich/immich-values.yml.j2 (the only Ansible var, immich_namespace,
+# is inlined to `immich`). DB/app secrets are consumed by the pods via
+# `envFrom` referencing the ESO-managed Secret `immich-app-secret` (see
+# controllers.main.envFrom below), so no valuesFrom injection is required here.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  interval: 1h
+  url: https://immich-app.github.io/immich-charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: immich
+  namespace: immich
+spec:
+  releaseName: immich
+  interval: 30m
+  chart:
+    spec:
+      chart: immich
+      version: "0.12.0"
+      sourceRef:
+        kind: HelmRepository
+        name: immich
+        namespace: immich
+      interval: 1h
+  install:
+    createNamespace: false
+  values:
+    immich:
+      metrics:
+        enabled: true
+      persistence:
+        library:
+          existingClaim: immich-library
+    persistence:
+      data:
+        globalMounts:
+          - path: /usr/src/app/upload
+    # ── Shared DB/Redis env (top-level controllers = immich server) ──────────
+    controllers:
+      main:
+        containers:
+          main:
+            image:
+              tag: ""   # follow chart appVersion
+            env:
+              REDIS_HOSTNAME: '{{ printf "%s-valkey" .Release.Name }}'
+              IMMICH_MACHINE_LEARNING_URL: '{{ printf "http://%s-machine-learning:3003" .Release.Name }}'
+              DB_HOSTNAME: "immich-pg-rw.immich.svc"
+              DB_PORT: "5432"
+              DB_DATABASE_NAME: immich
+            envFrom:
+              - secretRef:
+                  name: immich-app-secret   # DATABASE_URL, DB_USERNAME, DB_PASSWORD from Vault
+    # ── Server ───────────────────────────────────────────────────────────────
+    server:
+      enabled: true
+      controllers:
+        main:
+          pod:
+            nodeSelector:
+              node-role: slow-services
+            tolerations:
+              - key: dedicated
+                operator: Equal
+                value: slow-services
+                effect: NoSchedule
+            securityContext:
+              fsGroup: 1000
+              runAsUser: 1000
+              runAsNonRoot: true
+          replicas: 1
+          nodeSelector:
+            node-role: slow-services
+          tolerations:
+            - key: dedicated
+              operator: Equal
+              value: slow-services
+              effect: NoSchedule
+          containers:
+            main:
+              env:
+                TZ: Europe/Berlin
+              image:
+                tag: "v3.0.3"
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 512Mi
+                limits:
+                  memory: 2Gi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+      ingress:
+        main:
+          enabled: true
+          ingressClassName: haproxy
+          hosts:
+            - host: immich.thekor.eu
+              paths:
+                - path: /
+                  service:
+                    identifier: main
+          tls:
+            - secretName: wildcard-thekor
+              hosts:
+                - immich.thekor.eu
+    # ── Machine Learning ───────────────────────────────────────────────────────
+    machine-learning:
+      enabled: true
+      controllers:
+        main:
+          replicas: 1
+          nodeSelector:
+            node-role: slow-services
+          containers:
+            main:
+              env:
+                TZ: Europe/Berlin
+                GUNICORN_CMD_ARGS: "--no-control-socket"
+              image:
+                tag: "v3.0.3"
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 2Gi
+                limits:
+                  memory: 4Gi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+      persistence:
+        cache:
+          enabled: true
+          type: persistentVolumeClaim
+          storageClass: "rook-cephfs"
+          accessMode: ReadWriteMany
+          size: 10Gi
+        data:
+          enabled: false
+    # ── Valkey ─────────────────────────────────────────────────────────────────
+    valkey:
+      enabled: true
+      controllers:
+        main:
+          containers:
+            main:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 999
+              image:
+                repository: docker.io/valkey/valkey
+                tag: 9.1-alpine@sha256:34f4f659e02a67cfdf3995d11ae432219c936005055b2cd39a042e86280e053e
+                pullPolicy: IfNotPresent
+      persistence:
+        data:
+          enabled: true
+          type: persistentVolumeClaim
+          storageClass: "rook-ceph-block"
+          accessMode: ReadWriteOnce
+          size: 1Gi

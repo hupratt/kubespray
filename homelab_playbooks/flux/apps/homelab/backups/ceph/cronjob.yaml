@@ -1,0 +1,88 @@
+---
+# Migrated from 16-backup-ceph.yaml
+#   task: "Create CronJob template (suspended)"
+# Ansible vars inlined: namespace rook-ceph, target_node coreos-cp-1,
+# pvc_name backup-mount-pvc.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cephblock-backup-template
+  namespace: rook-ceph
+spec:
+  schedule: "0 0 31 2 *"
+  suspend: true
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          name: cephblock-backup
+        spec:
+          imagePullSecrets:
+            - name: docker-registry-secret
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 0
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - coreos-cp-1
+          containers:
+            - name: cephblock-backup
+              image: registry.thekor.eu/kube/rook/rook-ceph-mytoolbox:latest
+              command: ["/root/backupoutput/generated.sh"]
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+              stdin: true
+              tty: true
+              securityContext:
+                privileged: true
+              volumeMounts:
+                - name: ceph-conf
+                  mountPath: /mnt/ceph
+                - name: dev
+                  mountPath: /dev
+                - name: backupoutput
+                  mountPath: /root/backupoutput
+                - name: tmp-backup-dir
+                  mountPath: /tmp
+              livenessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+              readinessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+          volumes:
+            - name: ceph-conf
+              hostPath:
+                path: /etc/ceph
+                type: Directory
+            - name: dev
+              hostPath:
+                path: /dev
+                type: Directory
+            - name: tmp-backup-dir
+              persistentVolumeClaim:
+                claimName: backup-mount-pvc
+            - name: backupoutput
+              hostPath:
+                path: /mnt/backupoutput
+                type: DirectoryOrCreate

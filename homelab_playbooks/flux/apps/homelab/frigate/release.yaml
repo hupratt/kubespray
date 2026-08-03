@@ -1,0 +1,47 @@
+---
+# Replaces the "Deploy Frigate Helm chart" task in 33-frigate.yaml.
+#
+# The playbook installed the local chart at homelab_playbooks/charts/frigate.
+# That chart lives inside THIS repo (kube/kubespray.git), already synced by Flux
+# as the `flux-system` GitRepository, so we reuse it as the chart source.
+#
+# default_storage_class "rook-ceph-block" is inlined for storage.*.storageClassName.
+# The playbook's "Set default StorageClass" task (patching the existing rook SC to
+# be cluster-default) is an imperative op — NOT migrated; see BLOCKERS.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: frigate
+  namespace: frigate
+spec:
+  releaseName: frigate
+  interval: 30m
+  chart:
+    spec:
+      chart: homelab_playbooks/charts/frigate
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      interval: 30m
+  values:
+    storage:
+      config:
+        storageClassName: rook-ceph-block
+      media:
+        storageClassName: rook-ceph-block
+    image:
+      tag: stable
+    rtspPassword:
+      existingSecret: frigate-secret
+      key: FRIGATE_RTSP_PASSWORD
+    ingress:
+      enabled: true
+      ingressClassName: haproxy
+      host: frigate.thekor.eu
+      annotations:
+        haproxy.org/timeout-tunnel: "3600s"
+        haproxy.org/timeout-server: "30s"
+      tls:
+        enabled: true
+        secretName: wildcard-thekor

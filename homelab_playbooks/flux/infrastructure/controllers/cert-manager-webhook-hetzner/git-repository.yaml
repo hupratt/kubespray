@@ -1,0 +1,30 @@
+---
+# Source: 03a-cert-manager.yaml, tasks "Clone or update cert-manager-webhook-hetzner
+# repo" + "Install or upgrade cert-manager webhook for Hetzner from local path".
+#
+# Ansible cloned git@gitlab.thekor.eu:kube/cert-manager-webhook-hetzner.git (ref
+# homelab) to /home/hugo/cert-manager-webhook-hetzner and ran
+# `helm install ./chart`. Flux needs the chart from a source it can reach, so we
+# point a GitRepository at that same private repo; the chart lives in `chart/`.
+#
+# BLOCKER: the chart was installed from a LOCAL path, so this git source is
+# INFERRED from the clone task and is unverified. It also needs SSH creds — create
+# the referenced secret once (not GitOps-managed):
+#
+#   flux create secret git cert-manager-webhook-hetzner-git-auth \
+#     --namespace cert-manager \
+#     --url ssh://git@gitlab.thekor.eu/kube/cert-manager-webhook-hetzner.git \
+#     --private-key-file ~/.ssh/id_ed25519
+#
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: cert-manager-webhook-hetzner
+  namespace: cert-manager
+spec:
+  interval: 30m
+  ref:
+    branch: homelab
+  secretRef:
+    name: cert-manager-webhook-hetzner-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/cert-manager-webhook-hetzner.git

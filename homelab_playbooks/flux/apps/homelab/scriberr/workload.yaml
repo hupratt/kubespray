@@ -1,0 +1,166 @@
+---
+# Migrated from the PVC / Deployment / Service / Ingress tasks in 49-scriberr.yaml.
+# Vars inlined: image v1.2.0, storage_class slow-local, ingress host scrib.thekor.eu,
+# ingress_class haproxy, run_as_user/group 1000. PVCs bind to pre-provisioned
+# static PVs (scriberr-data-pv / scriberr-whisperx-env-pv).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scriberr-data
+  namespace: scriberr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: slow-local
+  volumeName: scriberr-data-pv
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: scriberr-whisperx-env
+  namespace: scriberr
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: slow-local
+  volumeName: scriberr-whisperx-env-pv
+  resources:
+    requests:
+      storage: 100Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scriberr
+  namespace: scriberr
+  labels:
+    app.kubernetes.io/name: scriberr
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: scriberr
+  strategy:
+    type: Recreate   # RWO PVCs require Recreate
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: scriberr
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: scriberr
+          image: "ghcr.io/rishikanthc/scriberr:v1.2.0"
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false   # app writes to /app/data
+            capabilities:
+              drop:
+                - ALL
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: APP_ENV
+              value: production
+            - name: ALLOWED_ORIGINS
+              value: "*"
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 300   # up to 25 min for first start
+            timeoutSeconds: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              memory: 4Gi
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: whisperx-env
+              mountPath: /app/whisperx-env
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: scriberr-data
+        - name: whisperx-env
+          persistentVolumeClaim:
+            claimName: scriberr-whisperx-env
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: scriberr
+  namespace: scriberr
+  labels:
+    app.kubernetes.io/name: scriberr
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: scriberr
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: scriberr
+  namespace: scriberr
+  labels:
+    app.kubernetes.io/name: scriberr
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - scrib.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: scrib.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: scriberr
+                port:
+                  name: http

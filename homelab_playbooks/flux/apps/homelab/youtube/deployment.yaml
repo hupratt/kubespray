@@ -1,0 +1,108 @@
+---
+# Migrated from the Deployment / Service / Ingress tasks in 48-youtube-clone.yaml.
+# Vars inlined: backend_image, app_hostname (youtube.thekor.eu), ingress_class
+# (haproxy), replicas (1). The `docker-registry-secret` imagePullSecret is
+# expected to already exist in the namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: youtubeclone-backend
+  namespace: youtube
+  labels:
+    app: youtubeclone-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: youtubeclone-backend
+  template:
+    metadata:
+      labels:
+        app: youtubeclone-backend
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+        - name: backend
+          image: "registry.thekor.eu/docker/youtubeclone/youtubeclone-dockerized-backend:latest"
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          envFrom:
+            - secretRef:
+                name: youtubeclone-env   # populated by ExternalSecret
+          volumeMounts:
+            - name: static
+              mountPath: /backend/static
+            - name: uploads
+              mountPath: /backend/public/uploads
+            - name: videos
+              mountPath: /backend/public/uploads/netgear
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+      volumes:
+        - name: static
+          persistentVolumeClaim:
+            claimName: youtubeclone-static
+        - name: uploads
+          persistentVolumeClaim:
+            claimName: youtubeclone-uploads
+        - name: videos
+          persistentVolumeClaim:
+            claimName: youtubeclone-vids
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: youtubeclone-backend
+  namespace: youtube
+spec:
+  selector:
+    app: youtubeclone-backend
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: youtubeclone-backend
+  namespace: youtube
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - youtube.thekor.eu
+      secretName: youtubeclone-tls
+  rules:
+    - host: youtube.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: youtubeclone-backend
+                port:
+                  number: 3000

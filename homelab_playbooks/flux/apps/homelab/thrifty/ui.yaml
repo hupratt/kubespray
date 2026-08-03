@@ -1,0 +1,46 @@
+---
+# Migrated verbatim from 31-thrifty.yaml (tasks: "Deploy UI", "Create UI service").
+# currency_iso var (EUR) inlined.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: thrifty
+  labels:
+    app: ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ui
+  template:
+    metadata:
+      labels:
+        app: ui
+    spec:
+      containers:
+        - name: ui
+          image: tiehfood/thrifty-ui:latest
+          env:
+            - name: CURRENCY_ISO
+              value: "EUR"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: thrifty
+spec:
+  selector:
+    app: ui
+  ports:
+    - port: 8080
+      targetPort: 8080

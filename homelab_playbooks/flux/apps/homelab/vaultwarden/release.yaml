@@ -1,0 +1,147 @@
+---
+# Replaces the "Render values" + "Deploy via Helm" tasks in 17-vaultwarden.yaml.
+# Chart pulled from the vaultwarden GitRepository (charts/vaultwarden). Non-secret
+# values from charts/vaultwarden/values.yaml.j2 are inlined; every `{{ ... }}` the
+# template interpolated is injected from the ESO-managed Secret vaultwarden-secret
+# via valuesFrom + targetPath.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  releaseName: vaultwarden
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/vaultwarden
+      sourceRef:
+        kind: GitRepository
+        name: vaultwarden
+        namespace: vaultwarden
+      interval: 30m
+  valuesFrom:
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: hostname
+      targetPath: ingress.hostname
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: domain
+      targetPath: domain
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: type
+      targetPath: database.type
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: host
+      targetPath: database.host
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: username
+      targetPath: database.username
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: password
+      targetPath: database.password
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: dbName
+      targetPath: database.dbName
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: adminToken
+      targetPath: vaultwarden.adminToken
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: smtp_host
+      targetPath: smtp.host
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: smtp_from
+      targetPath: smtp.from
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: smtp_port
+      targetPath: smtp.port
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: smtp_username
+      targetPath: smtp.username.value
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: smtp_password
+      targetPath: smtp.password.value
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: clientId
+      targetPath: sso.clientId.value
+    - kind: Secret
+      name: vaultwarden-secret
+      valuesKey: clientSecret
+      targetPath: sso.clientSecret.value
+  values:
+    image:
+      registry: docker.io
+      repository: vaultwarden/server
+      tag: "1.36.0-alpine"
+    timeZone: "Europe/Berlin"
+    ingress:
+      enabled: true
+      class: haproxy
+      # hostname injected via valuesFrom above.
+      path: "/"
+      pathType: ImplementationSpecific
+      tlsSecret: "wildcard-thekor"
+      additionalHostnames: []
+      annotations:
+        haproxy.org/ssl-redirect: "true"
+        haproxy.org/force-ssl-redirect: "true"
+    database:
+      # type / host / username / password / dbName injected via valuesFrom above.
+      {}
+    storage:
+      data:
+        name: "vaultwarden-data"
+        size: "1Gi"
+        class: "rook-cephfs"
+        path: "/data"
+        keepPvc: false
+        accessMode: "ReadWriteOnce"
+    # domain injected via valuesFrom above.
+    vaultwarden:
+      # adminToken injected via valuesFrom above.
+      timeZone: "Europe/Berlin"
+    smtp:
+      # host / from / port / username.value / password.value injected via valuesFrom above.
+      security: starttls
+    signupsAllowed: true
+    signupsVerify: "true"
+    invitationsAllowed: true
+    sso:
+      enabled: true
+      authority: "https://auth.thekor.eu/application/o/vaultwarden/"
+      scopes: "email profile offline_access"
+      signupsMatchEmail: true
+      onlySSO: false
+      ignoreEmailVerification: false
+      cacheExpiration: 0
+      pkce: true
+      # clientId.value / clientSecret.value injected via valuesFrom above.
+    strategy:
+      type: Recreate
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+    containerSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop:
+          - ALL

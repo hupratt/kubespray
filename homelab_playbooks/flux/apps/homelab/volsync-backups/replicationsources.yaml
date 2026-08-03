@@ -1,0 +1,123 @@
+---
+# Source: 08d-backup-volsync-postgres.yaml (+ tasks/08d-backup-task.yaml).
+# VolSync ReplicationSources for the scheduled restic backups. Loop expanded to
+# static resources. Shared vars: schedule "0 2 * * *", retain 2h/7d/1w/1m.
+#
+# cn-postgres sources use repository Secret "restic-credentials"
+# (apps/homelab/cnpg-restic-credentials). immich sources reference secrets/PVCs
+# provisioned by the immich app (47-immich-install.yaml), not by this dir.
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: cn-postgres-shared-pg-1
+  namespace: cn-postgres
+spec:
+  sourcePVC: shared-pg-1
+  trigger:
+    schedule: "0 2 * * *"
+  restic:
+    moverSecurityContext:
+      runAsUser: 0
+      runAsGroup: 0
+      fsGroup: 0
+    pruneIntervalDays: 1
+    repository: restic-credentials
+    volumeSnapshotClassName: ceph-rbd-snapclass
+    storageClassName: rook-ceph-block
+    copyMethod: Snapshot
+    cacheStorageClassName: rook-ceph-block
+    cacheCapacity: 1Gi
+    retain:
+      hourly: 2
+      daily: 7
+      weekly: 1
+      monthly: 1
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: cn-postgres-shared-pg-2
+  namespace: cn-postgres
+spec:
+  sourcePVC: shared-pg-2
+  trigger:
+    schedule: "0 2 * * *"
+  restic:
+    moverSecurityContext:
+      runAsUser: 0
+      runAsGroup: 0
+      fsGroup: 0
+    pruneIntervalDays: 1
+    repository: restic-credentials
+    volumeSnapshotClassName: ceph-rbd-snapclass
+    storageClassName: rook-ceph-block
+    copyMethod: Snapshot
+    cacheStorageClassName: rook-ceph-block
+    cacheCapacity: 1Gi
+    retain:
+      hourly: 2
+      daily: 7
+      weekly: 1
+      monthly: 1
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: immich-library-backup
+  namespace: immich
+spec:
+  sourcePVC: immich-library
+  trigger:
+    schedule: "0 2 * * *"
+  restic:
+    pruneIntervalDays: 1
+    repository: volsync-restic-secret-library
+    retain:
+      hourly: 2
+      daily: 7
+      weekly: 1
+      monthly: 1
+    copyMethod: Direct
+    storageClassName: slow-local
+    moverSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+    moverPodTemplateSpec:
+      spec:
+        tolerations:
+          - key: node-role
+            operator: Equal
+            value: slow-services
+            effect: NoSchedule
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: immich-db-backup
+  namespace: immich
+spec:
+  sourcePVC: immich-pg-1
+  trigger:
+    schedule: "0 2 * * *"
+  restic:
+    pruneIntervalDays: 1
+    repository: volsync-restic-secret-db
+    retain:
+      hourly: 2
+      daily: 7
+      weekly: 1
+      monthly: 1
+    copyMethod: Direct
+    storageClassName: slow-local
+    moverSecurityContext:
+      runAsUser: 26
+      runAsGroup: 26
+      fsGroup: 26
+    moverPodTemplateSpec:
+      spec:
+        tolerations:
+          - key: node-role
+            operator: Equal
+            value: slow-services
+            effect: NoSchedule

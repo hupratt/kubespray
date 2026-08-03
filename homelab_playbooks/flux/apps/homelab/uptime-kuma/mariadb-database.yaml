@@ -1,0 +1,21 @@
+---
+# Migrated verbatim from 11-uptimekuma.yaml, task "Create MariaDB Database for
+# Uptime Kuma". Provisioned by the mariadb-operator in the `mariadb` namespace.
+#
+# NOTE: the companion User / Connection / Grant CRs from 11-uptimekuma.yaml are
+# NOT migrated here — their metadata.name / spec.username / spec.database are
+# templated from the Vault-backed uptime_kuma_secret values (UPTIME_KUMA_DB_USERNAME
+# / UPTIME_KUMA_DB_NAME), which are not known at commit time. See BLOCKERS.
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Database
+metadata:
+  name: uptimekuma
+  namespace: mariadb
+spec:
+  mariaDbRef:
+    kind: MariaDB
+    name: mariadb
+    namespace: mariadb
+    waitForIt: true
+  characterSet: utf8
+  collate: utf8_general_ci

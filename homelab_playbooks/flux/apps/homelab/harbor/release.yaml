@@ -1,0 +1,143 @@
+---
+# Replaces the "Add Harbor Helm repo" + "Deploy Harbor with Helm" tasks in
+# 14-harbor.yaml. External Helm repo (https://helm.goharbor.io), chart harbor
+# pinned to 1.18.3 (chart_version in the playbook).
+#
+# The playbook decoded harbor-vault-secrets into `harbor_vault` and interpolated
+# the scalars into release_values. Here every such scalar is injected at
+# reconcile time from the ESO-managed Secret harbor-vault-secrets via valuesFrom
+# + targetPath; the non-secret release_values are committed inline.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: harbor
+  namespace: harbor
+spec:
+  interval: 1h
+  url: https://helm.goharbor.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: harbor
+  namespace: harbor
+spec:
+  releaseName: harbor
+  interval: 30m
+  chart:
+    spec:
+      chart: harbor
+      version: "1.18.3"
+      sourceRef:
+        kind: HelmRepository
+        name: harbor
+        namespace: harbor
+      interval: 1h
+  install:
+    createNamespace: false
+  # Secret scalars injected from harbor-vault-secrets. Each targetPath mirrors a
+  # `{{ harbor_vault.* }}` interpolation in 14-harbor.yaml release_values.
+  valuesFrom:
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: registry_password
+      targetPath: registry.credentials.password
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: registry_htpasswd
+      targetPath: registry.credentials.htpasswdString
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: admin_password
+      targetPath: harborAdminPassword
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: host
+      targetPath: database.external.host
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: username
+      targetPath: database.external.username
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: core_database
+      targetPath: database.external.coreDatabase
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: notary_server_database
+      targetPath: database.external.notaryServerDatabase
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: notary_signer_database
+      targetPath: database.external.notarySignerDatabase
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: sslmode
+      targetPath: database.external.sslmode
+    - kind: Secret
+      name: harbor-vault-secrets
+      valuesKey: trivy_database
+      targetPath: database.external.trivyDatabase
+  values:
+    logLevel: debug
+    registry:
+      credentials:
+        username: "harbor_registry_user"
+        # password / htpasswdString injected via valuesFrom above.
+      replicaCount: 1
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 1
+    jobservice:
+      replicaCount: 1
+      updateStrategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxUnavailable: 1
+    expose:
+      type: ingress
+      ingress:
+        hosts:
+          core: harbor.thekor.eu
+          portal: harbor.thekor.eu
+          notary: notary-harbor.thekor.eu
+        annotations:
+          haproxy.org/ssl-redirect: "true"
+          haproxy.org/forwarded-for: "true"
+          haproxy.org/backend-config-snippet: |
+            http-request set-header X-Forwarded-Proto https
+            http-request set-header X-Forwarded-Port 443
+          haproxy.org/server-ssl: "false"
+          haproxy.org/check: "true"
+          haproxy.org/check-interval: "10s"
+    externalURL: "https://harbor.thekor.eu"
+    # harborAdminPassword injected via valuesFrom above.
+    persistence:
+      enabled: true
+      resourcePolicy: keep
+      persistentVolumeClaim:
+        registry:
+          storageClass: rook-cephfs
+          size: 20Gi
+          accessMode: ReadWriteMany
+        chartmuseum:
+          storageClass: rook-cephfs
+          size: 10Gi
+          accessMode: ReadWriteMany
+        jobservice:
+          storageClass: rook-cephfs
+          size: 2Gi
+          accessMode: ReadWriteMany
+        redis:
+          storageClass: rook-ceph-block
+          size: 5Gi
+          accessMode: ReadWriteOnce
+    database:
+      type: external
+      external:
+        # host / username / *Database / sslmode injected via valuesFrom above.
+        # The playbook's `harbor_vault.port | default('5432')` resolved to 5432
+        # (harbor_vault had no `port` key), so it is inlined here.
+        port: "5432"
+        existingSecret: "harbor-db-secret"

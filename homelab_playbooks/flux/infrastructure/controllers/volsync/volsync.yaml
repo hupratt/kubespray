@@ -1,0 +1,60 @@
+---
+# Source: 08c-setup-volsync.yaml
+#   - "Add VolSync Helm repository"  (backube, https://backube.github.io/helm-charts/)
+#   - "Install VolSync Helm chart"   (chart backube/volsync 0.15.0, manageCRDs: true)
+#
+# The CSI snapshot controller install (external-snapshotter CRDs/RBAC/deployment
+# pulled from raw.githubusercontent.com) is a bootstrap prerequisite that is NOT
+# reproduced here — see BLOCKERS. The ceph-rbd-snapclass VolumeSnapshotClass moved
+# to infrastructure/configs/volume-snapshot-classes.
+#
+# NOTE: the `volsync` namespace is created centrally by infra-configs, which
+# reconciles AFTER infra-controllers. Ensure it exists before wiring this in
+# (see BLOCKERS).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: backube
+  namespace: volsync
+spec:
+  interval: 1h
+  url: https://backube.github.io/helm-charts/
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: volsync
+  namespace: volsync
+spec:
+  releaseName: volsync
+  interval: 30m
+  chart:
+    spec:
+      chart: volsync
+      version: "0.15.0"        # volsync_chart_version in 08c
+      sourceRef:
+        kind: HelmRepository
+        name: backube
+        namespace: volsync
+      interval: 1h
+  install:
+    createNamespace: false
+  values:
+    manageCRDs: true
+    metrics:
+      disableAuth: true
+    kubeRBACProxy:
+      livenessProbe:
+        httpGet:
+          path: /metrics
+          port: https
+          scheme: HTTPS
+        initialDelaySeconds: 15
+        periodSeconds: 20
+      readinessProbe:
+        httpGet:
+          path: /metrics
+          port: https
+          scheme: HTTPS
+        initialDelaySeconds: 5
+        periodSeconds: 10

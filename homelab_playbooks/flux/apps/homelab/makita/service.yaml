@@ -1,0 +1,15 @@
+---
+# Migrated verbatim from 29-makita.yaml (task: "Create backend service").
+apiVersion: v1
+kind: Service
+metadata:
+  name: makita-backend
+  namespace: makita
+spec:
+  selector:
+    app: makita-backend
+  ports:
+    - name: http
+      port: 9224
+      targetPort: 9224
+  type: ClusterIP

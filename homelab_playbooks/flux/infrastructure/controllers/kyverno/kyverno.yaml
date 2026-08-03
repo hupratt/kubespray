@@ -1,0 +1,48 @@
+---
+# Source: 00b-kyverno.yaml — "Add Kyverno Helm repository" + "Install Kyverno via Helm".
+# helm repo add kyverno https://kyverno.github.io/kyverno + helm install kyverno.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: kyverno
+  namespace: kyverno
+spec:
+  interval: 1h
+  url: https://kyverno.github.io/kyverno
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kyverno
+  namespace: kyverno
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: kyverno
+      version: "*"          # TODO pin version (playbook did not pin one)
+      sourceRef:
+        kind: HelmRepository
+        name: kyverno
+        namespace: kyverno
+      interval: 1h
+  install:
+    createNamespace: false  # kyverno namespace created centrally by infra-configs/namespaces
+    crds: Create
+  upgrade:
+    crds: CreateReplace
+  # Values carried over verbatim from the "Install Kyverno via Helm" task.
+  values:
+    admissionController:
+      replicas: 1  # HA; use 1 for single-node/dev
+    backgroundController:
+      enabled: true
+    cleanupController:
+      enabled: true
+    reportsController:
+      enabled: true
+      resources:
+        limits:
+          memory: 512Mi
+        requests:
+          memory: 128Mi

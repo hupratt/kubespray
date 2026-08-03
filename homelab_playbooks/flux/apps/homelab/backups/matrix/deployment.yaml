@@ -1,0 +1,144 @@
+---
+# Source: 53-backup-matrix.yaml — task "Deploy web application"
+# Django/Gunicorn app + Puppeteer screenshot sidecar in the `backup` namespace.
+# The docker-registry pull secret is replicated into `backup` by the
+# docker-registry-secret ExternalSecret (mittwald replicator).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backupmatrix-web
+  namespace: backup
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: backupmatrix-web
+  template:
+    metadata:
+      labels:
+        app: backupmatrix-web
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      securityContext:
+        seccompProfile:
+          type: Unconfined
+      volumes:
+        - name: staticfiles
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+        - name: screenshot-tmp
+          emptyDir: {}
+        - name: screenshot-cache
+          emptyDir: {}
+      containers:
+        # Django / Gunicorn
+        - name: web
+          image: registry.thekor.eu/docker/backup-matrix/backup-matrix:latest
+          ports:
+            - containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: staticfiles
+              mountPath: /app/staticfiles
+            - name: tmp
+              mountPath: /tmp
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: POSTGRES_USER
+            - name: POSTGRES_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: POSTGRES_PORT
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: POSTGRES_PASSWORD
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: SECRET_KEY
+            - name: DEBUG
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: DEBUG
+            - name: ALLOWED_HOSTS
+              valueFrom:
+                secretKeyRef:
+                  name: backupmatrix-secrets
+                  key: ALLOWED_HOSTS
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 6
+        # Puppeteer screenshot sidecar — shares pod network, reaches Django on
+        # localhost:8000. ALLOWED_HOST must be in Django's ALLOWED_HOSTS (Vault).
+        - name: screenshot
+          image: registry.thekor.eu/docker/backup-matrix/backup-matrix-screenshot:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          env:
+            - name: TARGET_URL
+              value: "https://backup-matrix.thekor.eu"
+            - name: ALLOWED_HOST
+              value: "localhost"
+            - name: PORT
+              value: "3000"
+          securityContext:
+            runAsUser: 0
+            runAsNonRoot: false
+            seccompProfile:
+              type: Unconfined
+          volumeMounts:
+            - name: screenshot-tmp
+              mountPath: /tmp
+            - name: screenshot-cache
+              mountPath: /root/.cache
+          readinessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 6

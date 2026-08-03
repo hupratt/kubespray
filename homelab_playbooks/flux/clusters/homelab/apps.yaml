@@ -15,7 +15,9 @@ spec:
   timeout: 5m
   path: ./homelab_playbooks/flux/apps/homelab
   prune: true
-  wait: true
+  # wait:false — each app reconciles independently; one app missing a one-time
+  # git/SSH secret or an un-seeded Vault key must not block the other ~40.
+  wait: false
   sourceRef:
     kind: GitRepository
     name: flux-system

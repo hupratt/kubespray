@@ -1,0 +1,202 @@
+---
+# Replaces the "Add authentik Helm repository" + "Install authentik official
+# chart" tasks in 23-authentik.yaml. External Helm repo
+# (https://charts.goauthentik.io), chart authentik/authentik.
+#
+# Non-secret values from charts/authentik/values.yaml.j2 are inlined; every
+# `{{ authentik_secret.resources[0].data.* | b64decode }}` the template
+# interpolated is injected from the ESO-managed Secret authentik-vault-secrets
+# via valuesFrom + targetPath.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: authentik
+  namespace: authentik
+spec:
+  interval: 1h
+  url: https://charts.goauthentik.io
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: my-authentik
+  namespace: authentik
+spec:
+  releaseName: my-authentik
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: authentik
+      version: "*"          # TODO pin version (playbook used latest)
+      sourceRef:
+        kind: HelmRepository
+        name: authentik
+        namespace: authentik
+      interval: 1h
+  install:
+    createNamespace: false
+  valuesFrom:
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: secret_key
+      targetPath: authentik.secret_key
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_host
+      targetPath: authentik.email.host
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_port
+      targetPath: authentik.email.port
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_username
+      targetPath: authentik.email.username
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_password
+      targetPath: authentik.email.password
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_use_tls
+      targetPath: authentik.email.use_tls
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_use_ssl
+      targetPath: authentik.email.use_ssl
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_timeout
+      targetPath: authentik.email.timeout
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: smtp_from
+      targetPath: authentik.email.from
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: error_reporting_enabled
+      targetPath: authentik.error_reporting.enabled
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: postgresql_host
+      targetPath: authentik.postgresql.host
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: postgresql_dbname
+      targetPath: authentik.postgresql.name
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: pg_username
+      targetPath: authentik.postgresql.user
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: pg_password
+      targetPath: authentik.postgresql.password
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: postgresql_port
+      targetPath: authentik.postgresql.port
+    - kind: Secret
+      name: authentik-vault-secrets
+      valuesKey: hostname
+      targetPath: server.ingress.hosts[0]
+  values:
+    global:
+      security:
+        allowInsecureImages: true
+      revisionHistoryLimit: 3
+      image:
+        repository: ghcr.io/goauthentik/server
+        tag: "2026.5.3"
+        digest: ""
+        pullPolicy: IfNotPresent
+      affinity:
+        podAntiAffinity: soft
+        nodeAffinity:
+          type: hard
+          matchExpressions: []
+    authentik:
+      enabled: true
+      log_level: info
+      # secret_key injected via valuesFrom above.
+      existingSecret:
+        secretName: ""
+      events:
+        context_processors:
+          geoip: /geoip/GeoLite2-City.mmdb
+          asn: /geoip/GeoLite2-ASN.mmdb
+      web:
+        path: /
+      email:
+        # host / port / username / password / use_tls / use_ssl / timeout / from
+        # injected via valuesFrom above.
+        {}
+      outposts:
+        container_image_base: ghcr.io/goauthentik/%(type)s:%(version)s
+      error_reporting:
+        # enabled injected via valuesFrom above.
+        environment: "k8s"
+        send_pii: false
+      postgresql:
+        # host / name / user / password / port injected via valuesFrom above.
+        {}
+    blueprints:
+      configMaps: []
+      secrets: []
+    server:
+      enabled: true
+      name: server
+      replicas: 1
+      volumeMounts:
+        - name: my-storage
+          mountPath: /media
+        - name: authentik-data
+          mountPath: /data
+      volumes:
+        - name: my-storage
+          persistentVolumeClaim:
+            claimName: authentik-pvc
+        - name: authentik-data
+          persistentVolumeClaim:
+            claimName: authentik-data-pvc
+      containerPorts:
+        http: 9000
+        https: 9443
+        metrics: 9300
+      securityContext:
+        fsGroup: 1000
+      service:
+        type: ClusterIP
+        servicePortHttp: 80
+        servicePortHttps: 443
+        servicePortHttpName: http
+        servicePortHttpsName: https
+      ingress:
+        enabled: true
+        ingressClassName: "haproxy"
+        # hosts[0] injected via valuesFrom above.
+        hosts:
+          - ""
+        paths:
+          - "/"
+        pathType: Prefix
+        extraPaths: []
+        tls: []
+        https: false
+    worker:
+      enabled: true
+      name: worker
+      replicas: 1
+      securityContext:
+        fsGroup: 1000
+    serviceAccount:
+      create: true
+      fullnameOverride: authentik
+    geoip:
+      enabled: false
+    postgresql:
+      enabled: false
+      auth:
+        username: authentik
+        database: authentik

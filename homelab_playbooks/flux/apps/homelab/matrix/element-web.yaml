@@ -1,0 +1,62 @@
+---
+# Source: 54-matrix.yaml — task "Deploy Element Web"
+# External Helm chart (ananace-charts/element-web). No secrets.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: element-web
+  namespace: matrix
+spec:
+  releaseName: element-web
+  interval: 30m
+  chart:
+    spec:
+      chart: element-web
+      version: "1.4.34"
+      sourceRef:
+        kind: HelmRepository
+        name: ananace-charts
+        namespace: matrix
+      interval: 1h
+  install:
+    createNamespace: false
+  timeout: 5m
+  values:
+    defaultServer:
+      url: https://matrix.thekor.eu
+      name: matrix.thekor.eu
+    config:
+      brand: Element
+      showLabsSettings: true
+      piwik: false
+    ingress:
+      enabled: true
+      className: haproxy
+      annotations:
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      hosts:
+        - element.thekor.eu
+      tls:
+        - secretName: element-web-tls
+          hosts:
+            - element.thekor.eu
+    # nginx internally binds :80 — needs NET_BIND_SERVICE (excepted by Kyverno)
+    podSecurityContext:
+      runAsNonRoot: true
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 101
+      runAsGroup: 101
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+        add:
+          - NET_BIND_SERVICE
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi

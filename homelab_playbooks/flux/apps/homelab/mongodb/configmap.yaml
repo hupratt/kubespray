@@ -1,0 +1,11 @@
+---
+# Migrated from 04c-mongodb_and_testapp.yaml
+#   task: "Deploy MongoDB StatefulSet, headless service, and configuration"
+#         (ConfigMap mongodb-configmap, namespace mongo-express)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-configmap
+  namespace: mongo-express
+data:
+  database_url: mongodb-service.mongodb.svc.cluster.local

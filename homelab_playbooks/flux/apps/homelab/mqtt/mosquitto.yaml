@@ -1,0 +1,220 @@
+---
+# Migrated from 50-mqtt.yaml (Mosquitto MQTT broker). Vars inlined:
+#   mosquitto_namespace       -> frigate
+#   mosquitto_node_hostname   -> coreos-wk-4
+#   config/data/log host paths -> /opt/mosquitto/{config,data,log}
+# hostPath PVs are node-pinned to coreos-wk-4 and pre-claimed via claimRef.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mosquitto-config-pv
+spec:
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /opt/mosquitto/config
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - coreos-wk-4
+  claimRef:
+    namespace: frigate
+    name: mosquitto-config-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mosquitto-data-pv
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /opt/mosquitto/data
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - coreos-wk-4
+  claimRef:
+    namespace: frigate
+    name: mosquitto-data-pvc
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mosquitto-log-pv
+spec:
+  capacity:
+    storage: 500Mi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  hostPath:
+    path: /opt/mosquitto/log
+    type: DirectoryOrCreate
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - coreos-wk-4
+  claimRef:
+    namespace: frigate
+    name: mosquitto-log-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-config-pvc
+  namespace: frigate
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: mosquitto-config-pv
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-data-pvc
+  namespace: frigate
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  volumeName: mosquitto-data-pv
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mosquitto-log-pvc
+  namespace: frigate
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: ""
+  volumeName: mosquitto-log-pv
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mosquitto
+  namespace: frigate
+  labels:
+    app: mosquitto
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mosquitto
+  template:
+    metadata:
+      labels:
+        app: mosquitto
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: coreos-wk-4
+      # Pod shares the node's network namespace. Ports 1883 and 9001 bind
+      # directly on the node NIC; dnsPolicy keeps in-cluster DNS working.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: mosquitto
+          image: eclipse-mosquitto:latest
+          imagePullPolicy: IfNotPresent
+          stdin: true
+          tty: true
+          ports:
+            - name: mqtt
+              containerPort: 1883
+              protocol: TCP
+            - name: mqtt-ws
+              containerPort: 9001
+              protocol: TCP
+          volumeMounts:
+            - name: config
+              mountPath: /mosquitto/config
+              readOnly: true
+            - name: data
+              mountPath: /mosquitto/data
+            - name: log
+              mountPath: /mosquitto/log
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: 1883
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: mosquitto-config-pvc
+            readOnly: true
+        - name: data
+          persistentVolumeClaim:
+            claimName: mosquitto-data-pvc
+        - name: log
+          persistentVolumeClaim:
+            claimName: mosquitto-log-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mosquitto
+  namespace: frigate
+  labels:
+    app: mosquitto
+spec:
+  type: ClusterIP
+  selector:
+    app: mosquitto
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: 1883
+      protocol: TCP
+    - name: mqtt-ws
+      port: 9001
+      targetPort: 9001
+      protocol: TCP

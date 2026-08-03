@@ -1,0 +1,27 @@
+---
+# Source: 54-matrix.yaml — task "Create wellknown ingress"
+# Serves /.well-known/matrix from the Synapse chart's lighttpd sidecar.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: matrix-wellknown
+  namespace: matrix
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: haproxy
+  tls:
+    - secretName: matrix-wellknown-tls
+      hosts:
+        - matrix.thekor.eu
+  rules:
+    - host: matrix.thekor.eu
+      http:
+        paths:
+          - path: /.well-known/matrix
+            pathType: Prefix
+            backend:
+              service:
+                name: matrix-synapse-wellknown-lighttpd
+                port:
+                  number: 80

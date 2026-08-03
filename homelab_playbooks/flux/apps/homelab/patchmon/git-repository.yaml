@@ -1,0 +1,23 @@
+---
+# Replaces the "Clone PatchMon Helm chart from GitLab" task in 44-patchmon.yaml.
+# The chart is the root of the private repo git@gitlab.thekor.eu:kube/patchmon.git
+# (Ansible cloned it to /tmp/patchmon-chart and ran `helm install ./`). Flux needs
+# SSH creds — create the referenced secret once (not GitOps-managed):
+#
+#   flux create secret git patchmon-git-auth \
+#     --namespace patchmon \
+#     --url ssh://git@gitlab.thekor.eu/kube/patchmon.git \
+#     --private-key-file ~/.ssh/id_ed25519
+#
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: patchmon
+  namespace: patchmon
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  secretRef:
+    name: patchmon-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/patchmon.git

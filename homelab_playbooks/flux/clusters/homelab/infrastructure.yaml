@@ -35,7 +35,10 @@ spec:
   timeout: 5m
   path: ./homelab_playbooks/flux/infrastructure/configs
   prune: true
-  wait: true
+  # wait:false — some configs (e.g. ServiceMonitors needing the Prometheus CRDs
+  # from the apps layer, or the wildcard Certificate needing the hetzner webhook)
+  # self-heal on retry; not blocking keeps the dependent apps layer moving.
+  wait: false
   sourceRef:
     kind: GitRepository
     name: flux-system

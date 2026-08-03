@@ -1,0 +1,38 @@
+---
+# Migrated verbatim from 26-www.yaml (task: "Create ingress").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: portfolio-ingress
+  namespace: www-portfolio
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - portfolio.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: portfolio.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portfolio-backend
+                port:
+                  number: 9915
+    - host: www.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: portfolio-backend
+                port:
+                  number: 9915

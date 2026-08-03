@@ -1,0 +1,165 @@
+---
+# Source: 02e-hashicorp-vault.yaml — "Deploy Vault Raft backup CronJob".
+# All four definition blocks (ServiceAccount, ExternalSecret, ConfigMap, CronJob)
+# reproduced verbatim in namespace vault. Vault KV paths preserved:
+#   vault_kv_path        -> "vault_backup"
+#   vault_kv_restic_path -> "restic"
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vault-backup
+  namespace: vault
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: vault-backup-credentials
+  namespace: vault
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: vault-backup-credentials
+    creationPolicy: Owner
+    template:
+      type: Opaque
+  data:
+    - secretKey: VAULT_TOKEN
+      remoteRef:
+        key: "vault_backup"
+        property: VAULT_TOKEN
+    - secretKey: RESTIC_REPOSITORY
+      remoteRef:
+        key: "vault_backup"
+        property: RESTIC_REPOSITORY
+    - secretKey: RESTIC_AWS_ENDPOINT
+      remoteRef:
+        key: "vault_backup"
+        property: RESTIC_AWS_ENDPOINT
+    - secretKey: VAULT_ADDR
+      remoteRef:
+        key: "vault_backup"
+        property: VAULT_ADDR
+    - secretKey: RESTIC_PASSWORD
+      remoteRef:
+        key: "restic"
+        property: RESTIC_PASSWORD
+    - secretKey: AWS_ACCESS_KEY_ID
+      remoteRef:
+        key: "restic"
+        property: AWS_ACCESS_KEY_ID
+    - secretKey: AWS_SECRET_ACCESS_KEY
+      remoteRef:
+        key: "restic"
+        property: AWS_SECRET_ACCESS_KEY
+    - secretKey: RESTIC_KEEP_DAILY
+      remoteRef:
+        key: "vault_backup"
+        property: RESTIC_KEEP_DAILY
+    - secretKey: RESTIC_KEEP_WEEKLY
+      remoteRef:
+        key: "vault_backup"
+        property: RESTIC_KEEP_WEEKLY
+    - secretKey: RESTIC_KEEP_MONTHLY
+      remoteRef:
+        key: "vault_backup"
+        property: RESTIC_KEEP_MONTHLY
+    - secretKey: RESTIC_HOSTNAME
+      remoteRef:
+        key: "vault_backup"
+        property: RESTIC_HOSTNAME
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vault-backup-script
+  namespace: vault
+data:
+  backup.sh: |
+    #!/bin/sh
+    set -euo pipefail
+
+    SNAPSHOT_FILE="/tmp/vault-snapshot-$(date +%Y%m%d-%H%M%S).snap"
+
+    echo "[vault-backup] Saving Raft snapshot..."
+    vault operator raft snapshot save "$SNAPSHOT_FILE"
+
+    echo "[vault-backup] Snapshot size: $(du -sh "$SNAPSHOT_FILE" | cut -f1)"
+
+    echo "[vault-backup] Pushing to restic repo..."
+    restic \
+      --repo "${RESTIC_REPOSITORY}" \
+      --verbose \
+      backup "$SNAPSHOT_FILE" \
+      --tag vault-raft-snapshot \
+      --host "$RESTIC_HOSTNAME"
+    echo "[vault-backup] Applying retention policy..."
+    restic \
+      --repo "${RESTIC_REPOSITORY}" \
+      forget --group-by host \
+      --keep-daily   "$RESTIC_KEEP_DAILY" \
+      --keep-weekly  "$RESTIC_KEEP_WEEKLY" \
+      --keep-monthly "$RESTIC_KEEP_MONTHLY" \
+      --prune
+
+    rm -f "$SNAPSHOT_FILE"
+    echo "[vault-backup] Done."
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: vault-backup
+  namespace: vault
+spec:
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        metadata:
+          labels:
+            app: vault-backup
+        spec:
+          serviceAccountName: vault-backup
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+          containers:
+            - name: vault-backup
+              image: "registry.thekor.eu/hashicorp-vault:restic-0.18.0-vault-1.17"
+              command: ["/bin/sh", "/scripts/backup.sh"]
+              env:
+                - name: VAULT_SKIP_VERIFY
+                  value: "false"
+                - name: AWS_DEFAULT_REGION
+                  value: "garage"
+              envFrom:
+                - secretRef:
+                    name: vault-backup-credentials
+              volumeMounts:
+                - name: script
+                  mountPath: /scripts
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "64Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "256Mi"
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+          volumes:
+            - name: script
+              configMap:
+                name: vault-backup-script
+                defaultMode: 0755

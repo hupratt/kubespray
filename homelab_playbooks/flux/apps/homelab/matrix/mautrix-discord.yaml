@@ -1,0 +1,124 @@
+---
+# Source: 54b-matrix.yaml — tasks "Create mautrix-discord PVC / Deployment / Service"
+# The bridge is reached in-cluster via its headless Service; the original
+# Ingress task is omitted because its host (`discord_bridge_hostname`) was an
+# undefined Ansible var (see BLOCKERS).
+#
+# CHANGED vs Ansible: the config volume mounts the ESO-managed Secret
+# `mautrix-discord-config` (was a ConfigMap) — see mautrix-discord-secrets.yaml.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mautrix-discord-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: rook-ceph-block
+  resources:
+    requests:
+      storage: "2Gi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mautrix-discord
+  namespace: matrix
+  labels:
+    app.kubernetes.io/name: mautrix-discord
+    app.kubernetes.io/managed-by: flux
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mautrix-discord
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mautrix-discord
+    spec:
+      securityContext:
+        runAsUser: 1337
+        runAsGroup: 1337
+        fsGroup: 1337
+        runAsNonRoot: true
+      volumes:
+        - name: config-template
+          secret:
+            secretName: mautrix-discord-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: mautrix-discord-data
+      # mautrix rewrites config in-place — copy from read-only source to /data
+      initContainers:
+        - name: copy-config
+          image: busybox
+          command: [sh, -c, "cp /config-template/config.yaml /data/config.yaml"]
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+              readOnly: true
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 1337
+            runAsGroup: 1337
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+      containers:
+        - name: mautrix-discord
+          image: dock.mau.dev/mautrix/discord:latest
+          imagePullPolicy: Always
+          command:
+            - /usr/bin/mautrix-discord
+            - --config=/data/config.yaml
+          ports:
+            - containerPort: 29334
+              name: appservice
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /_matrix/mau/live
+              port: appservice
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /_matrix/mau/live
+              port: appservice
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 1
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mautrix-discord
+  namespace: matrix
+  labels:
+    app.kubernetes.io/name: mautrix-discord
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: mautrix-discord
+  ports:
+    - name: appservice
+      port: 29334
+      targetPort: appservice

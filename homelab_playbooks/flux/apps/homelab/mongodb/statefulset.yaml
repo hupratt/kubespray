@@ -1,0 +1,108 @@
+---
+# Migrated from 04c-mongodb_and_testapp.yaml
+#   task: "Deploy MongoDB StatefulSet, headless service, and configuration"
+#         (StatefulSet + headless Service)
+# Root credentials are read from the ESO-managed Secret mongodb-secret.
+# NOTE: the init-scripts volume references ConfigMap `mongodb-init-script`,
+# which the source playbook never defines -> see BLOCKERS.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mongodb-statefulset
+  namespace: mongodb
+  labels:
+    app: mongo
+spec:
+  serviceName: mongodb-service
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mongo
+  template:
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:
+        - name: mongo
+          image: mongo:6.0
+          ports:
+            - containerPort: 27017
+          env:
+            - name: MONGO_INITDB_ROOT_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: mongo-root-username
+            - name: MONGO_INITDB_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb-secret
+                  key: mongo-root-password
+          volumeMounts:
+            - name: mongodb-ss-storage
+              mountPath: /data/db
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          livenessProbe:
+            exec:
+              command:
+                - mongosh
+                - --username
+                - "$(MONGO_INITDB_ROOT_USERNAME)"
+                - --password
+                - "$(MONGO_INITDB_ROOT_PASSWORD)"
+                - --authenticationDatabase
+                - admin
+                - --eval
+                - "db.adminCommand('ping')"
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - mongosh
+                - --username
+                - "$(MONGO_INITDB_ROOT_USERNAME)"
+                - --password
+                - "$(MONGO_INITDB_ROOT_PASSWORD)"
+                - --authenticationDatabase
+                - admin
+                - --eval
+                - "db.adminCommand('ping')"
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: init-scripts
+          configMap:
+            name: mongodb-init-script
+  volumeClaimTemplates:
+    - metadata:
+        name: mongodb-ss-storage
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+        storageClassName: rook-ceph-block
+---
+# Migrated from 04c-mongodb_and_testapp.yaml
+#   task: "Deploy MongoDB StatefulSet, headless service, and configuration"
+#         (headless Service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongodb-service
+  namespace: mongodb
+spec:
+  clusterIP: None
+  selector:
+    app: mongo
+  ports:
+    - protocol: TCP
+      port: 27017
+      targetPort: 27017

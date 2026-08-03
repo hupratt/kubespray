@@ -1,0 +1,15 @@
+---
+# Migrated verbatim from 26-www.yaml (task: "Create backend service").
+apiVersion: v1
+kind: Service
+metadata:
+  name: portfolio-backend
+  namespace: www-portfolio
+spec:
+  selector:
+    app: portfolio-backend
+  ports:
+    - name: http
+      port: 9915
+      targetPort: 9915
+  type: ClusterIP

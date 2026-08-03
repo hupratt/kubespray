@@ -1,0 +1,295 @@
+---
+# Source: 00b-kyverno.yaml — "Policy - disallow root user".
+# Requires the kyverno CRDs (installed by the HelmRelease in kyverno.yaml) to be
+# Ready before these ClusterPolicies can apply. See BLOCKERS in the migration note.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-root-user
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+
+    # -----------------------------
+    # 1. MUTATE RULE (auto-fix)
+    # -----------------------------
+    - name: mutate-runAsNonRoot
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - matrix
+              selector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - mautrix-signal
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/created-by: volsync
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/component: signingkey-job
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/instance: matrix-synapse
+          - resources:
+              namespaces:
+                - rook-ceph
+                - kube-system
+                - cert-manager
+                - mongodb
+                - open-webui
+                - frigate
+                - postgres
+                - haproxy
+                - paperless
+                - booking
+                - makita
+                - technitium
+                - thrifty
+                - trellis
+                - www-portfolio
+                - backup
+                - netbird
+      mutate:
+        patchStrategicMerge:
+          spec:
+            securityContext:
+              +(runAsNonRoot): true
+
+    # -----------------------------
+    # 2. VALIDATE RULE (enforce)
+    # -----------------------------
+    - name: validate-runAsNonRoot
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - matrix
+              selector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - mautrix-signal
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/created-by: volsync
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/created-by: signingkey-job
+          - resources:
+              selector:
+                matchLabels:
+                  app.kubernetes.io/instance: matrix-synapse
+          - resources:
+              namespaces:
+                - rook-ceph
+                - kube-system
+                - cert-manager
+                - mongodb
+                - open-webui
+                - frigate
+                - postgres
+                - haproxy
+                - paperless
+                - booking
+                - makita
+                - thrifty
+                - trellis
+                - www-portfolio
+                - backup
+                - netbird
+      validate:
+        message: "Running as root is not allowed."
+        pattern:
+          spec:
+            =(securityContext):
+              =(runAsNonRoot): true
+            =(initContainers):
+              - =(securityContext):
+                  =(runAsNonRoot): true
+            containers:
+              - =(securityContext):
+                  =(runAsNonRoot): true
+---
+# Source: 00b-kyverno.yaml — "Policy - require liveness and readiness probes".
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-probes
+  annotations:
+    policies.kyverno.io/title: Require Liveness and Readiness Probes
+    policies.kyverno.io/category: Best Practices
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-probes
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              selector:
+                matchExpressions:
+                  - key: batch.kubernetes.io/job-name
+                    operator: Exists
+          - resources:
+              namespaces:
+                - kube-system
+                - rook-ceph
+                - etcd-backup
+                - netbox
+                - open-webui
+                - monitoring
+                - haproxy
+                - paperless
+                - booking
+                - www-portfolio
+                - makita
+                - thrifty
+                - trellis
+                - mariadb
+                - cert-manager
+                - external-secrets
+                - kyverno
+                - volsync
+                - netbird
+      validate:
+        message: "Liveness and readiness probes are required."
+        pattern:
+          spec:
+            containers:
+              - livenessProbe:
+                  (httpGet | tcpSocket | exec | grpc): "*"
+                readinessProbe:
+                  (httpGet | tcpSocket | exec | grpc): "*"
+---
+# Source: 00b-kyverno.yaml — "Policy - disallow privileged containers".
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-privileged
+  annotations:
+    policies.kyverno.io/title: Disallow Privileged Containers
+    policies.kyverno.io/category: Pod Security
+spec:
+  rules:
+    - name: check-privileged
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - rook-ceph
+      validate:
+        message: Privileged containers are not allowed.
+        pattern:
+          spec:
+            =(initContainers):
+              - =(securityContext):
+                  =(privileged): false
+            containers:
+              - =(securityContext):
+                  =(privileged): false
+---
+# Source: 00b-kyverno.yaml — "Policy - block SYS_ADMIN capability".
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: block-sys-admin
+  annotations:
+    policies.kyverno.io/title: Block SYS_ADMIN Capability
+    policies.kyverno.io/category: Pod Security
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: block-sys-admin
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - haproxy
+                - kube-system
+      validate:
+        message: "SYS_ADMIN capability is not allowed."
+        deny:
+          conditions:
+            any:
+              - key: "SYS_ADMIN"
+                operator: AnyIn
+                value: "request.object.spec.containers[].securityContext.capabilities.add[] || []"
+              - key: "SYS_ADMIN"
+                operator: AnyIn
+                value: "request.object.spec.initContainers[].securityContext.capabilities.add[] || []"
+---
+# Source: 00b-kyverno.yaml — "Policy - restrict NET_ADMIN capability".
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-net-admin
+  annotations:
+    policies.kyverno.io/title: Restrict NET_ADMIN Capability
+    policies.kyverno.io/category: Pod Security
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restrict-net-admin
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+              operations: ["CREATE", "UPDATE"]
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - haproxy
+                - mariadb
+                - kube-system
+      validate:
+        message: "NET_ADMIN capability is not allowed."
+        deny:
+          conditions:
+            any:
+              - key: "NET_ADMIN"
+                operator: AnyIn
+                value: "{{ 'request.object.spec.containers[].securityContext.capabilities.add[] || []' }}"
+              - key: "NET_ADMIN"
+                operator: AnyIn
+                value: "request.object.spec.initContainers[].securityContext.capabilities.add[] || []"

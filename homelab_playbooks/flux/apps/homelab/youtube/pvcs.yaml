@@ -1,0 +1,41 @@
+---
+# Migrated from "Create PVCs" in 48-youtube-clone.yaml. Static-bound to
+# pre-provisioned PVs on the `slow-local` StorageClass.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: youtubeclone-static
+  namespace: youtube
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeName: youtubeclone-static
+  storageClassName: slow-local
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: youtubeclone-uploads
+  namespace: youtube
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeName: youtubeclone-uploads
+  storageClassName: slow-local
+  resources:
+    requests:
+      storage: 100Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: youtubeclone-vids
+  namespace: youtube
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeName: youtubeclone-vids
+  storageClassName: slow-local
+  resources:
+    requests:
+      storage: 100Gi

@@ -1,0 +1,96 @@
+---
+# Source: 08-cloudnative-pg.yaml — "Deploy shared CNPG Cluster".
+# managed.roles loop expanded to a static list (one per db_owner).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: shared-pg
+  namespace: cn-postgres
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgis:16-3.5
+  enableSuperuserAccess: true
+  superuserSecret:
+    name: shared-pg-superuser-vault-secret
+  managed:
+    roles:
+        - name: grafana
+          ensure: present
+          login: true
+          passwordSecret:
+            name: grafana-pg-secret
+        - name: netbox
+          ensure: present
+          login: true
+          passwordSecret:
+            name: netbox-pg-secret
+        - name: authentik
+          ensure: present
+          login: true
+          passwordSecret:
+            name: authentik-pg-secret
+        - name: patchmon
+          ensure: present
+          login: true
+          passwordSecret:
+            name: patchmon-pg-secret
+        - name: harbor
+          ensure: present
+          login: true
+          passwordSecret:
+            name: harbor-pg-secret
+        - name: paperless
+          ensure: present
+          login: true
+          passwordSecret:
+            name: paperless-pg-secret
+        - name: ubuntu
+          ensure: present
+          login: true
+          passwordSecret:
+            name: ubuntu-pg-secret
+        - name: linkwarden
+          ensure: present
+          login: true
+          passwordSecret:
+            name: linkwarden-pg-secret
+        - name: synapse
+          ensure: present
+          login: true
+          passwordSecret:
+            name: synapse-pg-secret
+        - name: mautrix
+          ensure: present
+          login: true
+          passwordSecret:
+            name: mautrix-pg-secret
+        - name: mautrixwhatsapp
+          ensure: present
+          login: true
+          passwordSecret:
+            name: mautrixwhatsapp-pg-secret
+        - name: dawarich
+          ensure: present
+          login: true
+          passwordSecret:
+            name: dawarich-pg-secret
+        - name: netbirduser
+          ensure: present
+          login: true
+          passwordSecret:
+            name: netbirduser-pg-secret
+  bootstrap:
+    initdb:
+      database: postgres
+      owner: postgres
+      postInitSQLRefs:
+        secretRefs:
+          - name: cnpg-backup-user
+            key: setup.sql
+  storage:
+    size: 50Gi
+    storageClass: rook-ceph-block
+  monitoring:
+    enablePodMonitor: true

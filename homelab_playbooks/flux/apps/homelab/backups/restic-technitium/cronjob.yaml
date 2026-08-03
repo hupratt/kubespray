@@ -1,0 +1,56 @@
+---
+# Migrated verbatim from the "Deploy restic backup CronJob" task in
+# 45c-restic-technitium.yaml. Backs up the
+# technitium-technitium-dnsserver-config PVC. Pinned to node coreos-wk-4 with a
+# slow-services toleration; runs as root (runAsUser 0) as in the source.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restic-technitium
+  namespace: technitium
+spec:
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          nodeName: "coreos-wk-4"
+          tolerations:
+            - key: "node-role"
+              operator: "Equal"
+              value: "slow-services"
+              effect: "NoSchedule"
+          containers:
+            - name: restic
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsUser: 0
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic backup /data --host technitium
+                  restic forget \
+                    --keep-daily 7 \
+                    --keep-weekly 4 \
+                    --keep-monthly 6 \
+                    --prune
+              envFrom:
+                - secretRef:
+                    name: technitium-secret
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: technitium-technitium-dnsserver-config

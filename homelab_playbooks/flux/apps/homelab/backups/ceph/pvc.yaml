@@ -1,0 +1,19 @@
+---
+# Migrated from 16-backup-ceph.yaml
+#   task: "Create backup PVC"
+# (Ansible vars inlined: namespace rook-ceph, pvc_name backup-mount-pvc.)
+# NOTE: 13-backupuser.yaml declared an identically-named PVC + CronJob in
+# rook-ceph; that older copy is intentionally NOT migrated — this dir is the
+# canonical owner. See BLOCKERS.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-mount-pvc
+  namespace: rook-ceph
+spec:
+  storageClassName: rook-ceph-block
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi

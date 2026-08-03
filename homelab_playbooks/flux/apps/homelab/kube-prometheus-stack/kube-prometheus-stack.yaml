@@ -1,6 +1,11 @@
 ---
-# Migrated from 00c-prometheus.yaml (the "dummy" kube-prometheus-stack install
-# that satisfies rook-ceph). grafana + alertmanager disabled, as in the original.
+# Originally migrated from 00c-prometheus.yaml (the "dummy" install that satisfies
+# rook-ceph). Now also carries the real 10-monitoring.yaml config, whose task
+# "Upgrade existing prometheus stack with grafana and alert manager" upgraded this
+# SAME `prometheus` release with charts/kube-prometheus-stack/mon-grafana-values.yml
+# (grafana enabled, external Postgres, Authentik OAuth, extra scrape jobs,
+# alertmanager). A single HelmRelease owns the release, so those values are merged
+# in below rather than declared as a second (colliding) release.
 # The `monitoring` namespace is created by infra-configs/namespaces.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: HelmRepository
@@ -29,8 +34,159 @@ spec:
       interval: 1h
   install:
     createNamespace: false
+  # Values carried over from charts/kube-prometheus-stack/mon-grafana-values.yml
+  # (10-monitoring.yaml). Grafana secrets are injected into the grafana pod via
+  # envValueFrom/secretKeyRef against the ESO-managed `grafana-secret`
+  # (apps/homelab/monitoring/external-secret-grafana.yaml) — no plaintext here.
   values:
     grafana:
-      enabled: false
+      defaultDashboardsEnabled: true
+      enabled: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+        seccompProfile:
+          type: RuntimeDefault
+      containerSecurityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        capabilities:
+          drop: [ALL]
+      initChownData:
+        enabled: false
+      sidecar:
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 472
+          runAsGroup: 472
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: [ALL]
+      # Secrets injected as env vars from the ESO-managed grafana-secret.
+      envValueFrom:
+        GF_SECURITY_ADMIN_PASSWORD:
+          secretKeyRef:
+            name: grafana-secret
+            key: GF_SECURITY_ADMIN_PASSWORD
+        GF_AUTH_GENERIC_OAUTH_CLIENT_ID:
+          secretKeyRef:
+            name: grafana-secret
+            key: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+        GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET:
+          secretKeyRef:
+            name: grafana-secret
+            key: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+        GF_DATABASE_PASSWORD:
+          secretKeyRef:
+            name: grafana-secret
+            key: GF_DATABASE_PASSWORD
+        GF_EMAIL_PASSWORD:
+          secretKeyRef:
+            name: grafana-secret
+            key: GF_DATABASE_PASSWORD
+        GF_EMAIL_USER:
+          secretKeyRef:
+            name: grafana-secret
+            key: GF_EMAIL_USER
+      grafana.ini:
+        database:
+          type: postgres
+          host: shared-pg-rw.cn-postgres.svc.cluster.local:5432
+          name: grafana
+          user: grafana
+          password: $__env{GF_DATABASE_PASSWORD}
+          ssl_mode: disable
+        auth.generic_oauth:
+          enabled: true
+          name: Authentik
+          allow_sign_up: true
+          client_id: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_ID}
+          client_secret: $__env{GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET}
+          scopes: openid profile email
+          auth_url: https://auth.thekor.eu/application/o/authorize/
+          token_url: https://auth.thekor.eu/application/o/token/
+          api_url: https://auth.thekor.eu/application/o/userinfo/
+          role_attribute_path: contains(groups, 'grafana-admin') && 'Admin' || contains(groups, 'grafana-editor') && 'Editor' || 'Viewer'
+          role_attribute_strict: false
+        server:
+          domain: dashboard.thekor.eu
+          root_url: https://dashboard.thekor.eu
+        smtp:
+          enabled: true
+          host: "mail.thekor.eu:587"
+          user: $__env{GF_EMAIL_USER}
+          password: $__env{GF_EMAIL_PASSWORD}
+          from_address: $__env{GF_EMAIL_USER}
+          from_name: "Grafana k8s"
+          starttls_policy: "OpportunisticStartTLS"
+      persistence:
+        enabled: true
+        size: 1Gi
+        storageClassName: rook-cephfs
+        accessModes:
+          - ReadWriteMany
+      ingress:
+        enabled: true
+        hosts:
+          - dashboard.thekor.eu
+        ingressClassName: haproxy
+        tls:
+          - hosts:
+              - dashboard.thekor.eu
+            secretName: wildcard-thekor
+    defaultRules:
+      rules:
+        kubeProxy: false
+      disabled:
+        Watchdog: true
+    prometheus:
+      enabled: true
+      prometheusSpec:
+        additionalScrapeConfigs:
+          - job_name: 'node_exporter'
+            scrape_interval: 60s
+            scrape_timeout: 60s
+            static_configs:
+              - targets: ['hz-mailcow.thekor.eu:9100', 'hz-ecom.thekor.eu:9100', 'lb1.thekor.eu:9100', 'lb2.thekor.eu:9100']
+          - job_name: 'pushgateway'
+            static_configs:
+              - targets: ['pushgateway-prometheus-pushgateway.monitoring.svc.cluster.local:9091']
+          - job_name: 'coredns'
+            static_configs:
+              - targets: ['coredns1.thekor.eu:9153', 'coredns2.thekor.eu:9153', 'coredns3.thekor.eu:9153']
+          - job_name: 'ilo'
+            metrics_path: /metrics
+            scrape_interval: 300s
+            scrape_timeout: 61s
+            static_configs:
+              - targets:
+                  - 10.10.99.110
+                  - 10.10.99.102
+            relabel_configs:
+              - source_labels: [__address__]
+                target_label: __param_host
+              - source_labels: [__param_host]
+                target_label: instance
+              - target_label: __address__
+                replacement: 'ilo-exporter.monitoring.svc.cluster.local:9545'
     alertmanager:
-      enabled: false
+      alertmanagerSpec:
+        alertmanagerConfiguration: {}
+      config:
+        global:
+          resolve_timeout: 5m
+        inhibit_rules:
+          - source_matchers:
+              - severity = "critical"
+            target_matchers:
+              - severity = "warning"
+            equal: ['namespace', 'alertname']
+        route:
+          group_by: ['namespace']
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 12h
+        receivers:
+          - name: 'null'

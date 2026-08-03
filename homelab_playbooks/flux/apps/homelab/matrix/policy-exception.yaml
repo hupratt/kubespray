@@ -1,0 +1,34 @@
+---
+# Source: 54-matrix.yaml — task "Apply Kyverno PolicyExceptions"
+# The Ansible `{{ '{{' }} ... {{ '}}' }}` escaping rendered literal Kyverno
+# JMESPath expressions; they are written out verbatim here.
+apiVersion: kyverno.io/v2beta1
+kind: PolicyException
+metadata:
+  name: matrix-stack-exceptions
+  namespace: matrix
+spec:
+  match:
+    any:
+      - resources:
+          namespaces:
+            - matrix
+  exceptions:
+    # element-web nginx needs NET_BIND_SERVICE (port 80 inside container)
+    - policyName: disallow-capabilities-strict
+      ruleNames:
+        - adding-capabilities-strict
+      conditions:
+        any:
+          - key: '{{ request.object.metadata.labels["app.kubernetes.io/name"] }}'
+            operator: In
+            value: [element-web]
+    # Synapse + bridge write to /data — can't use read-only root FS
+    - policyName: require-ro-rootfs
+      ruleNames:
+        - require-ro-rootfs
+      conditions:
+        any:
+          - key: '{{ request.object.metadata.labels["app.kubernetes.io/name"] }}'
+            operator: In
+            value: [matrix-synapse, mautrix-discord]

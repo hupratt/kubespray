@@ -1,0 +1,76 @@
+---
+# Migrated verbatim from 32-paperless.yaml (task: "Create rook-cephfs StorageClass").
+# Cluster-scoped; apiVersion/kind supplied here (were Ansible module args).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-cephfs-paperless
+provisioner: rook-ceph.cephfs.csi.ceph.com
+parameters:
+  clusterID: rook-ceph
+  fsName: myfs
+  pool: myfs-data0
+  subvolumeGroup: csi
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+  monitors: ceph-mon.rook-ceph.svc.cluster.local
+  mounter: fuse
+mountOptions:
+  - debug
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+---
+# Migrated verbatim from 32-paperless.yaml (task: "Pre-create Paperless PVCs" loop).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-paperless-ngx-data
+  namespace: paperless
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: rook-cephfs-paperless
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-paperless-ngx-media
+  namespace: paperless
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: rook-cephfs-paperless
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-paperless-ngx-export
+  namespace: paperless
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: rook-cephfs-paperless
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: paperless-paperless-ngx-consume
+  namespace: paperless
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: rook-cephfs-paperless
+  resources:
+    requests:
+      storage: 2Gi

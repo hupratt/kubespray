@@ -1,0 +1,14 @@
+---
+# Migrated verbatim from 28-booking.yaml (task: "Create PVC for media files").
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: booking-media
+  namespace: booking
+spec:
+  storageClassName: rook-cephfs-booking
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: "1Gi"

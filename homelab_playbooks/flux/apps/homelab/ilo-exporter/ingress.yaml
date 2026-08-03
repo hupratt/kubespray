@@ -1,0 +1,24 @@
+---
+# Migrated verbatim from 37-ilo-exporter.yaml, task "Deploy iLO exporter manifests"
+# (Ingress). ingress_host -> ilo-exporter.thekor.eu
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ilo-exporter
+  namespace: monitoring
+  annotations:
+    haproxy.org/check: "false"
+    haproxy.org/forwarded-for: "true"
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: "ilo-exporter.thekor.eu"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ilo-exporter
+                port:
+                  name: metrics

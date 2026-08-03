@@ -105,40 +105,89 @@ inside its values (e.g. linkwarden DB creds), the `HelmRelease` pulls that
 scalar from the ESO-managed `Secret` via `valuesFrom` + `targetPath` — the exact
 values the `.j2` template used to interpolate.
 
-## Validate locally
+## Migration map
+
+**All numbered playbooks have been migrated.** The tree now holds ~40 apps, the
+backups group, and the infrastructure layers — every `kustomization.yaml` builds
+with `kubectl kustomize`. What remains is runtime setup (one-time secrets, Vault
+seeding) and a handful of items that can't be represented declaratively.
+
+### Reconciliation model
+
+`infra-controllers` is `wait: true` (a strict CRD gate) and contains **only**
+operators installed from public sources, each declaring its own namespace inline:
+external-secrets, cert-manager, kyverno, haproxy, cloudnative-pg, volsync,
+mariadb-operator. `infra-configs` and `apps` are `wait: false`, so one app that is
+missing a one-time git/SSH secret or an un-seeded Vault key cannot block the other
+~40 — each reconciles (and self-heals on retry) independently.
+
+MariaDB *instances* were split out of the operator dir into
+`apps/homelab/mariadb-instances/` (they need ESO + operator CRDs, both of which are
+only guaranteed by the apps layer). Vault was moved to `apps/homelab/vault/` (its
+ServiceMonitor needs the Prometheus CRDs that arrive with kube-prometheus-stack).
+
+### Created but intentionally NOT wired
+
+These leaf dirs exist and build, but are left out of their aggregator because they
+would block the `wait: true` controllers layer. Wire them once the prerequisite is
+resolved:
+
+- `infrastructure/controllers/rook-ceph/` — the CephFilesystem needs the rook
+  operator, which is **not** in this tree (`01a`/`01b` clone a private rook repo
+  and hand-tune the CephCluster interactively). Publish rook as its own
+  GitRepository-backed Kustomization, then add `rook-ceph` to the controllers
+  aggregator.
+- `infrastructure/controllers/cert-manager-webhook-hetzner/` — the webhook chart
+  was `helm install`ed from a local path; the GitRepository source is a
+  best-guess placeholder. Verify the chart's git source (+ create the
+  `cert-manager-webhook-hetzner-git-auth` SSH secret), then wire it in. Until then
+  the `wildcard-thekor` Certificate in `configs/cert-manager-issuers` won't issue.
+
+### One-time setup required before apps go green
+
+- **Per-app git-chart SSH secrets** (private GitLab charts): `linkwarden-git-auth`,
+  `vaultwarden-git-auth`, `netbox-git-auth`, `sftpgo-git-auth`, `patchmon-git-auth`,
+  `dawarich-git-auth`, plus the matrix signal-bridge repo. Create with
+  `flux create secret git <name> --namespace <ns> --url ssh://… --private-key-file …`.
+  `dawarich` also points at a **placeholder** repo URL — fix it to the real chart source.
+- **Vault KV seeding**: the imperative `vault_kv2_write` steps (root token) that
+  populated `kv/<app>` were not migrated. Several ExternalSecrets use **inferred**
+  KV keys/properties — verify before relying on them: the matrix bridges
+  (`synapse`, `mautrixdiscord`, `pickle_key`), `hetzner-ddns` (`hetzner/ddns_api_token`),
+  the DB-backup creds (`postgres-backup`, `mongodb-backup`), and `restic-technitium`.
+- **influx values are Ansible-Vault-encrypted** (`charts/influx/influx-values.yml`)
+  — `influxdb` currently deploys with chart defaults only. Decrypt, then model the
+  secrets as an ExternalSecret + `valuesFrom`.
+- **mittwald replicator**: multiple apps annotate secrets with `replicate-to`
+  (docker pull secret, mariadb creds). The `kubernetes-replicator` controller that
+  honours those annotations is wired in at
+  `infrastructure/controllers/kubernetes-replicator/` (migrated from `03a`). Note
+  the wildcard-`thekor` TLS secret's `replicate-to` annotation was applied by `03a`
+  as a patch to the cert-manager-owned Secret; add it to the `wildcard-thekor`
+  Certificate's `secretTemplate.annotations` in `configs/cert-manager-issuers` so
+  the fan-out of the TLS cert is declarative too.
+
+### Pre-existing source bugs carried over verbatim (fix at the source)
+
+- `www` — ExternalSecret targets `portfolio-vault-secrets` but the Deployment reads
+  `portfolio-backend-env` (names don't match; env won't load).
+- `patchmon` — chart expects `patchmon-oidc-secret`; playbook only creates
+  `patchmon-server-secret`.
+- `frigate` — chart mounts a `frigate-config` ConfigMap; secrets now render the
+  config into a Secret, so the chart's mount must be repointed.
+
+### Not GitOps-able (stay imperative / Ansible)
+
+Vault init/unseal/restore (`02b`/`02c`), the postgres restore runbook (`08e`),
+`deploy-backup.sh` kubeconfig generation + scp, image builds/pushes to
+`registry.thekor.eu`, one-off DB bootstraps and `mongorestore`/`pg_dump` seeding,
+and host-side steps (PV backing dirs on `coreos-wk-4`, nodelocaldns/kubelet
+patches). These are noted in the per-dir file comments.
+
+### Verify locally
 
 ```bash
-# every leaf + aggregate kustomization must build:
 for d in $(find homelab_playbooks/flux -name kustomization.yaml -printf '%h\n'); do
   kubectl kustomize "$d" >/dev/null && echo "OK $d" || echo "FAIL $d"
 done
 ```
-
-## Migration map
-
-Converted in this pilot:
-
-- [x] `00a-ns.yaml` → `infrastructure/configs/namespaces`
-- [x] `02d` (ESO install + ClusterSecretStore) → `infrastructure/controllers/external-secrets` + `infrastructure/configs/cluster-secret-store`
-- [x] `03a` (cert-manager controller only) → `infrastructure/controllers/cert-manager`
-- [x] `00c-prometheus.yaml` → `apps/homelab/kube-prometheus-stack`
-- [x] `21-linkwarden.yaml` → `apps/homelab/linkwarden`
-
-Not yet migrated (follow the same patterns above):
-
-- **cert-manager extras** — the `cert-manager-webhook-hetzner` chart,
-  `ClusterIssuer`, and wildcard `Certificate` from `03a` (the webhook chart was
-  installed from a local path `/home/hugo/...`; needs a GitRepository/HelmRepo
-  source before it can be GitOps-managed).
-- **Storage / rook-ceph** — `01a`/`01b`, `46-slow-storage.yaml`.
-- **Databases/operators** — cloudnative-pg (`08*`), mariadb-operator (`09`).
-- **Remaining apps** — the rest of the numbered playbooks (harbor, netbox,
-  authentik, paperless, immich, matrix, sftpgo, vaultwarden, …). Each becomes an
-  `apps/homelab/<name>/` dir: `HelmRepository`-or-`GitRepository` + `HelmRelease`
-  + `ExternalSecret` (+ any `ConfigMap`), added to `apps/homelab/kustomization.yaml`.
-- **Backups / CronJobs** — the `13-backupuser`, `15-*`, `16-*`, `34-backup-etcd`,
-  `39–45 restic-*` playbooks become committed `CronJob`/RBAC manifests, ideally
-  under a new `apps/homelab/backups/` group.
-
-Once you're happy with the pilot, the remaining apps are mechanical and a good
-fit for a parallel fan-out — say the word and I'll convert them in batches.

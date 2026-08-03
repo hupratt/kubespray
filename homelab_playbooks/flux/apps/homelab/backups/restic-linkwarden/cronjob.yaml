@@ -1,0 +1,81 @@
+---
+# Migrated verbatim from the "Deploy restic backup CronJob for data pvc" task in
+# 41-restic-linkwarden.yaml. Backs up the my-linkwarden-pvc PVC.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: linkwarden-data
+  namespace: linkwarden
+spec:
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: restic-init
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: RESTIC_CACHE_DIR
+                  value: /tmp/restic-cache
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic snapshots >/dev/null 2>&1 || restic init
+              envFrom:
+                - secretRef:
+                    name: linkwarden-secrets
+          containers:
+            - name: restic
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: RESTIC_CACHE_DIR
+                  value: /tmp/restic-cache
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic backup /data --host linkwarden
+                  restic forget \
+                    --keep-daily 7 \
+                    --keep-weekly 4 \
+                    --keep-monthly 6 \
+                    --prune
+              envFrom:
+                - secretRef:
+                    name: linkwarden-secrets
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: my-linkwarden-pvc

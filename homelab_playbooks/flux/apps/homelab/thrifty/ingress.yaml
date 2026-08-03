@@ -1,0 +1,35 @@
+---
+# Migrated verbatim from 31-thrifty.yaml (task: "Create Ingress").
+# ingress_host (budget.thekor.eu) / ingress_class (haproxy) vars inlined.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: thrifty
+  namespace: thrifty
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: budget.thekor.eu
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          - path: /swagger
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8080
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ui
+                port:
+                  number: 8080

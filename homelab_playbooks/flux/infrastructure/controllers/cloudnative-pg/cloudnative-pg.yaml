@@ -1,0 +1,42 @@
+---
+# Source: 08-cloudnative-pg.yaml — "Deploy CNPG operator via Helm"
+#   chart cloudnative-pg (repo https://cloudnative-pg.github.io/charts) v0.23.0.
+#
+# Only the operator install lives here (it ships the postgresql.cnpg.io CRDs).
+# The shared-pg Cluster, its ExternalSecrets and the Database CRs are per-namespace
+# app resources under apps/homelab/cnpg-shared.
+#
+# NOTE: the `cn-postgres` namespace is created centrally by infra-configs, which
+# reconciles AFTER infra-controllers. Ensure it exists before wiring this in
+# (see BLOCKERS).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cloudnative-pg
+  namespace: cn-postgres
+spec:
+  interval: 1h
+  url: https://cloudnative-pg.github.io/charts
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cloudnative-pg
+  namespace: cn-postgres
+spec:
+  releaseName: cloudnative-pg
+  interval: 30m
+  chart:
+    spec:
+      chart: cloudnative-pg
+      version: "0.23.0"        # cnpg_version in 08
+      sourceRef:
+        kind: HelmRepository
+        name: cloudnative-pg
+        namespace: cn-postgres
+      interval: 1h
+  install:
+    createNamespace: false
+  values:
+    monitoring:
+      podMonitorEnabled: true

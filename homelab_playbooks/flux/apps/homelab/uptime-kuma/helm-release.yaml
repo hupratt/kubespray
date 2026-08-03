@@ -1,0 +1,29 @@
+---
+# Migrated from 11-uptimekuma.yaml, task "Install helm chart"
+# (chart_ref {{ uptime_dir }}/charts/uptime-kuma). Chart pulled from the
+# uptime-kuma GitRepository above.
+#
+# BLOCKER: the Ansible install also passed `values_files: {{ uptime_dir }}/values.yaml`
+# — an override at the repo ROOT (outside the chart). Flux HelmRelease cannot read
+# an arbitrary file from a GitRepository as values, and that file is not available
+# to inline here (repo not cloned locally). Only the chart's own default values
+# apply until those overrides are captured (inline under `values:` or via a
+# committed ConfigMap/Secret + valuesFrom). See BLOCKERS.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: uptime-kuma
+  namespace: monitoring
+spec:
+  releaseName: uptime-kuma
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/uptime-kuma
+      sourceRef:
+        kind: GitRepository
+        name: uptime-kuma
+        namespace: monitoring
+      interval: 30m
+  install:
+    createNamespace: false

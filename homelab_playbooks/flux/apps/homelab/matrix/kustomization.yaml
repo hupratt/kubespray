@@ -1,0 +1,22 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # Shared / Synapse + Element (54-matrix.yaml)
+  - helmrepository-ananace.yaml
+  - policy-exception.yaml
+  - wellknown-ingress.yaml
+  - synapse-external-secret.yaml
+  - synapse.yaml
+  - element-web.yaml
+  # mautrix-discord (54-matrix.yaml + 54b-matrix.yaml)
+  - mautrix-discord-secrets.yaml
+  - mautrix-discord.yaml
+  # mautrix-signal (54c-matrix.yaml)
+  - mautrix-signal-git-repository.yaml
+  - mautrix-signal-external-secret.yaml
+  - mautrix-signal-pvc.yaml
+  - mautrix-signal.yaml
+  # mautrix-whatsapp (54d-matrix.yaml)
+  - mautrix-whatsapp-secrets.yaml
+  - mautrix-whatsapp.yaml

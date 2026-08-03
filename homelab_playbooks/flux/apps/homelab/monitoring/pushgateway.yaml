@@ -1,0 +1,88 @@
+---
+# Migrated from 10-monitoring.yaml, task "Install Prometheus Pushgateway".
+# Chart prometheus-community/prometheus-pushgateway; values carried over from
+# files/mon-pushgateway_values.yml. Reuses the existing `prometheus-community`
+# HelmRepository declared in apps/homelab/kube-prometheus-stack (same namespace),
+# so it is NOT redeclared here.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: prometheus-pushgateway
+  namespace: monitoring
+spec:
+  releaseName: prometheus-pushgateway
+  interval: 30m
+  chart:
+    spec:
+      chart: prometheus-pushgateway
+      version: "*"          # original used latest chart; pin once validated
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: monitoring
+      interval: 1h
+  install:
+    createNamespace: false
+  values:
+    image:
+      registry: ""
+      repository: quay.io/prometheus/pushgateway
+      tag: ""
+      pullPolicy: IfNotPresent
+    extraArgs:
+      - "--web.listen-address=:9091"
+    liveness:
+      enabled: true
+      probe:
+        httpGet:
+          path: /-/healthy
+          port: 9091
+        initialDelaySeconds: 10
+        timeoutSeconds: 10
+    readiness:
+      enabled: true
+      probe:
+        httpGet:
+          path: /-/ready
+          port: 9091
+        initialDelaySeconds: 10
+        timeoutSeconds: 10
+    ingress:
+      enabled: true
+      path: /
+      pathType: ImplementationSpecific
+      ingressClassName: haproxy
+      hosts:
+        - pushgateway.thekor.eu
+      tls:
+        - secretName: wildcard-thekor
+          hosts:
+            - pushgateway.thekor.eu
+    securityContext:
+      fsGroup: 65534
+      runAsUser: 65534
+      runAsNonRoot: true
+    serviceMonitor:
+      enabled: false
+      namespace: monitoring
+      telemetryPath: "/metrics"
+      interval: ""
+      scheme: ""
+      basicAuth: {}
+      bearerTokenFile: ""
+      tlsConfig: {}
+      scrapeTimeout: ""
+      additionalLabels: {}
+      honorLabels: true
+      metricRelabelings: []
+      relabelings: []
+    strategy:
+      type: Recreate
+    persistentVolume:
+      enabled: false
+      accessModes:
+        - ReadWriteOnce
+      annotations: {}
+      existingClaim: ""
+      mountPath: /data
+      size: 2Gi

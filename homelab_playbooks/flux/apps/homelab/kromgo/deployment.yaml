@@ -1,0 +1,56 @@
+---
+# Migrated verbatim from 36-kromgo.yaml, task "Deploy kromgo Deployment".
+# prometheus_url -> http://prometheus-operated.monitoring.svc.cluster.local:9090
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kromgo
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kromgo
+  template:
+    metadata:
+      labels:
+        app: kromgo
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        fsGroup: 65534
+      containers:
+        - name: kromgo
+          image: ghcr.io/kashalls/kromgo:latest
+          env:
+            - name: PROMETHEUS_URL
+              value: "http://prometheus-operated.monitoring.svc.cluster.local:9090"
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: health
+              containerPort: 8888
+          volumeMounts:
+            - name: config
+              mountPath: /kromgo/config.yaml
+              subPath: config.yaml
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: config
+          configMap:
+            name: kromgo-config

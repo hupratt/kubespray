@@ -1,0 +1,28 @@
+---
+# Migrated verbatim from 28-booking.yaml (task: "Create ingress").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: booking-ingress
+  namespace: booking
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - booking.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: booking.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: booking-backend
+                port:
+                  number: 9225

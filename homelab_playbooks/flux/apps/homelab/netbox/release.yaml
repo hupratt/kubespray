@@ -1,0 +1,339 @@
+---
+# Replaces the "Render values" + "Deploy via Helm" tasks in 22-netbox.yaml.
+# Chart pulled from the netbox GitRepository (charts/netbox). Non-secret values
+# from charts/netbox/values.yaml.j2 are inlined; every `{{ ... }}` the template
+# interpolated is injected from the ESO-managed Secret netbox-secrets via
+# valuesFrom + targetPath.
+#
+# NOTE: the chart bundles postgresql (disabled) + valkey subcharts, so the
+# original ran with `dependency_update: yes`. The GitRepository must contain the
+# vendored chart dependencies (charts/netbox/charts/*) for the HelmRelease to
+# build, mirroring that behaviour.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: netbox-thekor
+  namespace: netbox
+spec:
+  releaseName: netbox-thekor
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/netbox
+      sourceRef:
+        kind: GitRepository
+        name: netbox
+        namespace: netbox
+      interval: 30m
+  valuesFrom:
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: API_TOKEN_PEPPERS
+      targetPath: extraEnvs[0].value
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: superuser_name
+      targetPath: superuser.name
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: superuser_email
+      targetPath: superuser.email
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: superuser_password
+      targetPath: superuser.password
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: superuser_apitoken
+      targetPath: superuser.apiToken
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: email_server
+      targetPath: email.server
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: email_port
+      targetPath: email.port
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: email_username
+      targetPath: email.username
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: email_password
+      targetPath: email.password
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: hostname
+      targetPath: ingress.hosts[0].host
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: hostname
+      targetPath: ingress.tls[0].hosts[0]
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: pg_host
+      targetPath: externalDatabase.host
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: pg_port
+      targetPath: externalDatabase.port
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: pg_dbname
+      targetPath: externalDatabase.database
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: pg_username
+      targetPath: externalDatabase.username
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: pg_password
+      targetPath: externalDatabase.password
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: SOCIAL_AUTH_OIDC_ENDPOINT
+      targetPath: extraConfig[0].values.SOCIAL_AUTH_OIDC_ENDPOINT
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: SOCIAL_AUTH_OIDC_KEY
+      targetPath: extraConfig[0].values.SOCIAL_AUTH_OIDC_KEY
+    - kind: Secret
+      name: netbox-secrets
+      valuesKey: SOCIAL_AUTH_OIDC_SECRET
+      targetPath: extraConfig[0].values.SOCIAL_AUTH_OIDC_SECRET
+  values:
+    global:
+      imageRegistry: ""
+      imagePullSecrets: []
+      storageClass: ""
+    # extraEnvs[0].value (API_TOKEN_PEPPERS) injected via valuesFrom above.
+    extraEnvs:
+      - name: API_TOKEN_PEPPERS
+        value: ""
+    extraVolumeMounts:
+      - name: peppers-config
+        mountPath: /etc/netbox/config/peppers.py
+        subPath: peppers.py
+        readOnly: true
+    extraVolumes:
+      - name: peppers-config
+        configMap:
+          name: netbox-peppers
+    image:
+      registry: ghcr.io
+      repository: netbox-community/netbox
+      pullPolicy: IfNotPresent
+      tag: ""
+      digest: ""
+      pullSecrets: []
+    superuser:
+      # name / email / password / apiToken injected via valuesFrom above.
+      existingSecret: ""
+    allowedHosts:
+      - "*"
+    allowedHostsIncludesPodIP: true
+    admins: []
+    allowTokenRetrieval: false
+    authPasswordValidators: []
+    banner:
+      top: ""
+      bottom: ""
+      login: ""
+    basePath: ""
+    changelogRetention: 90
+    customValidators: {}
+    defaultUserPreferences: {}
+    cors:
+      originAllowAll: false
+      originWhitelist: []
+      originRegexWhitelist: []
+    csrf:
+      cookieName: csrftoken
+      trustedOrigins: []
+    defaultLanguage: en-us
+    dataUploadMaxMemorySize: 2621440
+    debug: false
+    dbWaitDebug: false
+    email:
+      # server / port / username / password injected via valuesFrom above.
+      useSSL: false
+      useTLS: true
+      sslCertFile: ""
+      sslKeyFile: ""
+      timeout: 10
+      from: ""
+      existingSecretName: ""
+      existingSecretKey: email-password
+    enforceGlobalUnique: true
+    exemptViewPermissions: []
+    fieldChoices: {}
+    fileUploadMaxMemorySize: 2621440
+    graphQlEnabled: true
+    httpProxies: {}
+    internalIPs: ["127.0.0.1", "::1"]
+    jobRetention: 90
+    logging: {}
+    loginPersistence: false
+    loginRequired: false
+    loginTimeout: 1209600
+    logoutRedirectUrl: home
+    maintenanceMode: false
+    mapsUrl: "https://maps.google.com/?q="
+    maxPageSize: 1000
+    storages: {}
+    paginateCount: 50
+    plugins: []
+    pluginsConfig: {}
+    powerFeedDefaultAmperage: 15
+    powerFeedMaxUtilisation: 80
+    powerFeedDefaultVoltage: 120
+    preferIPv4: false
+    rackElevationDefaultUnitHeight: 22
+    rackElevationDefaultUnitWidth: 220
+    releaseCheck:
+      url: ""
+    rqDefaultTimeout: 300
+    sessionCookieName: sessionid
+    enableLocalization: false
+    timeZone: "Europe/Berlin"
+    dateFormat: "N j, Y"
+    shortDateFormat: "Y-m-d"
+    timeFormat: "g:i a"
+    shortTimeFormat: "H:i:s"
+    dateTimeFormat: "N j, Y g:i a"
+    shortDateTimeFormat: "Y-m-d H:i"
+    secretKey: ""
+    existingSecret: ""
+    overrideUnitConfig: {}
+    command: []
+    args: []
+    replicaCount: 1
+    persistence:
+      enabled: true
+      storageClass: "rook-cephfs"
+      subPath: ""
+      accessMode: ReadWriteMany
+      size: 1Gi
+      existingClaim: ""
+      annotations: {}
+    ingress:
+      enabled: true
+      pathType: ImplementationSpecific
+      className: "haproxy"
+      annotations: {}
+      # hosts[0].host and tls[0].hosts[0] injected via valuesFrom above.
+      hosts:
+        - host: ""
+          paths:
+            - /
+      tls:
+        - secretName: wildcard-thekor
+          hosts:
+            - ""
+    metrics:
+      enabled: false
+      serviceMonitor:
+        enabled: false
+        honorLabels: false
+        interval: ""
+        scrapeTimeout: ""
+        metricRelabelings: []
+        relabelings: []
+        selector: {}
+        additionalLabels: {}
+    postgresql:
+      enabled: false
+      auth:
+        username: netbox
+        database: netbox
+    externalDatabase:
+      # host / port / database / username / password injected via valuesFrom above.
+      existingSecretName: ""
+      existingSecretKey: postgresql-password
+      engine: django.db.backends.postgresql
+      connMaxAge: 300
+      disableServerSideCursors: false
+      options:
+        sslmode: "prefer"
+        target_session_attrs: "read-write"
+    worker:
+      enabled: true
+    livenessProbe:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    startupProbe:
+      enabled: false
+    customLivenessProbe:
+      httpGet:
+        path: /login/
+        port: http
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      timeoutSeconds: 10
+      failureThreshold: 3
+      successThreshold: 1
+    customReadinessProbe:
+      httpGet:
+        path: /login/
+        port: http
+      initialDelaySeconds: 10
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    customStartupProbe:
+      httpGet:
+        path: /login/
+        port: http
+      initialDelaySeconds: 60
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 30
+      successThreshold: 1
+    resources:
+      requests:
+        cpu: 2
+    valkey:
+      networkPolicy:
+        enabled: false
+      primary:
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 256Mi
+        persistence:
+          storageClass: "rook-cephfs"
+      master:
+        persistence:
+          enabled: true
+          storageClass: "rook-cephfs"
+      replica:
+        resources:
+          limits:
+            memory: 512Mi
+          requests:
+            cpu: 500m
+            memory: 256Mi
+        persistence:
+          enabled: true
+          storageClass: "rook-cephfs"
+      commonConfiguration: |-
+        appendfsync everysec
+        no-appendfsync-on-rewrite yes
+        auto-aof-rewrite-percentage 100
+        auto-aof-rewrite-min-size 64mb
+    remoteAuth:
+      enabled: true
+      backends:
+        - social_core.backends.open_id_connect.OpenIdConnectAuth
+      autoCreateUser: true
+    # extraConfig[0].values.SOCIAL_AUTH_OIDC_* injected via valuesFrom above.
+    extraConfig:
+      - values:
+          SOCIAL_AUTH_OIDC_ENDPOINT: ""
+          SOCIAL_AUTH_OIDC_KEY: ""
+          SOCIAL_AUTH_OIDC_SECRET: ""

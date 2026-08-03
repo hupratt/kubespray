@@ -2,5 +2,45 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
+  - amazon
+  - authentik
+  - backups
+  - booking
+  - chirpy
+  - cnpg-restic-credentials
+  - cnpg-shared
+  - dawarich
+  - docker-registry-secret
+  - frigate
+  - harbor
+  - hetzner-ddns
+  - ilo-exporter
+  - immich
+  - influxdb
+  - kromgo
   - kube-prometheus-stack
   - linkwarden
+  - makita
+  - mariadb-instances
+  - matrix
+  - mongodb
+  - monitoring
+  - mqtt
+  - neolink
+  - netbird
+  - netbox
+  - paperless
+  - patchmon
+  - scriberr
+  - sftpgo
+  - spotify
+  - technitium
+  - thrifty
+  - trello
+  - uptime-kuma
+  - vault
+  - vault-backup
+  - vaultwarden
+  - volsync-backups
+  - www
+  - youtube

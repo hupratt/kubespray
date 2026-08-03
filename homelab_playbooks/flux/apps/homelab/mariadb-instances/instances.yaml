@@ -1,0 +1,51 @@
+---
+# Source: 09-maria-operator.yaml — "Deploy MariaDB Operator Instance".
+# Requires the mariadb-operator CRDs (k8s.mariadb.com/v1alpha1) to be Ready — see BLOCKERS.
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: mariadb
+  namespace: mariadb
+spec:
+  version: "11.0"
+  storage:
+    size: 5Gi
+    storageClassName: rook-ceph-block
+  rootPasswordSecretKeyRef:
+    name: mariadb-root-secret
+    key: password
+  # Per-app databases are owned by each app's own Database CR (e.g. the
+  # uptime-kuma app defines Database/uptimekuma). Kept the server generic.
+---
+# Source: 09-maria-operator.yaml — "Deploy MariaDB Toolbox Pod".
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mariadb-toolbox
+  namespace: mariadb
+  labels:
+    app: mariadb-toolbox
+spec:
+  containers:
+    - name: mariadb-client
+      image: mariadb:11.0
+      command:
+        - sleep
+        - "infinity"
+      env:
+        - name: MARIADB_HOST
+          value: "mariadb.mariadb.svc.cluster.local"
+        - name: MARIADB_PORT
+          value: "3306"
+        - name: MARIADB_DATABASE
+          value: "uptimekuma"
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: false
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        capabilities:
+          drop:
+            - ALL
+  restartPolicy: Always

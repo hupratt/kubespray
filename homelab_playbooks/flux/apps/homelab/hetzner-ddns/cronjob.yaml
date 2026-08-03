@@ -1,0 +1,67 @@
+---
+# Migrated from "Deploy DDNS CronJob" in 51-hetzner-ddns.yaml.
+# Updates the Hetzner DNS A-record `loopback` (zone 31820) with the cluster's
+# current public IP every 5 minutes. The API_TOKEN env is sourced from the
+# `ddns-hetzner-token` Secret produced by external-secret.yaml.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ddns-hetzner
+  namespace: cert-manager
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: ddns-hetzner
+              image: alpine:3.19
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -euo pipefail
+                  apk add --no-cache curl jq > /dev/null 2>&1
+
+                  ZONE_ID="31820"
+                  RECORD_NAME="loopback"
+                  RECORD_TYPE="A"
+                  API_GET_URL="https://api.hetzner.cloud/v1/zones/${ZONE_ID}/rrsets/${RECORD_NAME}/${RECORD_TYPE}"
+                  API_SET_URL="https://api.hetzner.cloud/v1/zones/${ZONE_ID}/rrsets/${RECORD_NAME}/${RECORD_TYPE}/actions/set_records"
+
+                  TOKEN="${API_TOKEN}"
+
+                  MY_PUBLIC_IP=$(curl -s https://ipv4.icanhazip.com)
+                  if [ -z "${MY_PUBLIC_IP}" ]; then
+                    echo "Failed to get public IP"
+                    exit 1
+                  fi
+
+                  CURRENT_IP=$(curl -s -H "Authorization: Bearer ${TOKEN}" \
+                    "${API_GET_URL}" | jq -r '.rrset.records[0].value')
+
+                  if [ "${MY_PUBLIC_IP}" = "${CURRENT_IP}" ]; then
+                    echo "$(date): IP unchanged (${MY_PUBLIC_IP}), no update needed."
+                  else
+                    echo "$(date): IP changed (${CURRENT_IP} -> ${MY_PUBLIC_IP}), updating record..."
+                    RESPONSE=$(curl -s -X POST \
+                      -H "Authorization: Bearer ${TOKEN}" \
+                      -H "Content-Type: application/json" \
+                      -d "{\"records\":[{\"value\":\"${MY_PUBLIC_IP}\",\"comment\":\"\"}]}" \
+                      "${API_SET_URL}")
+                    echo "$(date): Response: ${RESPONSE}"
+                  fi
+              env:
+                - name: API_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: ddns-hetzner-token
+                      key: API_TOKEN
+          securityContext:
+            runAsNonRoot: false

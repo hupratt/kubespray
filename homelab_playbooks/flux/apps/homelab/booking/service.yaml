@@ -1,0 +1,15 @@
+---
+# Migrated verbatim from 28-booking.yaml (task: "Create backend service").
+apiVersion: v1
+kind: Service
+metadata:
+  name: booking-backend
+  namespace: booking
+spec:
+  selector:
+    app: booking-backend
+  ports:
+    - name: http
+      port: 9225
+      targetPort: 9225
+  type: ClusterIP

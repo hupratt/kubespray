@@ -1,0 +1,65 @@
+---
+# Migrated from 34-backup-etcd.yaml
+#   task: "Deploy backup script ConfigMap"
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: etcd-backup-scripts
+  namespace: etcd-backup
+data:
+  backup.sh: |
+    #!/bin/sh
+    set -euo pipefail
+
+    TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+    BACKUP_FILE="/tmp/etcd-snapshot-${TIMESTAMP}.db"
+    S3_KEY="etcd-backups/etcd-snapshot-${TIMESTAMP}.db"
+
+    # Sentinel for liveness/readiness probes — must exist before kubelet
+    # starts probing (initialDelaySeconds: 10).
+    touch /tmp/.started
+
+    echo "[$(date)] Starting etcd snapshot..."
+
+    etcdctl snapshot save "${BACKUP_FILE}" \
+      --endpoints="${ETCD_ENDPOINTS}" \
+      --cacert=/etc/etcd/certs/ca.crt \
+      --cert=/etc/etcd/certs/client.crt \
+      --key=/etc/etcd/certs/client.key
+
+    echo "[$(date)] Snapshot saved: ${BACKUP_FILE}"
+    etcdctl snapshot status "${BACKUP_FILE}" --write-out=table \
+      --cacert=/etc/etcd/certs/ca.crt \
+      --cert=/etc/etcd/certs/client.crt \
+      --key=/etc/etcd/certs/client.key
+
+    echo "[$(date)] Uploading to s3://${S3_BUCKET}/${S3_KEY}..."
+
+    aws s3 cp "${BACKUP_FILE}" "s3://${S3_BUCKET}/${S3_KEY}" \
+      --endpoint-url="${S3_ENDPOINT}" \
+      --region="${AWS_DEFAULT_REGION}"
+
+    echo "[$(date)] Upload complete."
+
+    # Prune old backups
+    CUTOFF=$(date -d "${BACKUP_RETENTION_DAYS} days ago" +"%Y%m%d")
+
+    echo "[$(date)] Pruning backups older than ${BACKUP_RETENTION_DAYS} days (before ${CUTOFF})..."
+
+    aws s3 ls "s3://${S3_BUCKET}/etcd-backups/" \
+      --endpoint-url="${S3_ENDPOINT}" \
+      --region="${AWS_DEFAULT_REGION}" | \
+    awk '{print $4}' | \
+    while read -r key; do
+      FILE_DATE=$(echo "${key}" | grep -oE '[0-9]{8}' | head -1)
+      if [ -n "${FILE_DATE}" ] && [ "${FILE_DATE}" -lt "${CUTOFF}" ]; then
+        echo "[$(date)] Deleting old backup: ${key}"
+        aws s3 rm "s3://${S3_BUCKET}/etcd-backups/${key}" \
+          --endpoint-url="${S3_ENDPOINT}" \
+          --region="${AWS_DEFAULT_REGION}"
+      fi
+    done
+
+    rm -f "${BACKUP_FILE}"
+    touch /tmp/.done
+    echo "[$(date)] Done."

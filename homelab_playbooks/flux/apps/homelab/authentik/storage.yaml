@@ -1,0 +1,50 @@
+---
+# Migrated verbatim from the "Create rook-cephfs StorageClass" + the two PVC
+# tasks in 23-authentik.yaml. The PVCs are referenced by the chart's server
+# volumes (authentik-pvc -> /media, authentik-data-pvc -> /data).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: rook-cephfs-authentik
+provisioner: rook-ceph.cephfs.csi.ceph.com
+parameters:
+  clusterID: rook-ceph
+  fsName: myfs
+  pool: myfs-data0
+  subvolumeGroup: csi
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+  csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+  monitors: ceph-mon.rook-ceph.svc.cluster.local
+  mounter: fuse
+mountOptions:
+  - debug
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: authentik-pvc
+  namespace: authentik
+spec:
+  storageClassName: rook-cephfs-authentik
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Mi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: authentik-data-pvc
+  namespace: authentik
+spec:
+  storageClassName: rook-cephfs-authentik
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 500Mi

@@ -1,0 +1,148 @@
+---
+# Migrated from 34-backup-etcd.yaml
+#   task: "Deploy etcd backup CronJob"
+# Ansible vars inlined:
+#   etcd_backup_namespace -> etcd-backup
+#   etcd_backup_schedule  -> "0 0 31 2 *"
+#   etcd_backup_retention_days -> 7
+#   etcd_version          -> 3.5.12   (init container download URL)
+#   etcd_backup_image     -> amazon/aws-cli:2.15.30
+#   etcd_endpoints        -> https://127.0.0.1:2379
+# NOTE: the backup.sh script references S3_BUCKET / S3_ENDPOINT /
+# AWS_DEFAULT_REGION, but the original playbook did NOT inject them into the
+# container env (the vault_s3_* vars were declared yet unused). Reproduced
+# verbatim — see BLOCKERS.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: etcd-backup
+  namespace: etcd-backup
+  labels:
+    app: etcd-backup
+spec:
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: etcd-backup
+          hostNetwork: true
+          nodeSelector:
+            node-role.kubernetes.io/control-plane: ""
+          tolerations:
+            - key: node-role.kubernetes.io/control-plane
+              operator: Exists
+              effect: NoSchedule
+          initContainers:
+            - name: install-etcdctl
+              image: "curlimages/curl:8.7.1"
+              command:
+                - sh
+                - -c
+                - |
+                  curl -sSL https://github.com/etcd-io/etcd/releases/download/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz | \
+                  tar xz -C /etcdctl-bin --strip-components=1 etcd-v3.5.12-linux-amd64/etcdctl && \
+                  chmod 755 /etcdctl-bin/etcdctl
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              volumeMounts:
+                - name: etcdctl-bin
+                  mountPath: /etcdctl-bin
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 100m
+                  memory: 128Mi
+          containers:
+            - name: etcd-backup
+              image: "amazon/aws-cli:2.15.30"
+              command: ["/bin/sh", "/scripts/backup.sh"]
+              envFrom:
+                - secretRef:
+                    name: etcd-backup-s3-credentials
+              env:
+                - name: ETCD_ENDPOINTS
+                  value: "https://127.0.0.1:2379"
+                - name: BACKUP_RETENTION_DAYS
+                  value: "7"
+              volumeMounts:
+                - name: etcd-certs
+                  mountPath: /etc/etcd/certs
+                  readOnly: true
+                - name: backup-scripts
+                  mountPath: /scripts
+                  readOnly: true
+                - name: etcdctl-bin
+                  mountPath: /usr/local/bin/etcdctl
+                  subPath: etcdctl
+                  readOnly: true
+                - name: tmp
+                  mountPath: /tmp
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 65534
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              # startupProbe: verify etcdctl binary is usable before the main script runs.
+              # failureThreshold * periodSeconds = 30s max wait, plenty for the init copy.
+              startupProbe:
+                exec:
+                  command: ["etcdctl", "version"]
+                initialDelaySeconds: 2
+                periodSeconds: 5
+                failureThreshold: 6
+                successThreshold: 1
+                timeoutSeconds: 5
+              # livenessProbe / readinessProbe: required by Kubewarden policy.
+              # For a one-shot job container the check is intentionally lightweight —
+              # the script creates /tmp/.started as its first action and
+              # /tmp/.done as its last, so kubelet has something concrete to probe.
+              livenessProbe:
+                exec:
+                  command: ["test", "-e", "/tmp/.started"]
+                initialDelaySeconds: 10
+                periodSeconds: 30
+                failureThreshold: 3
+                successThreshold: 1
+                timeoutSeconds: 5
+              readinessProbe:
+                exec:
+                  command: ["test", "-e", "/tmp/.started"]
+                initialDelaySeconds: 10
+                periodSeconds: 30
+                failureThreshold: 3
+                successThreshold: 1
+                timeoutSeconds: 5
+          volumes:
+            - name: etcd-certs
+              secret:
+                secretName: etcd-client-certs
+            - name: backup-scripts
+              configMap:
+                name: etcd-backup-scripts
+                defaultMode: 0755
+            - name: etcdctl-bin
+              emptyDir: {}
+            - name: tmp
+              emptyDir: {}
