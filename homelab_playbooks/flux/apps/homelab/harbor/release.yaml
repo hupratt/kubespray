@@ -64,20 +64,11 @@ spec:
       targetPath: database.external.coreDatabase
     - kind: Secret
       name: harbor-vault-secrets
-      valuesKey: notary_server_database
-      targetPath: database.external.notaryServerDatabase
-    - kind: Secret
-      name: harbor-vault-secrets
-      valuesKey: notary_signer_database
-      targetPath: database.external.notarySignerDatabase
-    - kind: Secret
-      name: harbor-vault-secrets
       valuesKey: sslmode
       targetPath: database.external.sslmode
-    - kind: Secret
-      name: harbor-vault-secrets
-      valuesKey: trivy_database
-      targetPath: database.external.trivyDatabase
+    # Harbor chart 1.18.3 removed Notary and has no separate Trivy DB; the
+    # notaryServerDatabase/notarySignerDatabase/trivyDatabase paths don't exist in
+    # the chart values (they were silently ignored), so those valuesFrom were dropped.
   values:
     logLevel: debug
     registry:
@@ -101,7 +92,6 @@ spec:
         hosts:
           core: harbor.thekor.eu
           portal: harbor.thekor.eu
-          notary: notary-harbor.thekor.eu
         annotations:
           haproxy.org/ssl-redirect: "true"
           haproxy.org/forwarded-for: "true"

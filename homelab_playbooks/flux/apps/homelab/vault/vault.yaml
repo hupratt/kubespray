@@ -180,6 +180,9 @@ metadata:
 spec:
   selector:
     app.kubernetes.io/name: vault
+    # vault-active is stamped by the chart only on the current Raft leader; without
+    # it this Service would round-robin to sealed/standby pods and 307-redirect writes.
+    vault-active: "true"
   ports:
     - name: http
       port: 8200

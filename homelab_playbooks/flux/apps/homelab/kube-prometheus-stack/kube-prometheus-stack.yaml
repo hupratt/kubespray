@@ -85,7 +85,7 @@ spec:
         GF_EMAIL_PASSWORD:
           secretKeyRef:
             name: grafana-secret
-            key: GF_DATABASE_PASSWORD
+            key: GF_EMAIL_PASSWORD
         GF_EMAIL_USER:
           secretKeyRef:
             name: grafana-secret

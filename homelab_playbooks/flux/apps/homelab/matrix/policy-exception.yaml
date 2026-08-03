@@ -2,10 +2,15 @@
 # Source: 54-matrix.yaml — task "Apply Kyverno PolicyExceptions"
 # The Ansible `{{ '{{' }} ... {{ '}}' }}` escaping rendered literal Kyverno
 # JMESPath expressions; they are written out verbatim here.
+# NOTE: in kyverno.io/v2beta1 PolicyException, `conditions` is a spec-level field,
+# NOT a per-exception field (a per-exception conditions block is silently pruned,
+# leaving the exception scoped only by `match` — i.e. every pod in the namespace).
+# The two exceptions need different label scoping, so they are split into two
+# PolicyException objects, each with its own spec.conditions.
 apiVersion: kyverno.io/v2beta1
 kind: PolicyException
 metadata:
-  name: matrix-stack-exceptions
+  name: matrix-caps-exception
   namespace: matrix
 spec:
   match:
@@ -13,22 +18,35 @@ spec:
       - resources:
           namespaces:
             - matrix
+  # element-web nginx needs NET_BIND_SERVICE (port 80 inside container)
+  conditions:
+    any:
+      - key: '{{ request.object.metadata.labels["app.kubernetes.io/name"] }}'
+        operator: In
+        value: [element-web]
   exceptions:
-    # element-web nginx needs NET_BIND_SERVICE (port 80 inside container)
     - policyName: disallow-capabilities-strict
       ruleNames:
         - adding-capabilities-strict
-      conditions:
-        any:
-          - key: '{{ request.object.metadata.labels["app.kubernetes.io/name"] }}'
-            operator: In
-            value: [element-web]
-    # Synapse + bridge write to /data — can't use read-only root FS
+---
+apiVersion: kyverno.io/v2beta1
+kind: PolicyException
+metadata:
+  name: matrix-rorootfs-exception
+  namespace: matrix
+spec:
+  match:
+    any:
+      - resources:
+          namespaces:
+            - matrix
+  # Synapse + bridge write to /data — can't use read-only root FS
+  conditions:
+    any:
+      - key: '{{ request.object.metadata.labels["app.kubernetes.io/name"] }}'
+        operator: In
+        value: [matrix-synapse, mautrix-discord]
+  exceptions:
     - policyName: require-ro-rootfs
       ruleNames:
         - require-ro-rootfs
-      conditions:
-        any:
-          - key: '{{ request.object.metadata.labels["app.kubernetes.io/name"] }}'
-            operator: In
-            value: [matrix-synapse, mautrix-discord]

@@ -32,33 +32,9 @@ spec:
       daily: 7
       weekly: 1
       monthly: 1
----
-apiVersion: volsync.backube/v1alpha1
-kind: ReplicationSource
-metadata:
-  name: cn-postgres-shared-pg-2
-  namespace: cn-postgres
-spec:
-  sourcePVC: shared-pg-2
-  trigger:
-    schedule: "0 2 * * *"
-  restic:
-    moverSecurityContext:
-      runAsUser: 0
-      runAsGroup: 0
-      fsGroup: 0
-    pruneIntervalDays: 1
-    repository: restic-credentials
-    volumeSnapshotClassName: ceph-rbd-snapclass
-    storageClassName: rook-ceph-block
-    copyMethod: Snapshot
-    cacheStorageClassName: rook-ceph-block
-    cacheCapacity: 1Gi
-    retain:
-      hourly: 2
-      daily: 7
-      weekly: 1
-      monthly: 1
+# NOTE: the shared-pg cluster runs `instances: 1`, so only PVC `shared-pg-1`
+# exists. A second source for `shared-pg-2` was removed — re-add it only if the
+# cluster is scaled to 2 instances.
 ---
 apiVersion: volsync.backube/v1alpha1
 kind: ReplicationSource
@@ -83,13 +59,12 @@ spec:
       runAsUser: 1000
       runAsGroup: 1000
       fsGroup: 1000
-    moverPodTemplateSpec:
-      spec:
-        tolerations:
-          - key: node-role
-            operator: Equal
-            value: slow-services
-            effect: NoSchedule
+    # NOTE: `moverPodTemplateSpec` is not a field in volsync.backube/v1alpha1 (it
+    # was silently pruned), so removed. The immich PVCs live on the tainted
+    # `slow-services` node (taint dedicated=slow-services:NoSchedule); VolSync's
+    # restic mover has no tolerations field, so the mover cannot schedule there.
+    # Resolve at the infra level (drop/relax the node taint) — it cannot be
+    # expressed on this CR.
 ---
 apiVersion: volsync.backube/v1alpha1
 kind: ReplicationSource
@@ -114,10 +89,6 @@ spec:
       runAsUser: 26
       runAsGroup: 26
       fsGroup: 26
-    moverPodTemplateSpec:
-      spec:
-        tolerations:
-          - key: node-role
-            operator: Equal
-            value: slow-services
-            effect: NoSchedule
+    # See the note on immich-library-backup: moverPodTemplateSpec is not a valid
+    # VolSync field and the mover has no tolerations option; the slow-services
+    # node taint must be handled at the infra level.

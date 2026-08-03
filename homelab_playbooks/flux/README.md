@@ -167,14 +167,60 @@ resolved:
   Certificate's `secretTemplate.annotations` in `configs/cert-manager-issuers` so
   the fan-out of the TLS cert is declarative too.
 
-### Pre-existing source bugs carried over verbatim (fix at the source)
+### Bug review (12 parallel reviewers + deterministic analyzer)
 
-- `www` — ExternalSecret targets `portfolio-vault-secrets` but the Deployment reads
-  `portfolio-backend-env` (names don't match; env won't load).
-- `patchmon` — chart expects `patchmon-oidc-secret`; playbook only creates
-  `patchmon-server-secret`.
-- `frigate` — chart mounts a `frigate-config` ConfigMap; secrets now render the
-  config into a Secret, so the chart's mount must be repointed.
+A full correctness pass verified the plumbing is sound (0 dangling sourceRefs,
+0 cross-layer duplicates, 0 namespace gaps, 0 valuesFrom/envFrom key mismatches).
+The following app-level defects were found; most were inherited from the source
+playbooks.
+
+**Fixed in-tree:**
+
+- `www` — ExternalSecret renamed to `portfolio-backend-env` (matches the Deployment's `envFrom`).
+- `patchmon` — `existingSecret` → `patchmon-server-secret` (the `client-secret` key already matched).
+- `mongodb` — the missing-`mongodb-init-script` volume marked `optional` so the pod starts.
+- `backups/etcd` — inject `S3_BUCKET`/`S3_ENDPOINT`/`AWS_DEFAULT_REGION` (script aborted under `set -u`).
+- `matrix` PolicyException — split into two objects with `spec`-level `conditions` (per-exception `conditions` is pruned by Kyverno → over-broad).
+- `volsync-backups` — removed the `shared-pg-2` ReplicationSource (cluster is `instances: 1`).
+- `harbor` — dropped 3 `valuesFrom` for `notary*/trivyDatabase` paths that don't exist in chart 1.18.3.
+- `vault` — added `vault-active: "true"` to the `vault-active-client` Service selector.
+- `kube-prometheus-stack` — `GF_EMAIL_PASSWORD` now reads the `GF_EMAIL_PASSWORD` key (was `GF_DATABASE_PASSWORD`).
+- `mariadb-instances` — `spec.version` → `spec.image: mariadb:11.0` (MariaDB CR has no `version`).
+
+**Also fixed (previously flagged as needing a decision):**
+
+- `netbox` — added ExternalSecret `netbox-peppers` (renders `peppers.py`, holding the
+  secret `API_TOKEN_PEPPERS`) and switched the Deployment `extraVolumes` to a `secret`
+  source. Pods no longer FailedMount.
+- `frigate` — repointed the chart volume `frigate-config-file`
+  (`charts/frigate/templates/deployment.yaml`) from the missing `frigate-config`
+  ConfigMap to Secret `frigate-vault-secrets` (`config.yml` key), which the ESO
+  template produces.
+- `matrix` Synapse — added ExternalSecret `mautrix-signal-registration` (produces
+  `appservice-registration-signal.yaml`, mirroring the discord/whatsapp pattern) and
+  switched the Synapse volume to a `secret` source.
+- `cnpg-shared` — added a `backupmatrix` managed role + `backupmatrix-pg-secret`
+  ExternalSecret (Vault key `backup-matrix`), so `CREATE DATABASE ... OWNER backupmatrix`
+  succeeds.
+- `volsync-backups` — removed the invalid `moverPodTemplateSpec` field from both immich
+  sources.
+
+**Residual (infra-level, cannot be expressed in a manifest):**
+
+- `volsync-backups` immich sources use `copyMethod: Direct` on `slow-local` PVCs pinned
+  to the `slow-services` node, which carries taint `dedicated=slow-services:NoSchedule`.
+  VolSync's restic mover has no tolerations field, so the mover can't schedule there —
+  relax/remove the node taint (or move the PVCs) for those two backups to run. Noted
+  inline in `replicationsources.yaml`.
+- Several of the newly-added ExternalSecrets read Vault keys that still need seeding
+  (`netbox.API_TOKEN_PEPPERS`, `mautrixsignal.as_token`/`hs_token`,
+  `backup-matrix.pg_username`/`pg_password`) — same one-time Vault-seeding caveat as the
+  rest of the tree.
+
+**Advisory (won't block reconcile):** the `kyverno` `block-sys-admin`/`restrict-net-admin`
+policies pass their JMESPath as a string literal so they enforce nothing; `neolink`
+declares an unused PV/PVC; `immich` creates its DB from both `bootstrap.initdb` and a
+Database CR (idempotent).
 
 ### Not GitOps-able (stay imperative / Ansible)
 

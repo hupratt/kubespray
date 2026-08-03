@@ -81,6 +81,11 @@ spec:
           login: true
           passwordSecret:
             name: netbirduser-pg-secret
+        - name: backupmatrix
+          ensure: present
+          login: true
+          passwordSecret:
+            name: backupmatrix-pg-secret
   bootstrap:
     initdb:
       database: postgres

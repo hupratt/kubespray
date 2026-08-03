@@ -15,6 +15,7 @@ resources:
   # mautrix-signal (54c-matrix.yaml)
   - mautrix-signal-git-repository.yaml
   - mautrix-signal-external-secret.yaml
+  - mautrix-signal-registration.yaml
   - mautrix-signal-pvc.yaml
   - mautrix-signal.yaml
   # mautrix-whatsapp (54d-matrix.yaml)

@@ -77,6 +77,15 @@ spec:
                   value: "https://127.0.0.1:2379"
                 - name: BACKUP_RETENTION_DAYS
                   value: "7"
+                # backup.sh references these under `set -euo pipefail`; without
+                # them the script aborts on the first unbound-variable expansion.
+                # Values from 34-backup-etcd.yaml (vault_s3_* vars).
+                - name: S3_BUCKET
+                  value: "garage.thekor.eu"
+                - name: S3_ENDPOINT
+                  value: "https://garage-s3.thekor.eu"
+                - name: AWS_DEFAULT_REGION
+                  value: "garage"
               volumeMounts:
                 - name: etcd-certs
                   mountPath: /etc/etcd/certs

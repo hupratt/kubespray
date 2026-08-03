@@ -7,7 +7,9 @@ metadata:
   name: mariadb
   namespace: mariadb
 spec:
-  version: "11.0"
+  # mariadb-operator's MariaDB CR selects the server via spec.image, not spec.version
+  # (the latter is pruned and the operator falls back to its default tag).
+  image: mariadb:11.0
   storage:
     size: 5Gi
     storageClassName: rook-ceph-block

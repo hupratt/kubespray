@@ -64,8 +64,8 @@ spec:
               - key: registration.yaml
                 path: mautrix-discord.yaml
         - name: mautrix-signal-registration
-          configMap:
-            name: mautrix-signal-registration
+          secret:
+            secretName: mautrix-signal-registration
             items:
               - key: appservice-registration-signal.yaml
                 path: mautrix-signal.yaml

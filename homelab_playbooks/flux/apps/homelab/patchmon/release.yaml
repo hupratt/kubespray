@@ -131,7 +131,9 @@ spec:
         issuerUrl: "https://auth.thekor.eu/application/o/patchmon/"
         # clientId injected via valuesFrom above (was {{ vault_patchmon_oidc_client_id }}).
         clientId: ""
-        existingSecret: "patchmon-oidc-secret"
+        # The OIDC client secret lives in patchmon-server-secret under key
+        # client-secret (there is no separate patchmon-oidc-secret ExternalSecret).
+        existingSecret: "patchmon-server-secret"
         existingSecretClientSecretKey: "client-secret"
         scopes: "openid profile email groups"
         buttonText: "Login with authentik"

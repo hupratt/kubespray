@@ -118,8 +118,8 @@ spec:
         readOnly: true
     extraVolumes:
       - name: peppers-config
-        configMap:
-          name: netbox-peppers
+        secret:
+          secretName: netbox-peppers
     image:
       registry: ghcr.io
       repository: netbox-community/netbox

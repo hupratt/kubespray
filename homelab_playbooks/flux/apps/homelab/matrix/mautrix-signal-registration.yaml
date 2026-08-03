@@ -1,0 +1,47 @@
+---
+# The mautrix-signal chart uses registration.existingSecret (mautrix-signal-creds)
+# for the BRIDGE side, but Synapse also needs the appservice registration file
+# mounted into its conf.d. Nothing produced that object, so Synapse would
+# FailedMount on ConfigMap `mautrix-signal-registration`. Reproduced here as an
+# ESO Secret (holds appservice tokens) mirroring the discord/whatsapp pattern.
+# Vault key `mautrixsignal` (same as mautrix-signal-creds); tokens are the
+# migrator's best guess — verify against Vault.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: mautrix-signal-registration
+  namespace: matrix
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: mautrix-signal-registration
+    creationPolicy: Owner
+    template:
+      engineVersion: v2
+      data:
+        appservice-registration-signal.yaml: |
+          id: signal
+          url: http://mautrix-signal:29328
+          as_token: {{ .as_token }}
+          hs_token: {{ .hs_token }}
+          sender_localpart: signalbot
+          rate_limited: false
+          namespaces:
+            users:
+              - exclusive: true
+                regex: '@signal_.*:matrix.thekor.eu'
+            aliases:
+              - exclusive: true
+                regex: '#signal_.*:matrix.thekor.eu'
+  data:
+    - secretKey: as_token
+      remoteRef:
+        key: mautrixsignal
+        property: as_token
+    - secretKey: hs_token
+      remoteRef:
+        key: mautrixsignal
+        property: hs_token

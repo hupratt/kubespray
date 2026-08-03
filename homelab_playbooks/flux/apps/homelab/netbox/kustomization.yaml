@@ -4,4 +4,5 @@ kind: Kustomization
 resources:
   - git-repository.yaml
   - external-secret.yaml
+  - peppers-external-secret.yaml
   - release.yaml
