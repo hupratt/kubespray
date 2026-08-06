@@ -1,6 +1,6 @@
 ---
 
-- name: PostgreSQL PVC restore via VolSync (CloudNativePG)
+- name: PostgreSQL PVC restore via VolSync (CloudNativePG) apps should be installed before running these restore tasks
   hosts: localhost
   gather_facts: false
   connection: local
@@ -68,6 +68,7 @@
     restore_pvcs:
       # - name: shared
       #   namespace: cn-postgres
+      #   pvc_name: shared
       #   storage_class: rook-ceph-block
       #   storage_size: 5Gi
       #   cluster: shared-pg
@@ -77,12 +78,24 @@
 
       - name: immich
         namespace: immich
+        pvc_name: immich
+        # storage_class: rook-ceph-block
         storage_class: slow-local
-        storage_size: 2000Gi
+        storage_size: 100Gi
         cluster: immich-pg
         secret: volsync-restic-secret-db
         snaphost_class: ceph-rbd-snapclass
         pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+
+      # - name: immich-lib
+      #   namespace: immich
+      #   pvc_name: immich
+      #   storage_class: rook-ceph-block
+      #   storage_size: 100Gi
+      #   cluster: immich-pg
+      #   secret: volsync-restic-secret-db
+      #   snaphost_class: ceph-rbd-snapclass
+      #   pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
 
   tasks:
 

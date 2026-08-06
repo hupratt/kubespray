@@ -57,14 +57,75 @@
         kubeconfig: ~/.kube/config
         src: "{{ rook_dir }}/deploy/examples/ceph-cluster.yml"
 
-    - name: Apply service monitor + rbac
+    - name: Deploy Rook-Ceph RBAC and ServiceMonitor resources
       kubernetes.core.k8s:
         state: present
-        kubeconfig: "{{ kubeconfig_path }}"
-        src: "{{ item }}"
-      loop:
-        - rook-ceph-servicemonitor-rbac.yml
-        - rook-ceph-mgr-servicemonitor.yml
+        definition:
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRole
+            metadata:
+              name: rook-ceph-servicemonitor
+            rules:
+              - apiGroups: ["monitoring.coreos.com"]
+                resources: ["servicemonitors"]
+                verbs: ["get", "create", "update", "delete", "list", "watch"]
+
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: ClusterRoleBinding
+            metadata:
+              name: rook-ceph-servicemonitor
+            roleRef:
+              apiGroup: rbac.authorization.k8s.io
+              kind: ClusterRole
+              name: rook-ceph-servicemonitor
+            subjects:
+              - kind: ServiceAccount
+                name: rook-ceph-system
+                namespace: rook-ceph
+
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: Role
+            metadata:
+              namespace: rook-ceph
+              name: rook-ceph-mgr-monitoring
+            rules:
+              - apiGroups: ["monitoring.coreos.com"]
+                resources: ["servicemonitors"]
+                verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+          - apiVersion: rbac.authorization.k8s.io/v1
+            kind: RoleBinding
+            metadata:
+              namespace: rook-ceph
+              name: rook-ceph-mgr-monitoring-binding
+            subjects:
+              - kind: ServiceAccount
+                name: rook-ceph-mgr
+                namespace: rook-ceph
+            roleRef:
+              kind: Role
+              name: rook-ceph-mgr-monitoring
+              apiGroup: rbac.authorization.k8s.io
+
+          - apiVersion: monitoring.coreos.com/v1
+            kind: ServiceMonitor
+            metadata:
+              name: rook-ceph-mgr
+              namespace: rook-ceph
+              labels:
+                release: prometheus
+            spec:
+              selector:
+                matchLabels:
+                  app: rook-ceph-mgr
+              namespaceSelector:
+                matchNames:
+                  - rook-ceph
+              endpoints:
+                - port: http-metrics
+                  path: /metrics
+                  interval: 30s
+                  scheme: http
 
     - name: Wait for CephCluster to be created
       kubernetes.core.k8s_info:

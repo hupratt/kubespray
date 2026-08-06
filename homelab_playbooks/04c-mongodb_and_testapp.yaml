@@ -146,8 +146,6 @@
                       volumeMounts:
                         - name: mongodb-ss-storage
                           mountPath: /data/db
-                        - name: init-scripts
-                          mountPath: /docker-entrypoint-initdb.d
                       livenessProbe:
                         exec:
                           command:
@@ -180,10 +178,6 @@
                         periodSeconds: 10
                         timeoutSeconds: 5
                         failureThreshold: 3
-                  volumes:
-                    - name: init-scripts
-                      configMap:
-                        name: mongodb-init-script
               volumeClaimTemplates:
                 - metadata:
                     name: mongodb-ss-storage
@@ -368,3 +362,8 @@
 
 # db.users.findOne({ username: "fedora_backup_user" })
 # k exec -n mongodb sts/mongodb-statefulset -- printenv MONGO_INITDB_ROOT_PASSWORD
+
+
+# mongosh --username root --password <previous PW> --authenticationDatabase admin
+# use admin
+# db.changeUserPassword("root", "new PW")

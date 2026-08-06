@@ -3,12 +3,31 @@
   hosts: localhost
   connection: local
   gather_facts: false
+  vars_files:
+    - group_vars/all/vault.yml
   vars:
     cert_manager_version: v1.18.2
     cert_manager_namespace: cert-manager
     kubeconfig_path: /home/hugo/.kube/config
     vault_kv_path: "certmanager"
+    eso_not_up: False
+
   tasks:
+
+    - name: Create api Secret
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        definition:
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: hetzner-dns-api-token
+            namespace: "{{ cert_manager_namespace }}"
+          type: Opaque
+          stringData:   # automatically base64-encoded by k8s
+            token: "{{ hetzner_api }}"
+      when: eso_not_up == True
 
     - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
@@ -32,6 +51,7 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: hetzner_api
+      when: eso_not_up == False
 
     - name: Add/update mittwald Helm repository
       kubernetes.core.helm_repository:

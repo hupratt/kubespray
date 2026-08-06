@@ -25,7 +25,7 @@
           storageClassName: rook-ceph-block
           copyMethod: Snapshot
           cacheStorageClassName: rook-ceph-block
-          cacheCapacity: 1Gi
+          cacheCapacity: 10Gi
           retain:
             hourly: "{{ volsync_retain_hourly }}"
             daily: "{{ volsync_retain_daily }}"

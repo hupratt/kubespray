@@ -21,10 +21,12 @@
         effect: NoSchedule
 
     immich_library_pv: immich-library
+    # immich_library_storage_class: rook-ceph-block
     immich_library_storage_class: slow-local
     immich_library_storage_size: 3000Gi
 
     immich_db_pv: immich-pg-1
+    # immich_db_storage_class: rook-ceph-block
     immich_db_storage_class: slow-local
     immich_db_storage_size: 100Gi
 
@@ -274,6 +276,7 @@
             namespace: "{{ immich_namespace }}"
           spec:
             accessModes: [ReadWriteOnce]
+            # remove this in case you're dynamically provisioning the PV
             volumeName: "{{ immich_library_pv }}"
             storageClassName: "{{ immich_library_storage_class }}"
             resources:
@@ -315,7 +318,7 @@
             name: immich-pg
             namespace: "{{ immich_namespace }}"
           spec:
-            instances: 2
+            instances: 1
             enableSuperuserAccess: true
             imageName: "{{ immich_db_image }}"
             affinity:
@@ -349,21 +352,21 @@
                   requests:
                     storage: "{{ immich_db_storage_size }}"
 
-    - name: Wait for CNPG cluster to be ready
-      kubernetes.core.k8s_info:
-        api_version: postgresql.cnpg.io/v1
-        kind: Cluster
-        namespace: "{{ immich_namespace }}"
-        name: immich-pg
-      register: cnpg_status
-      until: >-
-        cnpg_status.resources | length > 0 and
-        cnpg_status.resources[0].status is defined and
-        (cnpg_status.resources[0].status.conditions |
-         selectattr('type', 'equalto', 'Ready') |
-         selectattr('status', 'equalto', 'True') | list | length > 0)
-      retries: 30
-      delay: 15
+    # - name: Wait for CNPG cluster to be ready
+    #   kubernetes.core.k8s_info:
+    #     api_version: postgresql.cnpg.io/v1
+    #     kind: Cluster
+    #     namespace: "{{ immich_namespace }}"
+    #     name: immich-pg
+    #   register: cnpg_status
+    #   until: >-
+    #     cnpg_status.resources | length > 0 and
+    #     cnpg_status.resources[0].status is defined and
+    #     (cnpg_status.resources[0].status.conditions |
+    #      selectattr('type', 'equalto', 'Ready') |
+    #      selectattr('status', 'equalto', 'True') | list | length > 0)
+    #   retries: 30
+    #   delay: 15
 
     - name: Deploy Database CRD
       kubernetes.core.k8s:

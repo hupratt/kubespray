@@ -5,7 +5,7 @@
 
   vars:
     vault_namespace: vault
-    snapshot_local_path: /home/hugo/vault-restore/tmp/vault-snapshot-20260718-145809.snap
+    snapshot_local_path: /home/hugo/vault-restore/tmp/vault-snapshot-20260729-105715.snap
     original_init_file: group_vars/all/vault_init.json   # the keys from BEFORE the snapshot was taken
     temp_init_file: group_vars/all/vault_init_temp.json
 

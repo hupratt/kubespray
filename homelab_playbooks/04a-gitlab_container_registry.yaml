@@ -53,6 +53,17 @@
                   key: "{{ vault_kv_path }}"
                   property: registry_password
 
+    - name: Wait for docker-registry-secret to be created
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: kube-system
+        name: docker-registry-secret
+      register: registry_secret
+      retries: 30
+      delay: 2
+      until: registry_secret.resources | length > 0
+
     - name: Annotate docker-registry-secret secret declaratively
       kubernetes.core.k8s:
         state: present
