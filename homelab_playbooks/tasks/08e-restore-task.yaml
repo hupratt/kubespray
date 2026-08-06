@@ -6,7 +6,7 @@
     name: "cn-postgres-{{ pvc.pvc_name }}-pg-1"
     namespace: "{{ pvc.namespace }}"
   register: rs_info
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: "[{{ pvc.pvc_name }}] Get latest ReplicationSource snapshot info"
   kubernetes.core.k8s_info:
@@ -17,6 +17,21 @@
   register: rs_info
   when: pvc.name == "immich"
 
+
+- name: Scale down Immich workloads before restoring {{ pvc.pvc_name }}
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ pvc.namespace }}"
+    replicas: 0
+    wait: true
+    wait_timeout: 300
+  loop:
+    - immich-server
+    - immich-machine-learning
+  when: pvc.name == "immich"
+
 - name: "[{{ pvc.pvc_name }}] Get PVC capacity from source"
   kubernetes.core.k8s_info:
     api_version: v1
@@ -24,7 +39,7 @@
     name: "{{ pvc.pvc_name }}-pg-1"
     namespace: "{{ pvc.namespace }}"
   register: source_pvc_info
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: "[{{ pvc.pvc_name }}] Get PVC capacity from source"
   kubernetes.core.k8s_info:
@@ -145,7 +160,7 @@
     dest_pvc.resources[0].status.phase == "Bound"
   retries: 12
   delay: 5
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: Sleep for 2 seconds
   command: sleep 2
@@ -293,7 +308,7 @@
         }]
       }}
   loop: "{{ db_owners }}"
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: "[{{ pvc.pvc_name }}] Recreate CNPG cluster"
   kubernetes.core.k8s:
@@ -319,7 +334,7 @@
           storageClass: "{{ pvc.storage_class }}"
         monitoring:
           enablePodMonitor: true
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: "[{{ pvc.pvc_name }}] Recreate CNPG cluster"
   kubernetes.core.k8s:
@@ -372,7 +387,7 @@
       selectattr('status', 'eq', 'True') | list | length > 0
   retries: 36
   delay: 10
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: "[{{ pvc.pvc_name }}] Wait for CNPG cluster to be ready"
   kubernetes.core.k8s_info:
@@ -407,7 +422,7 @@
         cluster:
           name: "{{ pvc.cluster }}"
   loop: "{{ databases }}"
-  when: pvc.name != "immich"
+  when: pvc.name == "shared"
 
 - name: "[{{ pvc.pvc_name }}] Deploy Database CRD"
   kubernetes.core.k8s:
@@ -438,4 +453,17 @@
     msg:
       - "Restore completed for PVC: {{ pvc.pvc_name }}"
       - "Cluster ready: {{ pvc.cluster }}"
-  
+
+- name: Scale Immich workloads back up after restoring {{ pvc.pvc_name }}
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ pvc.namespace }}"
+    replicas: 1
+    wait: true
+    wait_timeout: 300
+  loop:
+    - immich-server
+    - immich-machine-learning  
+  when: pvc.name == "immich"

@@ -87,15 +87,12 @@
         snaphost_class: ceph-rbd-snapclass
         pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
 
-      # - name: immich-lib
-      #   namespace: immich
-      #   pvc_name: immich
-      #   storage_class: rook-ceph-block
-      #   storage_size: 100Gi
-      #   cluster: immich-pg
-      #   secret: volsync-restic-secret-db
-      #   snaphost_class: ceph-rbd-snapclass
-      #   pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+      - name: immich-library
+        namespace: immich
+        secret: volsync-restic-secret-library
+        pvc_name: immich-library
+        storage_class: rook-ceph-block
+        storage_size: 3000Gi
 
   tasks:
 
@@ -124,3 +121,12 @@
       loop_control:
         loop_var: pvc
         label: "{{ pvc.name }}"
+      when: pvc.name != "immich-library"
+
+    - name: Restore lib PVC 
+      ansible.builtin.include_tasks: tasks/08e-restore-lib-task.yaml
+      loop: "{{ restore_pvcs }}"
+      loop_control:
+        loop_var: pvc
+        label: "{{ pvc.name }}"
+      when: pvc.name == "immich-library"      
