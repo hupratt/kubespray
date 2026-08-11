@@ -7,6 +7,7 @@ export KUBECONFIG=/etc/kubernetes/admin.conf
 ## time it took to bootstrap
 
 so terraform provisioning took almost an hour, kubespray 35 minutes and ceph takes a while to install as well
+immich library took 24-25 hours to restore and 5 minutes as well for immich to set the ownership properly
 
 ## gotchas
 
