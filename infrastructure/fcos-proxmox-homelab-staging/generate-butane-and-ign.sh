@@ -9,6 +9,7 @@ NUM_NODES=3
 SSH_KEY=""
 # Multi-key array (preferred)
 SSH_KEYS=(
+  "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEPrmzwFkJvKPTTUbxZ4eyrcvgI6lx2IumtEKcsqR9BZ linode@linode.com"
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIP7l4hUqsANrYqvXaFGgn331V//squfGP1PFbP6+EBkl ubuntu@ubuntu"
   "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJK53GJVzC7//eCqmQeAE4RiWS1zkLsMpnA/PPFBWgUK nb-hpratt"
   "sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAICM0ELAeKb33WeWdHyRlOiqpnxjAuGiaqB3WMBbHc781AAAABHNzaDo= lianli-31-08-2024-yubikey1-1"
