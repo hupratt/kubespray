@@ -1,0 +1,17 @@
+# /etc/systemd/system/zincati-kubernetes-drain.service
+# systemctl daemon-reload
+# systemctl enable zincati-kubernetes-drain.service
+
+[Unit]
+Description=Drain Kubernetes node before reboot
+DefaultDependencies=no
+Before=reboot.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/zincati-kubernetes-drain
+TimeoutStartSec=15min
+
+[Install]
+WantedBy=reboot.target
