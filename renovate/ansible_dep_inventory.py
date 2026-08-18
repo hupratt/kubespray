@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 ansible_dep_inventory.py
 
@@ -15,28 +16,22 @@ Design notes:
     survives Jinja2 templating (.j2 files, docker-compose templates,
     partial YAML fragments) that a real YAML loader would choke on.
   - Does a best-effort variable resolution pass (flat `name: value`
-    scan across the repo) to resolve simple `{{ var }}` tags. This is
-    NOT a Jinja engine — anything it can't resolve is reported as
-    "unresolved:<expr>" so you can fix it by hand or feed a real value.
+    scan across the repo) to resolve simple `{{ var }}` tags.
   - Update checking uses the plain OCI Distribution v2 API
     (works for docker.io, ghcr.io, quay.io, registry.k8s.io, gcr.io,
     lscr.io, and most self-hosted registries) and Helm repo index.yaml.
-    No credentials are sent — only public images/charts can be checked.
-
+  - Architecture filtering: Automatically discards non-x86/amd64 architecture
+    tags (e.g. arm64, aarch64, armv7, ppc64le, s390x) when looking up updates.
 Usage:
   python ansible_dep_inventory.py --path /home/hugo/Documents/Dev/kubespray/homelab_playbooks
-  python ansible_dep_inventory.py --path . --check-updates
-  python ansible_dep_inventory.py --path . --check-updates --output json --output-file inventory.json
-  python ansible_dep_inventory.py --path . --output md --output-file INVENTORY.md
-  python ansible_dep_inventory.py --path /home/hugo/Documents/Dev/kubespray/homelab_playbooks --check-updates --output json --output-file inventory.json
+  python ansible_dep_inventory.py --path /home/hugo/Documents/Dev/kubespray/homelab_playbooks --x86-only --check-updates --output json --output-file inventory.json
+
 
 Requirements:
   - Python 3.8+
   - stdlib only for the inventory scan
   - PyYAML only needed for --check-updates on Helm charts
-    (pip install pyyaml, or apt install python3-yaml)
 """
-
 
 import argparse
 import json
@@ -88,9 +83,6 @@ class HelmRef:
 SCAN_EXTENSIONS = {".yml", ".yaml", ".j2"}
 DOCKERFILE_NAMES = {"Dockerfile"}
 
-# Directories that overwhelmingly contain vendored/third-party content, test
-# fixtures, CI matrices, or documentation rather than things actually
-# deployed by *your* playbooks. Kubespray-style repos pull in a lot of this.
 DEFAULT_SKIP_DIRS = {
     ".git", ".venv", "venv", "env", "node_modules", ".terraform", "__pycache__",
     ".tox", "site-packages", "molecule", "tests", "test", ".github", "docs",
@@ -128,7 +120,6 @@ def build_var_map(files):
             if m:
                 name, value = m.group(1), m.group(2).strip()
                 if value and "{{" not in value:
-                    # last write wins; good enough for a best-effort pass
                     var_map[name] = value
     return var_map
 
@@ -139,7 +130,6 @@ def resolve_jinja(value: str, var_map: dict) -> str:
 
     def repl(m):
         expr = m.group(1)
-        # only handle simple `var` or `var.attr` — no filters/logic
         base = expr.split(".")[0]
         return var_map.get(base, m.group(0))
 
@@ -153,9 +143,6 @@ def resolve_jinja(value: str, var_map: dict) -> str:
 # Extraction patterns
 # --------------------------------------------------------------------------
 
-# Value capture allows internal spaces (e.g. "{{ my_var }}") since a plain
-# `\S+` would stop at the space inside a Jinja expression. Quotes/comments
-# are stripped in _clean_value() below rather than in the regex itself.
 IMAGE_LINE_RE = re.compile(r'^\s*(?:-\s*)?(?:image|docker_image)\s*:\s*(.+)$')
 FROM_LINE_RE = re.compile(r'^\s*FROM\s+(\S+)', re.IGNORECASE)
 
@@ -166,7 +153,6 @@ CHART_REPO_URL_RE = re.compile(r'^\s*chart_repo_url\s*:\s*(.+)$')
 
 def _clean_value(raw: str) -> str:
     v = raw.strip()
-    # strip a trailing YAML comment only if it's clearly outside a Jinja expr
     if "{{" not in v or "}}" in v.split("#")[0]:
         v = re.sub(r'\s+#.*$', '', v)
     v = v.strip()
@@ -174,7 +160,7 @@ def _clean_value(raw: str) -> str:
         v = v[1:-1]
     return v.strip()
 
-# raw `helm install/upgrade <release> <chart> --version X [--repo Y]` in shell/command tasks
+
 HELM_CLI_RE = re.compile(
     r'helm\s+(?:install|upgrade)\s+(?:--install\s+)?(?:\S+\s+)?([^\s]+)\s+[^\n]*?--version[= ]([^\s"\'\\]+)'
 )
@@ -186,7 +172,6 @@ def split_image_tag(ref: str):
     if "@sha256:" in ref:
         repo, digest = ref.split("@", 1)
         return repo, f"@{digest}"
-    # last colon after the last slash is the tag separator
     last_slash = ref.rfind("/")
     last_colon = ref.rfind(":")
     if last_colon > last_slash:
@@ -195,22 +180,14 @@ def split_image_tag(ref: str):
 
 
 # --------------------------------------------------------------------------
-# Validation — reject things that matched the "image:"/"chart_ref:" regex
-# syntactically but clearly aren't a real reference (doc prose, Python/Ansible
-# module paths, file paths, ISO/IMG paths, URLs, malformed markdown, etc.)
+# Validation
 # --------------------------------------------------------------------------
 
-# Docker/OCI reference name component: lowercase alnum runs separated by
-# '.', '_', '__', or '-'. Must start and end on an alnum char. Optionally
-# the first component (registry host) may carry a ":port".
 _COMPONENT = r'[a-z0-9]+(?:[._-]+[a-z0-9]+)*'
 STRICT_IMAGE_RE = re.compile(
     rf'^{_COMPONENT}(?::[0-9]+)?(?:/{_COMPONENT})*$'
 )
 
-# First-segment prefixes that are almost always an Ansible/Python module
-# path (namespace.module) rather than a container image, when there's no
-# "/" in the string to make it look like a real repo path.
 FQCN_PREFIXES = {
     "ansible", "community", "amazon", "google", "kubernetes", "azure",
     "cisco", "junipernetworks", "arista", "f5networks", "netapp",
@@ -219,8 +196,6 @@ FQCN_PREFIXES = {
     "ansible_collections", "ansible-core",
 }
 
-# Generic English/doc words that syntactically look like a valid (if odd)
-# single-word image name but are essentially never real ones in practice.
 IMAGE_STOPWORDS = {
     "a", "an", "the", "this", "that", "other", "one", "any", "ambiguous",
     "passing", "parent", "result", "task", "scripts", "snapshot",
@@ -233,7 +208,7 @@ def is_valid_image_repo(repo: str) -> bool:
     if not repo:
         return False
     r = repo.strip()
-    if not r or r != repo:  # leading/trailing whitespace snuck through
+    if not r or r != repo:
         return False
     if not STRICT_IMAGE_RE.match(r):
         return False
@@ -253,8 +228,6 @@ def is_valid_chart(chart: str, version: str) -> bool:
         return False
     if not version or version.startswith("unresolved"):
         return False
-    # a bare chart_version without any digit in it is almost certainly not
-    # a real chart pin (e.g. a stray "latest" picked up from unrelated YAML)
     if not re.search(r'\d', version):
         return False
     return True
@@ -336,7 +309,6 @@ def scan_file(path: Path, var_map: dict, images: dict, helms: dict, stats: dict)
         if m:
             chart_raw = resolve_jinja(m.group(1), var_map)
             version_raw = resolve_jinja(m.group(2), var_map)
-            # chart may be "repo/chart" — keep as-is, useful context
             chart = chart_raw.rsplit("/", 1)[-1] if "/" in chart_raw and not chart_raw.startswith("http") else chart_raw
             repo_m = HELM_CLI_REPO_RE.search(line)
             repo_url = resolve_jinja(repo_m.group(1), var_map) if repo_m else None
@@ -350,10 +322,31 @@ def scan_file(path: Path, var_map: dict, images: dict, helms: dict, stats: dict)
 
 
 # --------------------------------------------------------------------------
-# Version comparison helpers
+# Version comparison & Architecture filtering helpers
 # --------------------------------------------------------------------------
 
 NUMERIC_VER_RE = re.compile(r'\d+(?:\.\d+)*')
+
+# Keywords designating non-x86 architectures to exclude
+NON_X86_KEYWORDS = {
+    "arm64", "aarch64", "armv7", "armv7l", "armv6", "armv6l", "arm",
+    "ppc64le", "s390x", "riscv64", "mips", "mips64", "386", "i386"
+}
+
+# Keywords indicating explicit x86/amd64 tagging
+X86_KEYWORDS = {"amd64", "x86_64", "x86-64", "x64"}
+
+
+def is_x86_compatible_tag(tag: str) -> bool:
+    """Check if tag is compatible with x86/amd64 by filtering out non-x86 architecture tags."""
+    t_lower = tag.lower()
+    
+    # Check for presence of non-x86 arch identifiers using word boundary / delimiter split
+    parts = re.split(r'[-_./~+]', t_lower)
+    if any(p in NON_X86_KEYWORDS for p in parts):
+        return False
+        
+    return True
 
 
 def version_tuple(v: str):
@@ -363,26 +356,44 @@ def version_tuple(v: str):
     return tuple(int(x) for x in m.group(0).split("."))
 
 
-def pick_latest(tags, current):
-    """Return the highest semver-ish tag from `tags`, or None if none look versioned."""
+def pick_latest(tags, current, filter_x86: bool = True):
+    """Return the highest semver-ish tag from `tags`, filtering for x86 if enabled."""
     cur_t = version_tuple(current)
     candidates = []
+
+    # Detect if current tag carries an x86 architecture suffix
+    current_has_x86_suffix = any(k in current.lower() for k in X86_KEYWORDS)
+
     for t in tags:
+        if filter_x86 and not is_x86_compatible_tag(t):
+            continue
+
         tv = version_tuple(t)
         if tv is None:
             continue
-        candidates.append((tv, t))
+
+        # If current tag is suffixed (e.g. v1.0.0-amd64), prefer candidate tags with x86 suffix
+        t_has_x86_suffix = any(k in t.lower() for k in X86_KEYWORDS)
+        
+        # Priority weight: 1 if matches current tag's suffix pattern, 0 otherwise
+        priority = 1 if (current_has_x86_suffix == t_has_x86_suffix) else 0
+
+        candidates.append((tv, priority, t))
+
     if not candidates:
         return None
-    candidates.sort(key=lambda x: x[0])
-    best_tuple, best_tag = candidates[-1]
+
+    # Sort by semver version tuple first, then suffix priority
+    candidates.sort(key=lambda x: (x[0], x[1]))
+    best_tuple, _, best_tag = candidates[-1]
+
     if cur_t is not None and best_tuple <= cur_t:
-        return None  # already up to date (or ahead / non-comparable)
+        return None  # already up to date
     return best_tag
 
 
 # --------------------------------------------------------------------------
-# Registry / chart repo lookups (network, only used with --check-updates)
+# Registry / chart repo lookups
 # --------------------------------------------------------------------------
 
 def http_get(url, headers=None, timeout=15):
@@ -392,7 +403,6 @@ def http_get(url, headers=None, timeout=15):
 
 
 def get_docker_tags(repo: str):
-    """repo like 'library/nginx', 'ghcr.io/org/img', 'quay.io/org/img', 'nginx' (docker hub official)."""
     if "/" in repo and "." in repo.split("/")[0]:
         host = repo.split("/")[0]
         image_path = repo[len(host) + 1:]
@@ -400,7 +410,6 @@ def get_docker_tags(repo: str):
         host = "registry-1.docker.io"
         image_path = repo if "/" in repo else f"library/{repo}"
 
-    auth_host = "auth.docker.io" if host == "registry-1.docker.io" else host
     tags_url = f"https://{host}/v2/{image_path}/tags/list"
 
     headers = {}
@@ -443,7 +452,6 @@ def get_helm_latest(chart: str, repo_url: str):
     entries = idx.get("entries", {})
     versions = entries.get(chart)
     if not versions:
-        # try suffix match, e.g. chart named differently than key
         for k in entries:
             if k.endswith(chart) or chart.endswith(k):
                 versions = entries[k]
@@ -451,11 +459,11 @@ def get_helm_latest(chart: str, repo_url: str):
     if not versions:
         return None, "chart not found in index"
     vers = [v.get("version") for v in versions if v.get("version")]
-    latest = pick_latest(vers, "0")
+    latest = pick_latest(vers, "0", filter_x86=False)
     return (latest or vers[0] if vers else None), None
 
 
-def check_updates(images: dict, helms: dict, delay: float):
+def check_updates(images: dict, helms: dict, delay: float, filter_x86: bool):
     print("Checking for updates (network calls, this can take a bit)...", file=sys.stderr)
     for entry in images.values():
         if entry.repo == "unresolved" or entry.tag.startswith("@sha256"):
@@ -463,7 +471,7 @@ def check_updates(images: dict, helms: dict, delay: float):
             continue
         try:
             tags = get_docker_tags(entry.repo)
-            latest = pick_latest(tags, entry.tag)
+            latest = pick_latest(tags, entry.tag, filter_x86=filter_x86)
             entry.latest = latest
             entry.outdated = latest is not None
         except Exception as e:
@@ -476,7 +484,12 @@ def check_updates(images: dict, helms: dict, delay: float):
             entry.check_error = err
         else:
             entry.latest = latest
-            entry.outdated = latest is not None and version_tuple(latest) and version_tuple(entry.version) and version_tuple(latest) > version_tuple(entry.version)
+            entry.outdated = (
+                latest is not None 
+                and version_tuple(latest) 
+                and version_tuple(entry.version) 
+                and version_tuple(latest) > version_tuple(entry.version)
+            )
         time.sleep(delay)
 
 
@@ -565,6 +578,10 @@ def main():
     ap.add_argument("--no-default-excludes", action="store_true",
                      help="Don't skip molecule/tests/docs/collections/etc — scan everything")
     ap.add_argument("--no-sources", action="store_true", help="Hide the source-file line under each table row")
+    ap.add_argument("--x86-only", dest="x86_only", action="store_true", default=True,
+                     help="Only evaluate x86/amd64 compatible tags during update checks (default)")
+    ap.add_argument("--no-x86-only", dest="x86_only", action="store_false",
+                     help="Include all architecture tags when evaluating updates")
     args = ap.parse_args()
 
     root = Path(args.path).resolve()
@@ -602,7 +619,7 @@ def main():
     )
 
     if args.check_updates:
-        check_updates(images, helms, args.delay)
+        check_updates(images, helms, args.delay, filter_x86=args.x86_only)
 
     rows = to_rows(images, helms)
 
