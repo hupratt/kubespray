@@ -123,3 +123,4 @@ terraform.tfvars
 *.bu
 *.env
 *.json
+INVENTORY.md

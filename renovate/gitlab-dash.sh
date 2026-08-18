@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# gitlab-dash.sh — usage: ./gitlab-dash.sh /home/hpratt/Documents/kubespray/homelab_playbooks/renovate-debug.log
+# gitlab-dash.sh — usage: ./gitlab-dash.sh ./renovate-debug.log
 LOG="${1:-renovate.log}"
 
 b=$'\e[1m'; d=$'\e[2m'; g=$'\e[32m'; y=$'\e[33m'; r=$'\e[31m'; c=$'\e[36m'; x=$'\e[0m'

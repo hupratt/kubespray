@@ -123,6 +123,7 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 | <img src="./icons/technitium.svg" width="16"/> | **Technitium** | recursive resolver and an authoritative DNS server that I'm using as a conditional forwarder for my domain. Technitium is provisioned by [this helm chart](https://charts.obeone.cloud) | ✅ |
 | <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO. I'm provisioning Volsync via [the official helm chart](https://backube.github.io/helm-charts/) | ✅ |
 | 🌐 | **Netbird** | Manage peer to peer VPN with firewall rules and much more. Provisioned via [the official helm chart](https://github.com/netbirdio/helms/tree/main/charts/netbird) | ✅ |
+| <img src="./icons/gitlab-svgrepo-com.svg" width="20"/> | GitLab | Git repository hosting, CI/CD, container registry, and DevOps platform. Running on a separate VM with docker |  |
 
 ### 2. Identity & Security
 

@@ -11,21 +11,11 @@ Scans an Ansible repo (playbooks, roles, templates) for:
 Builds a deduplicated inventory and, optionally, checks each entry
 against its upstream registry/chart repo to flag outdated versions.
 
-Design notes:
-  - Uses regex/line scanning rather than a strict YAML parser so it
-    survives Jinja2 templating (.j2 files, docker-compose templates,
-    partial YAML fragments) that a real YAML loader would choke on.
-  - Does a best-effort variable resolution pass (flat `name: value`
-    scan across the repo) to resolve simple `{{ var }}` tags.
-  - Update checking uses the plain OCI Distribution v2 API
-    (works for docker.io, ghcr.io, quay.io, registry.k8s.io, gcr.io,
-    lscr.io, and most self-hosted registries) and Helm repo index.yaml.
-  - Architecture filtering: Automatically discards non-x86/amd64 architecture
-    tags (e.g. arm64, aarch64, armv7, ppc64le, s390x) when looking up updates.
-Usage:
-  python ansible_dep_inventory.py --path /home/hugo/Documents/Dev/kubespray/homelab_playbooks
-  python ansible_dep_inventory.py --path /home/hugo/Documents/Dev/kubespray/homelab_playbooks --x86-only --check-updates --output json --output-file inventory.json
-
+Features:
+  - Strict x86/amd64 semver tag evaluation (discards non-version floating 
+    tags like 'amd64', 'latest', 'stable' as recommended versions).
+  - Best-effort Jinja2 variable resolution pass.
+  - OCI v2 Registry & Helm index.yaml support.
 
 Requirements:
   - Python 3.8+
@@ -45,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 try:
-    import yaml  # only needed for helm index.yaml parsing during --check-updates
+    import yaml  # needed for helm index.yaml parsing
     HAVE_YAML = True
 except ImportError:
     HAVE_YAML = False
@@ -57,8 +47,8 @@ except ImportError:
 
 @dataclass
 class ImageRef:
-    repo: str                 # e.g. "ghcr.io/immich-app/immich-server"
-    tag: str                  # e.g. "v1.118.2" or "unresolved:{{ immich_version }}"
+    repo: str
+    tag: str
     sources: set = field(default_factory=set)
     latest: Optional[str] = None
     outdated: Optional[bool] = None
@@ -67,7 +57,7 @@ class ImageRef:
 
 @dataclass
 class HelmRef:
-    chart: str                 # chart name, e.g. "cloudnative-pg"
+    chart: str
     version: str
     repo_url: Optional[str] = None
     sources: set = field(default_factory=set)
@@ -168,7 +158,6 @@ HELM_CLI_REPO_RE = re.compile(r'--repo[= ]([^\s"\'\\]+)')
 
 
 def split_image_tag(ref: str):
-    """Split repo:tag, being careful about registry hosts with ports."""
     if "@sha256:" in ref:
         repo, digest = ref.split("@", 1)
         return repo, f"@{digest}"
@@ -184,9 +173,7 @@ def split_image_tag(ref: str):
 # --------------------------------------------------------------------------
 
 _COMPONENT = r'[a-z0-9]+(?:[._-]+[a-z0-9]+)*'
-STRICT_IMAGE_RE = re.compile(
-    rf'^{_COMPONENT}(?::[0-9]+)?(?:/{_COMPONENT})*$'
-)
+STRICT_IMAGE_RE = re.compile(rf'^{_COMPONENT}(?::[0-9]+)?(?:/{_COMPONENT})*$')
 
 FQCN_PREFIXES = {
     "ansible", "community", "amazon", "google", "kubernetes", "azure",
@@ -325,27 +312,35 @@ def scan_file(path: Path, var_map: dict, images: dict, helms: dict, stats: dict)
 # Version comparison & Architecture filtering helpers
 # --------------------------------------------------------------------------
 
-NUMERIC_VER_RE = re.compile(r'\d+(?:\.\d+)*')
+NUMERIC_VER_RE = re.compile(r'\d+(?:\.\d+)+')  # Requires at least major.minor (e.g. 1.2 or 1.2.3)
 
-# Keywords designating non-x86 architectures to exclude
 NON_X86_KEYWORDS = {
     "arm64", "aarch64", "armv7", "armv7l", "armv6", "armv6l", "arm",
     "ppc64le", "s390x", "riscv64", "mips", "mips64", "386", "i386"
 }
 
-# Keywords indicating explicit x86/amd64 tagging
 X86_KEYWORDS = {"amd64", "x86_64", "x86-64", "x64"}
+
+# Generic floating/alias tags to ignore during version lookup
+NON_VERSION_TAGS = {"latest", "stable", "main", "master", "edge", "nightly", "amd64", "arm64"}
 
 
 def is_x86_compatible_tag(tag: str) -> bool:
-    """Check if tag is compatible with x86/amd64 by filtering out non-x86 architecture tags."""
+    """Ensure tag contains numeric semver and excludes non-x86 architectures."""
     t_lower = tag.lower()
-    
-    # Check for presence of non-x86 arch identifiers using word boundary / delimiter split
+
+    if t_lower in NON_VERSION_TAGS:
+        return False
+
+    # Must contain at least major.minor version digits
+    if not NUMERIC_VER_RE.search(t_lower):
+        return False
+
+    # Exclude non-x86 tags
     parts = re.split(r'[-_./~+]', t_lower)
     if any(p in NON_X86_KEYWORDS for p in parts):
         return False
-        
+
     return True
 
 
@@ -357,11 +352,10 @@ def version_tuple(v: str):
 
 
 def pick_latest(tags, current, filter_x86: bool = True):
-    """Return the highest semver-ish tag from `tags`, filtering for x86 if enabled."""
+    """Return highest semver-ish x86 tag from registry candidates."""
     cur_t = version_tuple(current)
     candidates = []
 
-    # Detect if current tag carries an x86 architecture suffix
     current_has_x86_suffix = any(k in current.lower() for k in X86_KEYWORDS)
 
     for t in tags:
@@ -372,10 +366,7 @@ def pick_latest(tags, current, filter_x86: bool = True):
         if tv is None:
             continue
 
-        # If current tag is suffixed (e.g. v1.0.0-amd64), prefer candidate tags with x86 suffix
         t_has_x86_suffix = any(k in t.lower() for k in X86_KEYWORDS)
-        
-        # Priority weight: 1 if matches current tag's suffix pattern, 0 otherwise
         priority = 1 if (current_has_x86_suffix == t_has_x86_suffix) else 0
 
         candidates.append((tv, priority, t))
@@ -383,12 +374,16 @@ def pick_latest(tags, current, filter_x86: bool = True):
     if not candidates:
         return None
 
-    # Sort by semver version tuple first, then suffix priority
     candidates.sort(key=lambda x: (x[0], x[1]))
     best_tuple, _, best_tag = candidates[-1]
 
-    if cur_t is not None and best_tuple <= cur_t:
+    # If current image uses a non-version string tag (e.g. "latest"), recommend best semver tag
+    if cur_t is None:
+        return best_tag
+
+    if best_tuple <= cur_t:
         return None  # already up to date
+
     return best_tag
 
 
