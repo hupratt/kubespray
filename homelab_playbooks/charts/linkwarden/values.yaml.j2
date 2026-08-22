@@ -171,7 +171,7 @@ linkwarden:
     host: "{{ host }}"
     ## @param linkwarden.database.port [default: 5432] The port for the PostgreSQL instance - ignored if 'existingSecret' or 'uri' is set
     ##
-    port: "{{ pg_port }}"
+    port: "{{ pg_port | int }}"
     ## @param linkwarden.database.name [default: linkwarden] The name for the PostgreSQL database - ignored if 'existingSecret' or 'uri' is set
     ##
     name: "{{ dbName }}"

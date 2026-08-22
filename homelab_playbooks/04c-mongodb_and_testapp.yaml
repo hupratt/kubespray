@@ -367,3 +367,26 @@
 # mongosh --username root --password <previous PW> --authenticationDatabase admin
 # use admin
 # db.changeUserPassword("root", "new PW")
+
+# fix corrupt database
+
+#  kubectl apply -f - <<EOF
+# apiVersion: v1
+# kind: Pod
+# metadata:
+#   name: mongodb-repair
+#   namespace: mongodb
+# spec:
+#   restartPolicy: Never
+#   containers:
+#   - name: mongo
+#     image: mongo:6.0.28
+#     command: ["mongod", "--repair", "--dbpath", "/data/db"]
+#     volumeMounts:
+#     - mountPath: /data/db
+#       name: mongodb-data
+#   volumes:
+#   - name: mongodb-data
+#     persistentVolumeClaim:
+#       claimName: mongodb-ss-storage-mongodb-statefulset-0
+# EOF

@@ -9,7 +9,7 @@ global:
 
 extraEnvs:
   - name: API_TOKEN_PEPPERS
-    value: "{{ API_TOKEN_PEPPERS }}"
+    value: "{{ api_token_pepper }}"
 
 extraVolumeMounts:
   - name: peppers-config
@@ -67,9 +67,7 @@ image:
   registry: ghcr.io
   repository: netbox-community/netbox
   pullPolicy: IfNotPresent
-  ## Defaults to '{{ .Chart.AppVersion }}'
-  ##
-  tag: ""
+  tag: "v4.6.8"
   ## If set, override the tag
   ##
   digest: ""
@@ -214,7 +212,7 @@ dbWaitDebug: false
 # Email settings
 email:
   server: "{{ email_server }}"
-  port: "{{ email_port }}"
+  port: {{ email_port | int }}
   username: "{{ email_username }}"
   password: "{{ email_password }}"
   useSSL: false

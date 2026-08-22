@@ -205,3 +205,14 @@
       ansible.builtin.file:
         path: /tmp/authentik-values.yaml
         state: absent
+
+
+# kubectl -n authentik-system exec -it deployment/authentik-server -c server -- ak changepassword akadmin
+
+# If you mean remove the user's enrolled MFA device so they can enroll 2FA again, you can do it directly from the authentik UI:
+
+# Go to Directory → Users
+# Open the user.
+# Go to MFA Authenticators / Credentials.
+# Find the user's TOTP device (or WebAuthn device).
+# Delete the authenticator.

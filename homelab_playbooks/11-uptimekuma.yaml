@@ -205,3 +205,6 @@
 
 # mariadb -h $MARIADB_HOST -u root -p uptimekuma < uptimekuma-2026-04-14.sql 
 # mariadb -h "$MARIADB_HOST" -P "$MARIADB_PORT" -u root -p
+
+# GRANT ALL PRIVILEGES ON uptimekuma.* TO 'uptime-kuma'@'%';
+# FLUSH PRIVILEGES;

@@ -86,7 +86,7 @@
         clientId: "{{ vault_secrets.data.data.data.clientId }}"
         clientSecret: "{{ vault_secrets.data.data.data.clientSecret }}"
         hostname: "{{ vault_secrets.data.data.data.hostname }}"
-        pg_port: "{{ vault_secrets.data.data.data.pg_port }}"
+        pg_port: "{{ vault_secrets.data.data.data.pg_port | int }}"
 
     - name: Check if repo already exists
       ansible.builtin.stat:
@@ -111,14 +111,29 @@
           metadata:
             name: my-linkwarden-auth-authentik
             namespace: linkwarden
+            labels:
+              app.kubernetes.io/managed-by: Helm
+            annotations:
+              meta.helm.sh/release-name: my-linkwarden
+              meta.helm.sh/release-namespace: linkwarden
           data:
-            AUTHENTIK_ISSUER: "https://auth.thekor.eu/application/o/linkwarden/"
+            AUTHENTIK_ISSUER: "https://auth-staging.thekor.eu/application/o/linkwarden/"
 
-    - name: Render values
-      ansible.builtin.template:
-        src: charts/linkwarden/values.yaml.j2
+    - name: Render full values with database overrides
+      ansible.builtin.copy:
         dest: /tmp/linkwarden-values.yaml
         mode: "0600"
+        content: "{{ (base_values | from_yaml) | combine(db_override, recursive=True) | to_nice_yaml }}"
+      vars:
+        base_values: "{{ lookup('template', 'charts/linkwarden/values.yaml.j2') }}"
+        db_override:
+          linkwarden:
+            database:
+              user: "{{ pg_username }}"
+              password: "{{ pg_password }}"
+              host: "{{ host }}"
+              port: "{{ pg_port | int }}"
+              name: "{{ dbName }}"
 
     - name: Deploy via Helm
       kubernetes.core.helm:
@@ -128,6 +143,7 @@
         create_namespace: false
         values_files:
           - /tmp/linkwarden-values.yaml
+        force: true
 
     - name: Clean up rendered values file
       ansible.builtin.file:

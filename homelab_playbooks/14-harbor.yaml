@@ -305,3 +305,7 @@
             persistentVolumeReclaimPolicy: Retain
       loop: "{{ harbor_pvcs.resources }}"
       when: item.spec.volumeName is defined
+
+
+# for staging: conflict with oidc 
+# UPDATE harbor_user SET username = 'hpratt_old', email = 'hpratt_old@thekor.eu' WHERE username = 'hpratt' OR email = 'hpratt@thekor.eu';

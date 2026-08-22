@@ -247,3 +247,9 @@
 # Warning: Immediate deletion does not wait for confirmation that the running resource has been terminated. The resource may continue to run on the cluster indefinitely.
 # pod "vaultwarden-b5747d5f-w45pm" force deleted from vaultwarden namespace
 # (env) kubespray/homelab_playbooks       
+
+
+# GRANT ALL PRIVILEGES ON vaultwarden.* TO 'vaultwardenadmin'@'%';
+# FLUSH PRIVILEGES;
+
+# SELECT User, Host FROM mysql.user;
