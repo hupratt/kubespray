@@ -117,7 +117,7 @@
               meta.helm.sh/release-name: my-linkwarden
               meta.helm.sh/release-namespace: linkwarden
           data:
-            AUTHENTIK_ISSUER: "https://auth-staging.thekor.eu/application/o/linkwarden/"
+            AUTHENTIK_ISSUER: "https://auth.thekor.eu/application/o/linkwarden/"
 
     - name: Render full values with database overrides
       ansible.builtin.copy:

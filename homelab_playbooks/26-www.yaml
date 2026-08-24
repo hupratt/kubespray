@@ -88,9 +88,16 @@
       kubernetes.core.k8s_info:
         kind: Secret
         namespace: "{{ namespace }}"
-        name: portfolio-backend-env
+        name: portfolio-vault-secrets
       register: vault_secret
 
+    # - name: Debug vault_secret
+    #   debug:
+    #     var: vault_secret
+
+    # - name: Pause for 6 seconds
+    #   ansible.builtin.pause:
+    #     seconds: 6
     # -------------------------------------------------------------------------
     # BACKEND DEPLOYMENT (Django)
     # -------------------------------------------------------------------------
@@ -135,7 +142,7 @@
                         python manage.py migrate
                     envFrom:
                       - secretRef:
-                          name: portfolio-backend-env
+                          name: portfolio-vault-secrets
                     # volumeMounts:
                     #   - name: app-static
                     #     mountPath: /app/static
@@ -157,7 +164,7 @@
                       - containerPort: "{{ backend_port }}"
                     envFrom:
                       - secretRef:
-                          name: portfolio-backend-env
+                          name: portfolio-vault-secrets
                     # volumeMounts:
                     #   - name: app-static
                     #     mountPath: /app/static

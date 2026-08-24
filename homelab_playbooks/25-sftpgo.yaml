@@ -134,7 +134,7 @@
     - name: Read secret
       kubernetes.core.k8s_info:
         kind: Secret
-        namespace: authentik
+        namespace: sftpgo
         name: sftpgo-vault-secrets
       register: vault_secret
 
@@ -189,11 +189,16 @@
             namespace: sftpgo
           spec:
             accessModes: [ReadWriteOnce]
+            # specify the PV
             volumeName: sftpgo-data
             storageClassName: slow-local
             resources:
               requests:
                 storage: 10Gi
+
+    # - name: Debug vault_secret
+    #   debug:
+    #     var: vault_secret
 
     - name: Create secret for the sftpgo database
       kubernetes.core.k8s:
@@ -203,18 +208,18 @@
           apiVersion: v1
           kind: Secret
           metadata:
-            name: sftpgo-secret
+            name: sftpgo-vault-secrets
           type: Opaque
           stringData: 
             sftpgo_secret_values: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PASSWORD | b64decode }}"
       no_log: true
 
-    - name: Annotate sftpgo-secret secret declaratively
+    - name: Annotate sftpgo-vault-secrets secret declaratively
       kubernetes.core.k8s:
         state: present
         kind: Secret
         namespace: "monitoring"
-        name: sftpgo-secret
+        name: sftpgo-vault-secrets
         definition:
           metadata:
             annotations:
@@ -252,7 +257,7 @@
               name: mariadb
               namespace: mariadb
             passwordSecretKeyRef:
-              name: sftpgo-secret
+              name: sftpgo-vault-secrets
               key: sftpgo_secret_values
             maxUserConnections: 20
 
@@ -273,7 +278,7 @@
               namespace: mariadb
               waitForIt: true
             passwordSecretKeyRef:
-              name: sftpgo-secret
+              name: sftpgo-vault-secrets
               key: sftpgo_secret_values
 
     - name: Create MariaDB Grant for the user

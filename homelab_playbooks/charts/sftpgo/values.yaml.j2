@@ -73,32 +73,32 @@ envVars: []
 # -- Additional environment variables passed directly to containers using a simplified key-value syntax.
 env:
   # These are the settings to access your db
-  SFTPGO_FTPD__BINDINGS__0__ADDRESS: "{{ authentik_secret.resources[0].data.SFTPGO_FTPD__BINDINGS__0__ADDRESS | b64decode }}"
-  SFTPGO_FTPD__BINDINGS__0__TLS_MODE: "{{ authentik_secret.resources[0].data.SFTPGO_FTPD__BINDINGS__0__TLS_MODE | b64decode }}"
-  SFTPGO_FTPD__BINDINGS__0__DEBUG: "{{ authentik_secret.resources[0].data.SFTPGO_FTPD__BINDINGS__0__DEBUG | b64decode }}"
-  SFTPGO_FTPD__PASSIVE_PORT_RANGE__START: "{{ authentik_secret.resources[0].data.SFTPGO_FTPD__PASSIVE_PORT_RANGE__START | b64decode }}"
-  SFTPGO_FTPD__PASSIVE_PORT_RANGE__END: "{{ authentik_secret.resources[0].data.SFTPGO_FTPD__PASSIVE_PORT_RANGE__END | b64decode }}"
-  SFTPGO_FTPD__DISABLE_ACTIVE_MODE: "{{ authentik_secret.resources[0].data.SFTPGO_FTPD__DISABLE_ACTIVE_MODE | b64decode }}"
+  SFTPGO_FTPD__BINDINGS__0__ADDRESS: "{{ vault_secret.resources[0].data.SFTPGO_FTPD__BINDINGS__0__ADDRESS | b64decode }}"
+  SFTPGO_FTPD__BINDINGS__0__TLS_MODE: "{{ vault_secret.resources[0].data.SFTPGO_FTPD__BINDINGS__0__TLS_MODE | b64decode }}"
+  SFTPGO_FTPD__BINDINGS__0__DEBUG: "{{ vault_secret.resources[0].data.SFTPGO_FTPD__BINDINGS__0__DEBUG | b64decode }}"
+  SFTPGO_FTPD__PASSIVE_PORT_RANGE__START: "{{ vault_secret.resources[0].data.SFTPGO_FTPD__PASSIVE_PORT_RANGE__START | b64decode }}"
+  SFTPGO_FTPD__PASSIVE_PORT_RANGE__END: "{{ vault_secret.resources[0].data.SFTPGO_FTPD__PASSIVE_PORT_RANGE__END | b64decode }}"
+  SFTPGO_FTPD__DISABLE_ACTIVE_MODE: "{{ vault_secret.resources[0].data.SFTPGO_FTPD__DISABLE_ACTIVE_MODE | b64decode }}"
 #      SFTPGO_FTPD__BINDINGS__0__PORT: 2121
-  SFTPGO_WEBDAVD__BINDINGS__0__PORT: "{{ authentik_secret.resources[0].data.SFTPGO_WEBDAVD__BINDINGS__0__PORT | b64decode }}"
-  SFTPGO_DATA_PROVIDER__DRIVER: "{{ authentik_secret.resources[0].data.SFTPGO_DATA_PROVIDER__DRIVER | b64decode }}"
-  SFTPGO_DATA_PROVIDER__NAME: "{{ authentik_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
-  SFTPGO_DATA_PROVIDER__HOST: "{{ authentik_secret.resources[0].data.SFTPGO_DATA_PROVIDER__HOST | b64decode }}"
-  SFTPGO_DATA_PROVIDER__PORT: "{{ authentik_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PORT | b64decode }}"
-  SFTPGO_DATA_PROVIDER__USERNAME: "{{ authentik_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
-  SFTPGO_DATA_PROVIDER__PASSWORD: "{{ authentik_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PASSWORD | b64decode }}"
-  SFTPGO_COMMON_DEFENDER__ENABLED: "{{ authentik_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__ENABLED | b64decode }}"
-  SFTPGO_COMMON_DEFENDER__BAN_TIME: "{{ authentik_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__BAN_TIME | b64decode }}"
-  SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT:  "{{ authentik_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT | b64decode }}"
-  SFTPGO_COMMON_DEFENDER__THRESHOLD: "{{ authentik_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__THRESHOLD | b64decode }}"
-  SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME: "{{ authentik_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL | b64decode }}"
-  SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD: "{{ authentik_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD | b64decode }}"
+  SFTPGO_WEBDAVD__BINDINGS__0__PORT: "{{ vault_secret.resources[0].data.SFTPGO_WEBDAVD__BINDINGS__0__PORT | b64decode }}"
+  SFTPGO_DATA_PROVIDER__DRIVER: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__DRIVER | b64decode }}"
+  SFTPGO_DATA_PROVIDER__NAME: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
+  SFTPGO_DATA_PROVIDER__HOST: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__HOST | b64decode }}"
+  SFTPGO_DATA_PROVIDER__PORT: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PORT | b64decode }}"
+  SFTPGO_DATA_PROVIDER__USERNAME: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
+  SFTPGO_DATA_PROVIDER__PASSWORD: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PASSWORD | b64decode }}"
+  SFTPGO_COMMON_DEFENDER__ENABLED: "{{ vault_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__ENABLED | b64decode }}"
+  SFTPGO_COMMON_DEFENDER__BAN_TIME: "{{ vault_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__BAN_TIME | b64decode }}"
+  SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT:  "{{ vault_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT | b64decode }}"
+  SFTPGO_COMMON_DEFENDER__THRESHOLD: "{{ vault_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__THRESHOLD | b64decode }}"
+  SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME: "{{ vault_secret.resources[0].data.SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL | b64decode }}"
+  SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD: "{{ vault_secret.resources[0].data.SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD | b64decode }}"
 # -- Pod [security context](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod).
 # See the [API reference](https://kubernetes.io/docs/reference/kubernetes-api/workload-resources/pod-v1/#security-context) for details.
 podSecurityContext:
@@ -233,7 +233,7 @@ ui:
     # -- Ingress host configuration.
     # @default -- See [values.yaml](values.yaml).
     hosts:
-      - host: "{{ authentik_secret.resources[0].data.hostname | b64decode }}"
+      - host: "{{ vault_secret.resources[0].data.hostname | b64decode }}"
         # Change httpd.web_root in the sftpgo configuration if you change the path
         paths:
           - path: /
@@ -244,7 +244,7 @@ ui:
     tls: 
     - secretName: wildcard-thekor
       hosts:
-        - "{{ authentik_secret.resources[0].data.hostname | b64decode }}"
+        - "{{ vault_secret.resources[0].data.hostname | b64decode }}"
 
 api:
   ingress:
