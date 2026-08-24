@@ -16,7 +16,7 @@
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: paperless_vault_secrets
+            name: paperless-vault-secrets
             namespace: "{{ namespace }}"
           spec:
             refreshInterval: 1h
@@ -24,7 +24,7 @@
               name: vault-backend
               kind: ClusterSecretStore
             target:
-              name: paperless_vault_secrets
+              name: paperless-vault-secrets
               creationPolicy: Owner
             data:
               - secretKey: vault_paperless_secret_key
@@ -112,8 +112,16 @@
       kubernetes.core.k8s_info:
         kind: Secret
         namespace: "{{ namespace }}"
-        name: paperless_vault_secrets
+        name: paperless-vault-secrets
       register: vault_secret
+
+    # - name: Debug vault_secret
+    #   debug:
+    #     var: vault_secret.resources[0].data
+
+    # - name: Pause for 6 seconds
+    #   ansible.builtin.pause:
+    #     seconds: 6
 
     - name: Create rook-cephfs StorageClass
       k8s:
@@ -174,7 +182,7 @@
       kubernetes.core.helm:
         kubeconfig: "{{ vault_secret.resources[0].data.paperless_kubeconfig | b64decode }}"
         name: "{{ vault_secret.resources[0].data.paperless_release_name | b64decode }}"
-        chart_ref: "{{ vault_secret.resources[0].data.paperless_chart_path | b64decode }}"
+        chart_ref: "{{ paperless_chart_path }}"
         release_namespace: "{{ namespace }}"
         create_namespace: true
         wait: true
