@@ -115,51 +115,54 @@
             name: frigate-config
             namespace: "{{ frigate_namespace }}"
           data:
-            auth:
-              enabled: False
-            mqtt:
-              enabled: True
-              host: "{{ vault_secret.resources[0].data.frigate_mqtt_host | b64decode }}"
-              user: "{{ vault_secret.resources[0].data.frigate_mqtt_user | b64decode }}"
-              password: "{{ vault_secret.resources[0].data.frigate_mqtt_password | b64decode }}"
-            cameras:
-              reolink:
-                detect:
-                  enabled: True
-                  height: 480
-                  width: 704
-                  fps: 5
-                objects:
-                  track:
-                    - person
-                    - car
-                ffmpeg:
-                  inputs:
-                    - path: "{{ vault_secret.resources[0].data.ffmpeg_path | b64decode }}"
-                      roles:
-                        - detect
-                        - record
-                mqtt:
-                  enabled: True
-                  timestamp: True
-                  bounding_box: True
-                  crop: False
-                  height: 270
-                  quality: 70
-            record:
-              enabled: True
-              continuous:
-                days: 2
-              motion:
-                days: 2
-              alerts:
-                retain:
+            config.yml: "{{ frigate_config | to_nice_yaml(indent=2) }}"
+      vars:
+        frigate_config:
+          auth:
+            enabled: False
+          mqtt:
+            enabled: True
+            host: "{{ vault_secret.resources[0].data.frigate_mqtt_host | b64decode }}"
+            user: "{{ vault_secret.resources[0].data.frigate_mqtt_user | b64decode }}"
+            password: "{{ vault_secret.resources[0].data.frigate_mqtt_password | b64decode }}"
+          cameras:
+            reolink:
+              detect:
+                enabled: True
+                height: 480
+                width: 704
+                fps: 5
+              objects:
+                track:
+                  - person
+                  - car
+              ffmpeg:
+                inputs:
+                  - path: "{{ vault_secret.resources[0].data.ffmpeg_path | b64decode }}"
+                    roles:
+                      - detect
+                      - record
+              mqtt:
+                enabled: True
+                timestamp: True
+                bounding_box: True
+                crop: False
+                height: 270
+                quality: 70
+              record:
+                enabled: True
+                continuous:
                   days: 2
-                  mode: all
-              detections:
-                retain:
+                motion:
                   days: 2
-                  mode: all
+                alerts:
+                  retain:
+                    days: 2
+                    mode: all
+                detections:
+                  retain:
+                    days: 2
+                    mode: all
 
     - name: Deploy Frigate Helm chart
       kubernetes.core.helm:
