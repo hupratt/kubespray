@@ -8,26 +8,11 @@
     frigate_namespace: frigate
     vault_kv_path: frigate
     frigate_chart_path: "{{ playbook_dir }}/charts/frigate"
-    # TODO: verify these two against charts/frigate/values.yaml — the exact
-    # key your chart expects for "use this existing ConfigMap as /config/config.yml"
-    # varies by chart. Adjust frigate_config_values below once confirmed.
     frigate_config_configmap: frigate-config
-    frigate_config_key: config.yml
-
+  
   tasks:
-    - name: Ensure Frigate namespace exists
+    - name: Deploy ExternalSecret
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig_path }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: "{{ frigate_namespace }}"
-
-    - name: Deploy ExternalSecret for templated config values
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig_path }}"
         state: present
         definition:
           apiVersion: external-secrets.io/v1
@@ -65,9 +50,8 @@
                   key: "{{ vault_kv_path }}"
                   property: ffmpeg_path
 
-    - name: Deploy ExternalSecret for RTSP password (used by the Helm chart)
+    - name: Deploy ExternalSecret 
       kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig_path }}"
         state: present
         definition:
           apiVersion: external-secrets.io/v1
@@ -89,16 +73,12 @@
                   key: "{{ vault_kv_path }}"
                   property: frigate_rtsp_password
 
-    - name: Wait for External Secrets Operator to sync frigate-vault-secrets
+    - name: Read secret
       kubernetes.core.k8s_info:
-        kubeconfig: "{{ kubeconfig_path }}"
         kind: Secret
         namespace: "{{ frigate_namespace }}"
         name: frigate-vault-secrets
       register: vault_secret
-      until: vault_secret.resources | length > 0
-      retries: 30
-      delay: 2
 
     - name: Set default StorageClass
       kubernetes.core.k8s:
@@ -111,31 +91,35 @@
             annotations:
               storageclass.kubernetes.io/is-default-class: "true"
 
-    - name: Create Frigate config ConfigMap
+    - name: Create Frigate RTSP secret
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig_path }}"
         state: present
         definition:
           apiVersion: v1
-          kind: ConfigMap
+          kind: Secret
           metadata:
-            name: "{{ frigate_config_configmap }}"
+            name: frigate-secret
             namespace: "{{ frigate_namespace }}"
-          data: "{{ {frigate_config_key: frigate_config | to_nice_yaml(indent=2)} }}"
-      vars:
-        frigate_config:
+          type: Opaque
+          stringData:
+            FRIGATE_RTSP_PASSWORD: "{{ frigate_rtsp_password }}"
+
+    - name: Create Frigate config dict
+      ansible.builtin.set_fact:
+        frigate_config_dict:
           auth:
-            enabled: False
+            enabled: false
           mqtt:
-            enabled: True
+            enabled: true
             host: "{{ vault_secret.resources[0].data.frigate_mqtt_host | b64decode }}"
             user: "{{ vault_secret.resources[0].data.frigate_mqtt_user | b64decode }}"
             password: "{{ vault_secret.resources[0].data.frigate_mqtt_password | b64decode }}"
           cameras:
             reolink:
-              enabled: True
+              enabled: true
               detect:
-                enabled: True
+                enabled: true
                 height: 480
                 width: 704
                 fps: 5
@@ -150,14 +134,14 @@
                       - detect
                       - record
               mqtt:
-                enabled: True
-                timestamp: True
-                bounding_box: True
-                crop: False
+                enabled: true
+                timestamp: true
+                bounding_box: true
+                crop: false
                 height: 270
                 quality: 70
               record:
-                enabled: True
+                enabled: true
                 continuous:
                   days: 2
                 motion:
@@ -171,6 +155,19 @@
                     days: 2
                     mode: all
 
+    - name: Create Frigate config ConfigMap
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: frigate-config
+            namespace: "{{ frigate_namespace }}"
+          data:
+            config.yml: "{{ frigate_config_dict | to_nice_yaml }}"
+
     - name: Deploy Frigate Helm chart
       kubernetes.core.helm:
         kubeconfig: "{{ kubeconfig_path }}"
@@ -179,19 +176,12 @@
         release_namespace: "{{ frigate_namespace }}"
         create_namespace: true
         values:
-          storage:
-            config:
-              storageClassName: "{{ default_storage_class }}"
-            media:
-              storageClassName: "{{ default_storage_class }}"
-          # TODO: this key path must match how charts/frigate/templates actually
-          # mounts a config file. Grep the chart for "ConfigMap" / "config.yml"
-          # to find the right key — e.g. it might be config.existingConfigMap,
-          # config.configMapName, persistence.config.name, etc.
-          config:
-            existingConfigMap: "{{ frigate_config_configmap }}"
           image:
             tag: stable
+          extraVolumes:
+            - name: frigate-config-file
+              configMap:
+                name: frigate-config
           rtspPassword:
             existingSecret: frigate-secret
             key: FRIGATE_RTSP_PASSWORD
