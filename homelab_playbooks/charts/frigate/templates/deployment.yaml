@@ -26,8 +26,8 @@ spec:
           persistentVolumeClaim:
             claimName: frigate-media
         - name: frigate-config-file
-          secret:
-            secretName: frigate-vault-secrets
+          configMap:
+            name: frigate-config
         - name: shm
           emptyDir:
             medium: Memory

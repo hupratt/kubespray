@@ -9,10 +9,10 @@ tmpfsCacheSize: 1000000000
 storage:
   config:
     size: 1Gi
-    storageClassName: ""
+    storageClassName: "rook-ceph-block"
   media:
     size: 200Gi
-    storageClassName: ""
+    storageClassName: "rook-ceph-block"
 
 service:
   webPort: 5000

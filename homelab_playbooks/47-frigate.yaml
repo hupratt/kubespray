@@ -1,4 +1,3 @@
----
 - name: Deploy Frigate to Kubernetes via Helm
   hosts: localhost
   gather_facts: false
@@ -9,10 +8,11 @@
     vault_kv_path: frigate
     frigate_chart_path: "{{ playbook_dir }}/charts/frigate"
     frigate_config_configmap: frigate-config
-  
+
   tasks:
-    - name: Deploy ExternalSecret
+    - name: Deploy ExternalSecret (vault secrets)
       kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
         state: present
         definition:
           apiVersion: external-secrets.io/v1
@@ -50,8 +50,9 @@
                   key: "{{ vault_kv_path }}"
                   property: ffmpeg_path
 
-    - name: Deploy ExternalSecret 
+    - name: Deploy ExternalSecret (RTSP secret)
       kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
         state: present
         definition:
           apiVersion: external-secrets.io/v1
@@ -73,12 +74,19 @@
                   key: "{{ vault_kv_path }}"
                   property: frigate_rtsp_password
 
-    - name: Read secret
+    - name: Read secret (with wait retry loop)
       kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
         kind: Secret
         namespace: "{{ frigate_namespace }}"
         name: frigate-vault-secrets
       register: vault_secret
+      until: 
+        - vault_secret.resources | length > 0
+        - "'data' in vault_secret.resources[0]"
+        - "'ffmpeg_path' in vault_secret.resources[0].data"
+      retries: 15
+      delay: 2
 
     - name: Set default StorageClass
       kubernetes.core.k8s:
@@ -90,20 +98,6 @@
           metadata:
             annotations:
               storageclass.kubernetes.io/is-default-class: "true"
-
-    - name: Create Frigate RTSP secret
-      kubernetes.core.k8s:
-        kubeconfig: "{{ kubeconfig_path }}"
-        state: present
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: frigate-secret
-            namespace: "{{ frigate_namespace }}"
-          type: Opaque
-          stringData:
-            FRIGATE_RTSP_PASSWORD: "{{ frigate_rtsp_password }}"
 
     - name: Create Frigate config dict
       ansible.builtin.set_fact:
@@ -178,10 +172,6 @@
         values:
           image:
             tag: stable
-          extraVolumes:
-            - name: frigate-config-file
-              configMap:
-                name: frigate-config
           rtspPassword:
             existingSecret: frigate-secret
             key: FRIGATE_RTSP_PASSWORD
