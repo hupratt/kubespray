@@ -257,3 +257,8 @@
                           name: booking-backend
                           port:
                             number: "{{ backend_port }}"
+
+
+# tar -czvf archives.tgz -C /home/hugo/test/hosts/booking-media/2026-09-05T19:18:39Z/data .
+# k cp archives.tgz booking-backend-78dfc99f6-lqhbx:/tmp -n booking -c backend
+# tar -xvzf /tmp/archives.tgz -C /hdd/Dev/booking/media
