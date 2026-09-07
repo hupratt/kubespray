@@ -356,6 +356,10 @@
 # db.auth("root", "PASSWORD")
 # db.system.users.find()
 
+# k cp Trellis-2026-09-05.tar.gz mongodb-statefulset-0:/tmp -n mongodb --container mongo
+# k cp Amazon-2026-09-05.tar.gz mongodb-statefulset-0:/tmp -n mongodb --container mongo
+# k cp your_spotify-2026-09-05.tar.gz mongodb-statefulset-0:/tmp -n mongodb --container mongo
+
 # mongorestore --authenticationDatabase=admin --uri "mongodb://<USERNAME>:<PASSWORD>@<IP>" -d Amazon ./Amazon
 # mongorestore --authenticationDatabase=admin --uri "mongodb://<USERNAME>:<PASSWORD>@<IP>" -d Trellis ./Trellis
 # mongorestore --authenticationDatabase=admin --uri "mongodb://<USERNAME>:<PASSWORD>@<IP>" -d your_spotify ./your_spotify

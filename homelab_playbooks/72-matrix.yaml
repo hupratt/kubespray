@@ -511,3 +511,7 @@
           Next step: mount the '{{ bridge_name }}-registration' ConfigMap
           into your Synapse pod as /data/appservices/whatsapp-registration.yaml
           and add it to homeserver.yaml under 'app_service_config_files'.
+          @whatsappbot:matrix.thekor.eu
+          login qr
+          sync groups
+          sync contacts

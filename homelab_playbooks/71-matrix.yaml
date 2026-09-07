@@ -102,6 +102,7 @@
                   key: "{{ vault_path_mautrix }}"
                   property: pg_password
 
+
     - name: Wait for ExternalSecret to sync
       kubernetes.core.k8s_info:
         api_version: external-secrets.io/v1
@@ -116,6 +117,18 @@
       retries: 20
       delay: 10
 
+    - name: Fetch Secret value for Helm schema compliance
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: mautrix-signal-creds
+        namespace: "{{ signal_bridge_namespace }}"
+      register: signal_secret
+
+    # signal chart does not allow secretkey refs
+    - name: Set DB password fact
+      ansible.builtin.set_fact:
+        signal_db_password: "{{ signal_secret.resources[0].data.db_password | b64decode }}"
 
     # ── 4. PVC for bridge data (Signal device state) ─────────────────────────
     - name: Create PVC for signal bridge data
@@ -170,12 +183,12 @@
  
           # ── Appservice ───────────────────────────────────────────────────────
           appservice:
-            address: http://mautrix-signal.matrix.svc.cluster.local
+            # FIX: Explicitly append the bridge port (29328) to the in-cluster URL
+            address: "http://mautrix-signal.{{ signal_bridge_namespace }}.svc.cluster.local:{{ bridge_port }}"
             hostname: "0.0.0.0"
             port: {{ bridge_port }}
             bot:
               username: signal_bot
- 
           # ── Registration ─────────────────────────────────────────────────────
           registration:
             # existingSecret is a plain string (secret name), not a map
@@ -265,17 +278,17 @@
  
 
     # ── 7. Confirm registration ConfigMap was mirrored to Synapse namespace ───
-    - name: Wait for registration ConfigMap in Synapse namespace
-      kubernetes.core.k8s_info:
-        api_version: v1
-        kind: ConfigMap
-        # cyclikal94 chart naming: <release>-mautrix-signal-registration
-        name: "{{ release_name }}-mautrix-signal-registration"
-        namespace: "{{ synapse_namespace }}"
-      register: reg_cm
-      until: reg_cm.resources | length > 0
-      retries: 20
-      delay: 10
+    # - name: Wait for registration ConfigMap in Synapse namespace
+    #   kubernetes.core.k8s_info:
+    #     api_version: v1
+    #     kind: ConfigMap
+    #     # cyclikal94 chart naming: <release>-mautrix-signal-registration
+    #     name: "{{ release_name }}-mautrix-signal-registration"
+    #     namespace: "{{ synapse_namespace }}"
+    #   register: reg_cm
+    #   until: reg_cm.resources | length > 0
+    #   retries: 20
+    #   delay: 10
 
     # ── 8. Print next steps ───────────────────────────────────────────────────
     - name: Print post-deployment instructions
@@ -298,7 +311,7 @@
           ║                                                                  ║
           ║  3. Restart Synapse, then DM the bridge bot:                     ║
           ║       @signal_bot:{{ matrix_domain }}                            ║
-          ║     and run:  help                                               ║
+          ║     and run:  login, scan the qr code and youre done             ║
           ╚══════════════════════════════════════════════════════════════════╝
 
 

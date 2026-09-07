@@ -280,7 +280,6 @@
           - "Element:      https://{{ element_hostname }}"
           - "Bridge:       DM @discordbot:{{ matrix_server_name }} and send 'login'"
           - ""
-          - "Create admin: kubectl exec -n {{ matrix_namespace }} deploy/matrix-synapse --"
-          - "              register_new_matrix_user -c /data/homeserver.yaml -u admin -p <pw> -a http://localhost:8008"
+          - "type login then guilds status and then guilds bridge <guild ID>"
           - ""
           - "Check federation: https://federationtester.matrix.org/#{{ matrix_server_name }}"
