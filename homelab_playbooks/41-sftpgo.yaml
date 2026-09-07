@@ -336,8 +336,27 @@
               - "10.10.85.24"
             ports:
               - name: sftp
+                port: 22
+                targetPort: sftp
+              - name: sftp-alt
                 port: 2222
                 targetPort: 2022
+              - name: http
+                port: 80
+                targetPort: http
+              - name: telemetry
+                port: 10000
+                targetPort: telemetry
 
-# mariadb -u root -p "sftp-go" < sftp-go-2026-04-14.sql
+# mariadb -h $MARIADB_HOST -u root -p "sftp-go" < sftp-go-2026-05-01.sql
+
+# k cp sftp-go-2026-05-01.sql mariadb-toolbox:/tmp/ -n mariadb --container mariadb-client
+# mariadb -h $MARIADB_HOST -u root -p
+
 # DROP DATABASE `sftp-go`;
+
+# CREATE DATABASE `sftp-go`;
+
+# GRANT ALL PRIVILEGES ON `sftp-go`.* TO 'master'@'%';
+
+# FLUSH PRIVILEGES;
