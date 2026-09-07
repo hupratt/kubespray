@@ -1,0 +1,20 @@
+[Unit]
+Description=Hold shutdown inhibitor and drain Kubernetes node before shutdown/reboot
+Documentation=https://www.freedesktop.org/software/systemd/man/latest/systemd-inhibit.html
+After=network-online.target kubelet.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+# systemd-inhibit takes the "delay" lock for the whole life of the wrapped
+# process. As long as this is running, logind PAUSES the actual shutdown
+# (before any container scopes start getting torn down) until either the
+# watcher exits (drain done) or InhibitDelayMaxSec elapses.
+ExecStart=/usr/bin/systemd-inhibit --what=shutdown --mode=delay \
+  --who=k8s-drain --why="Drain node before shutdown" \
+  /opt/bin/k8s-shutdown-watcher.sh
+Restart=no
+Environment=KUBECONFIG=/etc/kubernetes/drain-kubeconfig
+
+[Install]
+WantedBy=multi-user.target

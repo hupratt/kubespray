@@ -96,7 +96,7 @@
           spec:
             version: "11.0"
             storage:
-              size: 5Gi
+              size: 50Gi
               storageClassName: rook-ceph-block
             rootPasswordSecretKeyRef:
               name: mariadb-root-secret

@@ -327,3 +327,9 @@
 #       }]
 #     }
 #   }'
+
+
+
+# tar -czvf archives.tgz -C /home/hugo/test/hosts/makita-media/2026-09-05T19:16:17Z/data .
+# k cp archives.tgz makita-backend-bf4cff6fd-vh4h8:/tmp -n makita -c backend
+# tar -xvzf /tmp/archives.tgz -C /app/media

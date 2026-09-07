@@ -7,6 +7,7 @@
     paperless_chart_path: "{{ playbook_dir }}/charts/paperless-ngx"
     vault_kv_path: paperless
     namespace: paperless
+    kubeconfig_path: /home/hugo/.kube/config
 
   tasks:
     - name: Deploy ExternalSecret
@@ -180,7 +181,7 @@
 
     - name: Deploy paperless-ngx Helm chart
       kubernetes.core.helm:
-        kubeconfig: "{{ vault_secret.resources[0].data.paperless_kubeconfig | b64decode }}"
+        kubeconfig: "{{ kubeconfig_path }}"
         name: "{{ vault_secret.resources[0].data.paperless_release_name | b64decode }}"
         chart_ref: "{{ paperless_chart_path }}"
         release_namespace: "{{ namespace }}"
@@ -233,6 +234,7 @@
       changed_when: false
 
 
-# k cp paperless.tgz paperless-paperless-ngx-7885c8f89c-q6kvb:/tmp -n paperless
-# cd /usr/src/
+# tar -czvf documents.tgz -C /home/hugo/test/hosts/paperless-media/2026-09-05T19:14:47Z/data/ documents
+# k cp documents.tgz paperless-paperless-ngx-847fbb844-ptd2c:/tmp -n paperless -c paperless
+# tar -xvzf /tmp/documents.tgz -C /usr/src/paperless/media
 # tar -xvzf paperless.tgz --exclude='paperless/src' --exclude='paperless/static'

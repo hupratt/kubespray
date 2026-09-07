@@ -149,3 +149,10 @@
       ansible.builtin.file:
         path: /tmp/linkwarden-values.yaml
         state: absent
+
+# tar -czvf archives.tgz -C /home/hugo/test/hosts/linkwarden/2026-09-05T19:15:55Z/data/data archives
+# k cp archives.tgz my-linkwarden-58bd5f9b96-k7d7k:/tmp -n linkwarden -c linkwarden
+# tar -xvzf /tmp/archives.tgz -C /data/data
+
+# kubectl exec -n linkwarden deploy/my-linkwarden -it -- \
+#   sh -c "cd /data && export PATH=/data/node_modules/.bin:\$PATH && prisma migrate deploy --schema=/data/packages/prisma/schema.prisma"

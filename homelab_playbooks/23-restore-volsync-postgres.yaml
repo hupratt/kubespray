@@ -1,6 +1,6 @@
 ---
 
-- name: PostgreSQL PVC restore via VolSync (CloudNativePG) apps should be installed before running these restore tasks
+- name: PostgreSQL PVC restore via VolSync (CloudNativePG) apps should be installed before running these restore tasks, volsync as well
   hosts: localhost
   gather_facts: false
   connection: local
@@ -66,34 +66,34 @@
         owner: ubuntu
         
     restore_pvcs:
-      # - name: shared
-      #   namespace: cn-postgres
-      #   pvc_name: shared
-      #   storage_class: rook-ceph-block
-      #   storage_size: 5Gi
-      #   cluster: shared-pg
-      #   secret: restic-credentials
-      #   snaphost_class: ceph-rbd-snapclass
-      #   pg_image: ghcr.io/cloudnative-pg/postgresql:16
-
-      - name: immich
-        namespace: immich
-        pvc_name: immich
-        # storage_class: rook-ceph-block
-        storage_class: slow-local
-        storage_size: 100Gi
-        cluster: immich-pg
-        secret: volsync-restic-secret-db
+      - name: shared
+        namespace: cn-postgres
+        pvc_name: shared
+        storage_class: rook-ceph-block
+        storage_size: 5Gi
+        cluster: shared-pg
+        secret: restic-credentials
         snaphost_class: ceph-rbd-snapclass
-        pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+        pg_image: ghcr.io/cloudnative-pg/postgresql:16
 
-      - name: immich-library
-        namespace: immich
-        secret: volsync-restic-secret-library
-        pvc_name: immich-library
-        # storage_class: rook-ceph-block
-        storage_class: slow-local
-        storage_size: 3000Gi
+      # - name: immich
+      #   namespace: immich
+      #   pvc_name: immich
+      #   # storage_class: rook-ceph-block
+      #   storage_class: slow-local
+      #   storage_size: 100Gi
+      #   cluster: immich-pg
+      #   secret: volsync-restic-secret-db
+      #   snaphost_class: ceph-rbd-snapclass
+      #   pg_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+
+      # - name: immich-library
+      #   namespace: immich
+      #   secret: volsync-restic-secret-library
+      #   pvc_name: immich-library
+      #   # storage_class: rook-ceph-block
+      #   storage_class: slow-local
+      #   storage_size: 3000Gi
 
   tasks:
 
@@ -117,7 +117,7 @@
 
     # loop goes on include_tasks — blocks cannot loop directly
     - name: Restore PVCs 
-      ansible.builtin.include_tasks: tasks/08e-restore-task.yaml
+      ansible.builtin.include_tasks: tasks/23-restore-task.yaml
       loop: "{{ restore_pvcs }}"
       loop_control:
         loop_var: pvc
@@ -125,7 +125,7 @@
       when: pvc.name != "immich-library"
 
     - name: Restore lib PVC 
-      ansible.builtin.include_tasks: tasks/08e-restore-lib-task.yaml
+      ansible.builtin.include_tasks: tasks/23-restore-lib-task.yaml
       loop: "{{ restore_pvcs }}"
       loop_control:
         loop_var: pvc

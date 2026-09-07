@@ -20,7 +20,7 @@
 image:
   registry: ghcr.io
   repository: linkwarden/linkwarden
-  tag: "v2.13.5"
+  tag: "v2.16.2"
   pullPolicy: Always
   ## Optionally specify an array of imagePullSecrets.
   ## Secrets must be manually created in the namespace.
@@ -49,6 +49,18 @@ fullnameOverride: ""
 ## ref: https://github.com/dani-garcia/linkwarden/wiki/Configuration-overview
 
 linkwarden:
+  initContainers:
+    - name: fix-archive-perms
+      image: busybox:1.36
+      command: ["sh", "-c", "chown -R root:1000 /data/data/archives"]
+      securityContext:
+        runAsUser: 0
+        runAsNonRoot: false
+        capabilities:
+          add: ["CHOWN"]
+      volumeMounts:
+        - name: data
+          mountPath: /data/data
   app:
     url: https://link.thekor.eu
   ## @param linkwarden.replicas [default: 1] The number of Linkwarden replicas (pods) to deploy
@@ -502,6 +514,23 @@ requests:
 ## @param volumeMounts Define volumeMounts for the Linkwarden pod
 ##
 #volumeMounts: []
+
+volumes:
+  - name: next-cache
+    emptyDir: {}
+  - name: ms-playwright
+    emptyDir: {}
+  - name: yarn
+    emptyDir: {}
+
+
+volumeMounts:
+  - name: next-cache
+    mountPath: /data/apps/web/.next/cache
+  - name: ms-playwright
+    mountPath: /ms-playwright
+  - name: yarn
+    mountPath: /data/.yarn
 
 ## ref: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
 ## @param initContainers Define initContainers for the main Linkwarden server

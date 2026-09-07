@@ -218,7 +218,7 @@
             persistentVolumeClaim:
               registry:
                 storageClass: rook-cephfs
-                size: 20Gi
+                size: 60Gi
                 accessMode: ReadWriteMany
               chartmuseum:
                 storageClass: rook-cephfs

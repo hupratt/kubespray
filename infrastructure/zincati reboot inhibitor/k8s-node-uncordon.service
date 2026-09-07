@@ -1,0 +1,14 @@
+[Unit]
+Description=Remove shutdown taint and uncordon Kubernetes node after boot
+After=network-online.target kubelet.service
+Wants=network-online.target
+Requires=kubelet.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/bin/k8s-uncordon.sh
+Environment=KUBECONFIG=/etc/kubernetes/drain-kubeconfig
+
+[Install]
+WantedBy=multi-user.target

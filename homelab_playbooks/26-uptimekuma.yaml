@@ -208,3 +208,10 @@
 
 # GRANT ALL PRIVILEGES ON uptimekuma.* TO 'uptime-kuma'@'%';
 # FLUSH PRIVILEGES;
+
+# mariadb-dump -u root -h $MARIADB_HOST -p uptimekuma > uptime_20260906.sql
+# k cp mariadb-toolbox:/tmp/uptime_20260906.sql -n mariadb --container mariadb-client uptime_20260906.sql
+
+# k cp uptime_20260906.sql mariadb-toolbox:/tmp/ -n mariadb --container mariadb-client
+
+# mariadb -h $MARIADB_HOST -u root -p uptimekuma < uptime_20260906.sql 

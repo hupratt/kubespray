@@ -6,6 +6,23 @@
     kubeconfig_path: /home/hugo/.kube/config
   tasks:
 
+    - name: Create chirpy PersistentVolumeClaim
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: chirpy-pvc
+            namespace: chirpy
+          spec:
+            storageClassName: rook-cephfs-chirpy
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: 100Mi
+
     - name: Deploy Jekyll Chirpy application and storage resources
       kubernetes.core.k8s:
         state: present

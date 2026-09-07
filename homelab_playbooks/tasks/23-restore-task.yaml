@@ -62,6 +62,9 @@
     namespace: "{{ pvc.namespace }}"
     delete_all: true
 
+# if you deleted the cluster before deleting the CRDS
+# kubectl get databases.postgresql.cnpg.io -n cn-postgres -o name | \
+#   xargs -I{} kubectl patch {} -n cn-postgres --type=merge -p '{"metadata":{"finalizers":null}}'
 - name: "[{{ pvc.pvc_name }}] Wait for Database CRDs to be deleted"
   kubernetes.core.k8s_info:
     api_version: postgresql.cnpg.io/v1
