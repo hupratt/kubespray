@@ -8,319 +8,319 @@
     vault_kv_path: sftpgo
 
   tasks:
-    - name: Deploy ExternalSecret
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: external-secrets.io/v1
-          kind: ExternalSecret
-          metadata:
-            name: sftpgo-vault-secrets
-            namespace: sftpgo
-          spec:
-            refreshInterval: 1h
-            secretStoreRef:
-              name: vault-backend
-              kind: ClusterSecretStore
-            target:
-              name: sftpgo-vault-secrets
-              creationPolicy: Owner
-            data:
-              - secretKey: SFTPGO_COMMON_DEFENDER__BAN_TIME
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_COMMON_DEFENDER__BAN_TIME
-              - secretKey: SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT
-              - secretKey: SFTPGO_COMMON_DEFENDER__ENABLED
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_COMMON_DEFENDER__ENABLED
-              - secretKey: SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME
-              - secretKey: SFTPGO_COMMON_DEFENDER__THRESHOLD
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_COMMON_DEFENDER__THRESHOLD
-              - secretKey: SFTPGO_DATA_PROVIDER__DRIVER
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_DATA_PROVIDER__DRIVER
-              - secretKey: SFTPGO_DATA_PROVIDER__HOST
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_DATA_PROVIDER__HOST
-              - secretKey: SFTPGO_DATA_PROVIDER__NAME
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_DATA_PROVIDER__NAME
-              - secretKey: SFTPGO_DATA_PROVIDER__PASSWORD
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_DATA_PROVIDER__PASSWORD
-              - secretKey: SFTPGO_DATA_PROVIDER__PORT
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_DATA_PROVIDER__PORT
-              - secretKey: SFTPGO_DATA_PROVIDER__USERNAME
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_DATA_PROVIDER__USERNAME
-              - secretKey: SFTPGO_FTPD__BINDINGS__0__ADDRESS
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_FTPD__BINDINGS__0__ADDRESS
-              - secretKey: SFTPGO_FTPD__BINDINGS__0__DEBUG
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_FTPD__BINDINGS__0__DEBUG
-              - secretKey: SFTPGO_FTPD__BINDINGS__0__TLS_MODE
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_FTPD__BINDINGS__0__TLS_MODE
-              - secretKey: SFTPGO_FTPD__DISABLE_ACTIVE_MODE
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_FTPD__DISABLE_ACTIVE_MODE
-              - secretKey: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
-              - secretKey: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
-              - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
-              - secretKey: SFTPGO_WEBDAVD__BINDINGS__0__PORT
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: SFTPGO_WEBDAVD__BINDINGS__0__PORT
-              - secretKey: hostname
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: hostname
+    # - name: Deploy ExternalSecret
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: external-secrets.io/v1
+    #       kind: ExternalSecret
+    #       metadata:
+    #         name: sftpgo-vault-secrets
+    #         namespace: sftpgo
+    #       spec:
+    #         refreshInterval: 1h
+    #         secretStoreRef:
+    #           name: vault-backend
+    #           kind: ClusterSecretStore
+    #         target:
+    #           name: sftpgo-vault-secrets
+    #           creationPolicy: Owner
+    #         data:
+    #           - secretKey: SFTPGO_COMMON_DEFENDER__BAN_TIME
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_COMMON_DEFENDER__BAN_TIME
+    #           - secretKey: SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT
+    #           - secretKey: SFTPGO_COMMON_DEFENDER__ENABLED
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_COMMON_DEFENDER__ENABLED
+    #           - secretKey: SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME
+    #           - secretKey: SFTPGO_COMMON_DEFENDER__THRESHOLD
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_COMMON_DEFENDER__THRESHOLD
+    #           - secretKey: SFTPGO_DATA_PROVIDER__DRIVER
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_DATA_PROVIDER__DRIVER
+    #           - secretKey: SFTPGO_DATA_PROVIDER__HOST
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_DATA_PROVIDER__HOST
+    #           - secretKey: SFTPGO_DATA_PROVIDER__NAME
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_DATA_PROVIDER__NAME
+    #           - secretKey: SFTPGO_DATA_PROVIDER__PASSWORD
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_DATA_PROVIDER__PASSWORD
+    #           - secretKey: SFTPGO_DATA_PROVIDER__PORT
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_DATA_PROVIDER__PORT
+    #           - secretKey: SFTPGO_DATA_PROVIDER__USERNAME
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_DATA_PROVIDER__USERNAME
+    #           - secretKey: SFTPGO_FTPD__BINDINGS__0__ADDRESS
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_FTPD__BINDINGS__0__ADDRESS
+    #           - secretKey: SFTPGO_FTPD__BINDINGS__0__DEBUG
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_FTPD__BINDINGS__0__DEBUG
+    #           - secretKey: SFTPGO_FTPD__BINDINGS__0__TLS_MODE
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_FTPD__BINDINGS__0__TLS_MODE
+    #           - secretKey: SFTPGO_FTPD__DISABLE_ACTIVE_MODE
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_FTPD__DISABLE_ACTIVE_MODE
+    #           - secretKey: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
+    #           - secretKey: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
+    #           - secretKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
+    #           - secretKey: SFTPGO_WEBDAVD__BINDINGS__0__PORT
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: SFTPGO_WEBDAVD__BINDINGS__0__PORT
+    #           - secretKey: hostname
+    #             remoteRef:
+    #               key: "{{ vault_kv_path }}"
+    #               property: hostname
 
-    - name: Read secret
-      kubernetes.core.k8s_info:
-        kind: Secret
-        namespace: sftpgo
-        name: sftpgo-vault-secrets
-      register: vault_secret
+    # - name: Read secret
+    #   kubernetes.core.k8s_info:
+    #     kind: Secret
+    #     namespace: sftpgo
+    #     name: sftpgo-vault-secrets
+    #   register: vault_secret
 
-    - name: Check if repo already exists
-      ansible.builtin.stat:
-        path: "{{ sftpgo_dir }}"
-      register: repo_dir
+    # - name: Check if repo already exists
+    #   ansible.builtin.stat:
+    #     path: "{{ sftpgo_dir }}"
+    #   register: repo_dir
 
-    - name: Clone git repo
-      ansible.builtin.git:
-        repo: "{{ sftpgo_repo }}"
-        dest: "{{ sftpgo_dir }}"
-        version: main
-        force: yes
-        accept_hostkey: yes
-      when: not repo_dir.stat.exists
+    # - name: Clone git repo
+    #   ansible.builtin.git:
+    #     repo: "{{ sftpgo_repo }}"
+    #     dest: "{{ sftpgo_dir }}"
+    #     version: main
+    #     force: yes
+    #     accept_hostkey: yes
+    #   when: not repo_dir.stat.exists
 
-    - name: Create PersistentVolumes for sftpgo
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: PersistentVolume
-          metadata:
-            name: sftpgo-data
-          spec:
-            capacity:
-              storage: 10Gi
-            accessModes:
-              - ReadWriteOnce
-            persistentVolumeReclaimPolicy: Retain
-            storageClassName: slow-local
-            local:
-              path: "/opt/sftpgo/sftpgo-data"
-            nodeAffinity:
-              required:
-                nodeSelectorTerms:
-                  - matchExpressions:
-                      - key: node-role
-                        operator: In
-                        values:
-                          - slow-services
+    # - name: Create PersistentVolumes for sftpgo
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: PersistentVolume
+    #       metadata:
+    #         name: sftpgo-data
+    #       spec:
+    #         capacity:
+    #           storage: 10Gi
+    #         accessModes:
+    #           - ReadWriteOnce
+    #         persistentVolumeReclaimPolicy: Retain
+    #         storageClassName: slow-local
+    #         local:
+    #           path: "/opt/sftpgo/sftpgo-data"
+    #         nodeAffinity:
+    #           required:
+    #             nodeSelectorTerms:
+    #               - matchExpressions:
+    #                   - key: node-role
+    #                     operator: In
+    #                     values:
+    #                       - slow-services
 
-    - name: Create PVC for sftpgo
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: v1
-          kind: PersistentVolumeClaim
-          metadata:
-            name: sftpgo-data
-            namespace: sftpgo
-          spec:
-            accessModes: [ReadWriteOnce]
-            # specify the PV
-            volumeName: sftpgo-data
-            storageClassName: slow-local
-            resources:
-              requests:
-                storage: 10Gi
+    # - name: Create PVC for sftpgo
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: v1
+    #       kind: PersistentVolumeClaim
+    #       metadata:
+    #         name: sftpgo-data
+    #         namespace: sftpgo
+    #       spec:
+    #         accessModes: [ReadWriteOnce]
+    #         # specify the PV
+    #         volumeName: sftpgo-data
+    #         storageClassName: slow-local
+    #         resources:
+    #           requests:
+    #             storage: 10Gi
 
-    # - name: Debug vault_secret
-    #   debug:
-    #     var: vault_secret
+    # # - name: Debug vault_secret
+    # #   debug:
+    # #     var: vault_secret
 
-    - name: Create secret for the sftpgo database
-      kubernetes.core.k8s:
-        state: present
-        namespace: monitoring
-        definition:
-          apiVersion: v1
-          kind: Secret
-          metadata:
-            name: sftpgo-vault-secrets
-          type: Opaque
-          stringData: 
-            sftpgo_secret_values: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PASSWORD | b64decode }}"
-      no_log: true
+    # - name: Create secret for the sftpgo database
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     namespace: monitoring
+    #     definition:
+    #       apiVersion: v1
+    #       kind: Secret
+    #       metadata:
+    #         name: sftpgo-vault-secrets
+    #       type: Opaque
+    #       stringData: 
+    #         sftpgo_secret_values: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__PASSWORD | b64decode }}"
+    #   no_log: true
 
-    - name: Annotate sftpgo-vault-secrets secret declaratively
-      kubernetes.core.k8s:
-        state: present
-        kind: Secret
-        namespace: "monitoring"
-        name: sftpgo-vault-secrets
-        definition:
-          metadata:
-            annotations:
-              replicator.v1.mittwald.de/replicate-to: "mariadb"
+    # - name: Annotate sftpgo-vault-secrets secret declaratively
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     kind: Secret
+    #     namespace: "monitoring"
+    #     name: sftpgo-vault-secrets
+    #     definition:
+    #       metadata:
+    #         annotations:
+    #           replicator.v1.mittwald.de/replicate-to: "mariadb"
 
-    - name: Create MariaDB Database for sftpgo
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: Database
-          metadata:
-            name: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
-            namespace: mariadb
-          spec:
-            mariaDbRef:
-              kind: MariaDB
-              name: mariadb
-              namespace: mariadb
-              waitForIt: true
-            characterSet: utf8
-            collate: utf8_general_ci
+    # - name: Create MariaDB Database for sftpgo
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: k8s.mariadb.com/v1alpha1
+    #       kind: Database
+    #       metadata:
+    #         name: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
+    #         namespace: mariadb
+    #       spec:
+    #         mariaDbRef:
+    #           kind: MariaDB
+    #           name: mariadb
+    #           namespace: mariadb
+    #           waitForIt: true
+    #         characterSet: utf8
+    #         collate: utf8_general_ci
 
-    - name: Create MariaDB User for sftpgo
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: User
-          metadata:
-            name: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
-            namespace: mariadb
-          spec:
-            mariaDbRef:
-              name: mariadb
-              namespace: mariadb
-            passwordSecretKeyRef:
-              name: sftpgo-vault-secrets
-              key: sftpgo_secret_values
-            maxUserConnections: 20
+    # - name: Create MariaDB User for sftpgo
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: k8s.mariadb.com/v1alpha1
+    #       kind: User
+    #       metadata:
+    #         name: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
+    #         namespace: mariadb
+    #       spec:
+    #         mariaDbRef:
+    #           name: mariadb
+    #           namespace: mariadb
+    #         passwordSecretKeyRef:
+    #           name: sftpgo-vault-secrets
+    #           key: sftpgo_secret_values
+    #         maxUserConnections: 20
 
-    - name: Create MariaDB Connection for the user
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: Connection
-          metadata:
-            name: sftpgo-connection
-            namespace: mariadb
-          spec:
-            username: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
-            database: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
-            mariaDbRef:
-              name: mariadb
-              namespace: mariadb
-              waitForIt: true
-            passwordSecretKeyRef:
-              name: sftpgo-vault-secrets
-              key: sftpgo_secret_values
+    # - name: Create MariaDB Connection for the user
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: k8s.mariadb.com/v1alpha1
+    #       kind: Connection
+    #       metadata:
+    #         name: sftpgo-connection
+    #         namespace: mariadb
+    #       spec:
+    #         username: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
+    #         database: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
+    #         mariaDbRef:
+    #           name: mariadb
+    #           namespace: mariadb
+    #           waitForIt: true
+    #         passwordSecretKeyRef:
+    #           name: sftpgo-vault-secrets
+    #           key: sftpgo_secret_values
 
-    - name: Create MariaDB Grant for the user
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: Grant
-          metadata:
-            name: sftpgo-grant
-            namespace: mariadb
-          spec:
-            mariaDbRef:
-              name: mariadb
-              namespace: mariadb
-            username: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
-            database: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
-            table: "*"
-            privileges:
-              - ALL
-            grantOption: false
+    # - name: Create MariaDB Grant for the user
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: k8s.mariadb.com/v1alpha1
+    #       kind: Grant
+    #       metadata:
+    #         name: sftpgo-grant
+    #         namespace: mariadb
+    #       spec:
+    #         mariaDbRef:
+    #           name: mariadb
+    #           namespace: mariadb
+    #         username: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__USERNAME | b64decode }}"
+    #         database: "{{ vault_secret.resources[0].data.SFTPGO_DATA_PROVIDER__NAME | b64decode }}"
+    #         table: "*"
+    #         privileges:
+    #           - ALL
+    #         grantOption: false
 
-    - name: Render values template
-      ansible.builtin.template:
-        src: charts/sftpgo/values.yaml.j2
-        dest: /tmp/sftpgo-values.yaml
-        mode: "0600"
+    # - name: Render values template
+    #   ansible.builtin.template:
+    #     src: charts/sftpgo/values.yaml.j2
+    #     dest: /tmp/sftpgo-values.yaml
+    #     mode: "0600"
 
-    - name: Install chart
-      community.kubernetes.helm:
-        name: my-sftpgo
-        chart_ref: "{{ sftpgo_dir }}/sftpgo"
-        release_namespace: sftpgo
-        create_namespace: false
-        timeout: "10m0s"
-        values_files:
-          - /tmp/sftpgo-values.yaml
+    # - name: Install chart
+    #   community.kubernetes.helm:
+    #     name: my-sftpgo
+    #     chart_ref: "{{ sftpgo_dir }}/sftpgo"
+    #     release_namespace: sftpgo
+    #     create_namespace: false
+    #     timeout: "10m0s"
+    #     values_files:
+    #       - /tmp/sftpgo-values.yaml
 
-    - name: Clean up rendered values file
-      ansible.builtin.file:
-        path: /tmp/sftpgo-values.yaml
-        state: absent
+    # - name: Clean up rendered values file
+    #   ansible.builtin.file:
+    #     path: /tmp/sftpgo-values.yaml
+    #     state: absent
 
     - name: Patch SFTPGo service to add externalIPs
       kubernetes.core.k8s:
@@ -332,8 +332,11 @@
             name: my-sftpgo
             namespace: sftpgo
           spec:
-            externalIPs:
-              - "10.10.85.24"
+            # ClusterIP is the default type and exposes the service internally within the cluster
+            type: ClusterIP
+            selector:
+              # Replace this with the label attached to your my-sftpgo-cddf4b96b-5gpbt pod
+              app.kubernetes.io/instance: my-sftpgo
             ports:
               - name: sftp
                 port: 22
