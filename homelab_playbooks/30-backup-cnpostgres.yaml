@@ -109,3 +109,10 @@
 ## need to edit node01
 # setfacl -m mask::rwx /mnt/backupoutput/
 # setfacl -m mask::rwx /mnt/backupoutput/*.sh
+
+# aws --endpoint-url https://garage-s3.thekor.eu s3 cp \
+#   s3://backup/db/ ./garage-dump4 \
+#   --recursive \
+#   --exclude "*" \
+#   --include "*-2026-09-11.sql.gz" \
+#   --include "*-2026-09-11.tar.gz"

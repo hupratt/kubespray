@@ -1,6 +1,6 @@
 ---
 # deploy_immich.yml
-- name: Deploy Immich
+- name: Deploy/Update Immich
   hosts: localhost
   connection: local
   gather_facts: false
