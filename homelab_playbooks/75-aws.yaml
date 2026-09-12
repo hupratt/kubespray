@@ -7,12 +7,9 @@
 
   vars:
     awx_namespace: awx
-    awx_operator_version: "3.2.1"          # awx-operator helm chart version
+    awx_operator_version: "3.2.1"
     awx_release_name: awx
-    # create_secret: true
 
-    # --- Vault / ESO wiring ---
-    # Existing cluster-wide store; must already be Ready before running this.
     secretstore_name: "vault-backend"
     secretstore_kind: "ClusterSecretStore"
     refresh_interval: "1h"
@@ -26,13 +23,13 @@
     # --- CNPG (CloudNativePG) wiring ---
     # Reference to your existing, already-running CNPG Cluster — nothing
     # gets created here, we only build the connection info against it.
-    cnpg_cluster_name: "shared-pg"      # name of your existing CNPG Cluster
-    cnpg_cluster_namespace: "cn-postgres"     # namespace the existing Cluster lives in
-    postgres_database_name: "awx"             # database must already exist on that cluster
-    postgres_owner: "awx"                     # role must already exist / own that database
+    cnpg_cluster_name: "shared-pg"
+    cnpg_cluster_namespace: "cn-postgres"
+    postgres_database_name: "awx"
+    postgres_owner: "awx"
 
-    awx_hostname: "awx.thekor.eu"          # change to your ingress host
-    ingress_class_name: "haproxy"                 # matches your in-cluster ingress controller
+    awx_hostname: "awx.thekor.eu"
+    ingress_class_name: "haproxy"
 
   tasks:
 
@@ -273,11 +270,171 @@
 
             postgres_configuration_secret: "{{ awx_postgres_secret_name }}"
 
+            # Non-root / no-priv-escalation for the awx-web and awx-task pods
+            security_context_settings:
+              runAsNonRoot: true
+              runAsUser: 1001
+              allowPrivilegeEscalation: false
+              seccompProfile:
+                type: RuntimeDefault
+              capabilities:
+                drop: ["ALL"]
+
+            # Native probe support for the main web/task containers
+            web_liveness_period: 15
+            web_readiness_period: 15
+            task_liveness_period: 15
+            task_readiness_period: 15
+
             # scale as your homelab allows
             replicas: 1
             web_replicas: 1
             task_replicas: 1
 
+    # ------------------------------------------------------------------
+    # The operator's CR spec has no knobs for probes on the redis,
+    # awx-rsyslog, or awx-ee sidecar containers, so those get patched
+    # directly here under a separate field manager. Because we only ever
+    # own the readinessProbe/livenessProbe fields — which the operator
+    # never sets on these containers itself — this survives the
+    # operator's own reconcile loop without any field-ownership conflict.
+    # ------------------------------------------------------------------
+    - name: Wait for awx-web and awx-task Deployments to exist
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_release_name }}-{{ item }}"
+      loop: [web, task]
+      register: awx_deploy_check
+      until: awx_deploy_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Patch awx-web sidecar containers with probes (separate field manager)
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        server_side_apply:
+          field_manager: awx-probe-patch
+          force_conflicts: true
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ awx_release_name }}-web"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: redis
+                    readinessProbe:
+                      exec:
+                        command: ["redis-cli", "-s", "/var/run/redis/redis.sock", "ping"]
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                    livenessProbe:
+                      exec:
+                        command: ["redis-cli", "-s", "/var/run/redis/redis.sock", "ping"]
+                      initialDelaySeconds: 15
+                      periodSeconds: 20
+                  - name: awx-rsyslog
+                    readinessProbe:
+                      exec:
+                        command: ["supervisorctl", "-c", "/etc/supervisord_rsyslog.conf", "status"]
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                    livenessProbe:
+                      exec:
+                        command: ["supervisorctl", "-c", "/etc/supervisord_rsyslog.conf", "status"]
+                      initialDelaySeconds: 15
+                      periodSeconds: 20
+
+    - name: Patch awx-task sidecar containers with probes (separate field manager)
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        server_side_apply:
+          field_manager: awx-probe-patch
+          force_conflicts: true
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ awx_release_name }}-task"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: redis
+                    readinessProbe:
+                      exec:
+                        command: ["redis-cli", "-s", "/var/run/redis/redis.sock", "ping"]
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                    livenessProbe:
+                      exec:
+                        command: ["redis-cli", "-s", "/var/run/redis/redis.sock", "ping"]
+                      initialDelaySeconds: 15
+                      periodSeconds: 20
+                  - name: awx-rsyslog
+                    readinessProbe:
+                      exec:
+                        command: ["supervisorctl", "-c", "/etc/supervisord_rsyslog.conf", "status"]
+                      initialDelaySeconds: 5
+                      periodSeconds: 10
+                    livenessProbe:
+                      exec:
+                        command: ["supervisorctl", "-c", "/etc/supervisord_rsyslog.conf", "status"]
+                      initialDelaySeconds: 15
+                      periodSeconds: 20
+                  - name: awx-ee
+                    readinessProbe:
+                      exec:
+                        command: ["receptorctl", "--socket", "/var/run/receptor/receptor.sock", "status"]
+                      initialDelaySeconds: 10
+                      periodSeconds: 15
+                    livenessProbe:
+                      exec:
+                        command: ["receptorctl", "--socket", "/var/run/receptor/receptor.sock", "status"]
+                      initialDelaySeconds: 20
+                      periodSeconds: 20
+
+    - name: Patch awx-task main container probes for slower DB round-trips (separate field manager)
+      kubernetes.core.k8s:
+        state: present
+        apply: true
+        server_side_apply:
+          field_manager: awx-probe-patch
+          force_conflicts: true
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ awx_release_name }}-task"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            template:
+              spec:
+                containers:
+                  - name: awx-task
+                    readinessProbe:
+                      exec:
+                        command: ["/usr/bin/awx-manage", "check_instance_ready"]
+                      initialDelaySeconds: 20
+                      periodSeconds: 15
+                      timeoutSeconds: 10
+                      failureThreshold: 5
+                    livenessProbe:
+                      exec:
+                        command: ["sh", "-c", "exit $(/usr/bin/supervisorctl -c /etc/supervisord_task.conf status | grep -vc RUNNING)"]
+                      initialDelaySeconds: 5
+                      periodSeconds: 15
+                      timeoutSeconds: 10
+                      failureThreshold: 5
+                                            
     - name: Wait for AWX deployment to report Running
       kubernetes.core.k8s_info:
         api_version: awx.ansible.com/v1beta1
