@@ -23,6 +23,14 @@
     awx_secret_key_secret_name: "awx-secret-key"
     awx_postgres_secret_name: "awx-postgres-configuration"
 
+    # --- CNPG (CloudNativePG) wiring ---
+    # Reference to your existing, already-running CNPG Cluster — nothing
+    # gets created here, we only build the connection info against it.
+    cnpg_cluster_name: "shared-pg"      # name of your existing CNPG Cluster
+    cnpg_cluster_namespace: "cn-postgres"     # namespace the existing Cluster lives in
+    postgres_database_name: "awx"             # database must already exist on that cluster
+    postgres_owner: "awx"                     # role must already exist / own that database
+
     awx_hostname: "awx.thekor.eu"          # change to your ingress host
     ingress_class_name: "haproxy"                 # matches your in-cluster ingress controller
 
@@ -30,7 +38,7 @@
 
     - name: Confirm the existing vault-backend ClusterSecretStore is Ready
       kubernetes.core.k8s_info:
-        api_version: external-secrets.io/v1beta1
+        api_version: external-secrets.io/v1
         kind: ClusterSecretStore
         name: "{{ secretstore_name }}"
       register: cluster_secretstore_check
@@ -44,7 +52,7 @@
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: "{{ awx_admin_secret_name }}"
@@ -63,14 +71,14 @@
               - secretKey: password
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: password
+                  property: pg_password
         # when: create_secret == true
 
     - name: Create ExternalSecret for AWX secret_key
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: "{{ awx_secret_key_secret_name }}"
@@ -89,13 +97,13 @@
               - secretKey: secret_key
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: value
+                  property: secret_key
 
     - name: Create ExternalSecret for AWX Postgres configuration
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: external-secrets.io/v1beta1
+          apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
             name: "{{ awx_postgres_secret_name }}"
@@ -114,9 +122,11 @@
                   labels:
                     "app.kubernetes.io/managed-by": "external-secrets"
                 data:
-                  host: "{{ '{{ .database | default \"awx-postgres-13\" }}' }}"
+                  # host/port point at the existing CNPG cluster's read-write
+                  # Service: <cluster-name>-rw.<namespace>.svc
+                  host: "{{ cnpg_cluster_name }}-rw.{{ cnpg_cluster_namespace }}.svc"
                   port: "5432"
-                  database: "{{ '{{ .database }}' }}"
+                  database: "{{ postgres_database_name }}"
                   username: "{{ '{{ .username }}' }}"
                   password: "{{ '{{ .password }}' }}"
                   type: "managed"
@@ -124,15 +134,39 @@
               - secretKey: username
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: username
+                  property: pg_username
               - secretKey: password
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: password
-              - secretKey: database
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: database
+                  property: pg_password
+
+    - name: Wait for AWX Postgres credentials secret to materialize from Vault
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_postgres_secret_name }}"
+      register: postgres_secret_check
+      until: postgres_secret_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    # ------------------------------------------------------------------
+    # We don't create or bootstrap anything here — this assumes the
+    # "{{ postgres_database_name }}" database and "{{ postgres_owner }}"
+    # role already exist on the referenced CNPG cluster, and that the
+    # username/password pulled from Vault above match that role.
+    # ------------------------------------------------------------------
+    - name: Confirm the referenced CNPG Cluster exists and is healthy
+      kubernetes.core.k8s_info:
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        namespace: "{{ cnpg_cluster_namespace }}"
+        name: "{{ cnpg_cluster_name }}"
+      register: cnpg_status
+      failed_when: >
+        cnpg_status.resources | length == 0 or
+        (cnpg_status.resources[0].status.phase | default('')) != 'Cluster in healthy state'
 
     - name: Wait for admin password secret to materialize from Vault
       kubernetes.core.k8s_info:
@@ -148,7 +182,8 @@
     - name: Add/refresh the awx-operator helm repo
       kubernetes.core.helm_repository:
         name: awx-operator
-        repo_url: "https://ansible.github.io/awx-operator/"
+        repo_url: https://ansible-community.github.io/awx-operator-helm/
+        state: present
 
     - name: Deploy AWX Operator via Helm
       kubernetes.core.helm:
@@ -222,7 +257,8 @@
       ansible.builtin.debug:
         msg: >-
           AWX deployed. Reach it at https://{{ awx_hostname }}/ once DNS/ingress
-          resolves. Admin password is stored in Vault at
-          {{ vault_kv_path }} (via the '{{ secretstore_name }}'
-          ClusterSecretStore) and synced into the '{{ awx_admin_secret_name }}'
-          k8s Secret every {{ refresh_interval }}.
+          resolves. Postgres is backed by the existing CNPG Cluster
+          '{{ cnpg_cluster_name }}' in namespace '{{ cnpg_cluster_namespace }}'.
+          Admin password is stored in Vault at {{ vault_kv_path }} (via the
+          '{{ secretstore_name }}' ClusterSecretStore) and synced into the
+          '{{ awx_admin_secret_name }}' k8s Secret every {{ refresh_interval }}.

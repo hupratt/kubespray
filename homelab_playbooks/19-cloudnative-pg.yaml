@@ -7,7 +7,7 @@
     storage_class: rook-ceph-block
     pg_image: ghcr.io/cloudnative-pg/postgis:16-3.5
     shared_cluster_name: shared-pg
-    shared_cluster_storage: 50Gi
+    shared_cluster_storage: 100Gi
 
     db_owners:
       - owner: grafana
@@ -36,6 +36,8 @@
         vault_path: dawarich
       - owner: netbirduser
         vault_path: netbird
+      - owner: awx
+        vault_path: awx
     databases:
       - name: grafana
         owner: grafana
@@ -79,6 +81,8 @@
         owner: netbirduser
       - name: netbird-activity-log
         owner: netbirduser
+      - name: awx
+        owner: awx
   tasks:
 
     - name: Check if CNPG operator Helm release exists
