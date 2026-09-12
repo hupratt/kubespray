@@ -236,6 +236,11 @@
         path: /tmp/technitium-values.yaml
         state: absent
 
+# vaultwarden requires a hashed version password, not a plain one
+# so you'll need to make sure adminToken goes through the hashing algo
+# docker run --rm -it vaultwarden/server:1.37.2-alpine /vaultwarden hash
+
+
 # fix stuck orphaned pod after uninstall
 
 # (env) kubespray/homelab_playbooks  kubectl get deploy,pod,svc,ingress -n vaultwarden -l app.kubernetes.io/managed-by=Helm                                                          
