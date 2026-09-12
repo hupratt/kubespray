@@ -9,6 +9,7 @@
     namespaces:
       - amazon-clone
       - authentik
+      - awx
       - backup
       - booking
       - cert-manager

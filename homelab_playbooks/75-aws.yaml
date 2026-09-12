@@ -1,0 +1,228 @@
+---
+
+- name: Deploy AWX control plane on Kubernetes with Vault-backed secrets
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    awx_namespace: awx
+    awx_operator_version: "2.19.1"          # awx-operator helm chart version
+    awx_release_name: awx
+    # create_secret: true
+
+    # --- Vault / ESO wiring ---
+    # Existing cluster-wide store; must already be Ready before running this.
+    secretstore_name: "vault-backend"
+    secretstore_kind: "ClusterSecretStore"
+    refresh_interval: "1h"
+
+    vault_kv_path: awx
+
+    awx_admin_secret_name: "awx-admin-password"
+    awx_secret_key_secret_name: "awx-secret-key"
+    awx_postgres_secret_name: "awx-postgres-configuration"
+
+    awx_hostname: "awx.thekor.eu"          # change to your ingress host
+    ingress_class_name: "haproxy"                 # matches your in-cluster ingress controller
+
+  tasks:
+
+    - name: Confirm the existing vault-backend ClusterSecretStore is Ready
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1beta1
+        kind: ClusterSecretStore
+        name: "{{ secretstore_name }}"
+      register: cluster_secretstore_check
+      failed_when: >
+        cluster_secretstore_check.resources | length == 0 or
+        (cluster_secretstore_check.resources[0].status.conditions | default([]) |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length == 0)
+
+    - name: Create ExternalSecret for AWX admin password
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ awx_admin_secret_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ awx_admin_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: password
+        # when: create_secret == true
+
+    - name: Create ExternalSecret for AWX secret_key
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ awx_secret_key_secret_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ awx_secret_key_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+              - secretKey: secret_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: value
+
+    - name: Create ExternalSecret for AWX Postgres configuration
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1beta1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ awx_postgres_secret_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ awx_postgres_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+                metadata:
+                  labels:
+                    "app.kubernetes.io/managed-by": "external-secrets"
+                data:
+                  host: "{{ '{{ .database | default \"awx-postgres-13\" }}' }}"
+                  port: "5432"
+                  database: "{{ '{{ .database }}' }}"
+                  username: "{{ '{{ .username }}' }}"
+                  password: "{{ '{{ .password }}' }}"
+                  type: "managed"
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: password
+              - secretKey: database
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: database
+
+    - name: Wait for admin password secret to materialize from Vault
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_admin_secret_name }}"
+      register: admin_secret_check
+      until: admin_secret_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Add/refresh the awx-operator helm repo
+      kubernetes.core.helm_repository:
+        name: awx-operator
+        repo_url: "https://ansible.github.io/awx-operator/"
+
+    - name: Deploy AWX Operator via Helm
+      kubernetes.core.helm:
+        name: awx-operator
+        chart_ref: awx-operator/awx-operator
+        chart_version: "{{ awx_operator_version }}"
+        release_namespace: "{{ awx_namespace }}"
+        create_namespace: false
+        wait: true
+        values:
+          AWX:
+            enabled: false   # we manage the AWX CR ourselves, below
+
+    - name: Wait for AWX Operator deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ awx_namespace }}"
+        name: awx-operator-controller-manager
+      register: operator_deploy
+      until: >
+        operator_deploy.resources | length > 0 and
+        (operator_deploy.resources[0].status.readyReplicas | default(0)) ==
+        (operator_deploy.resources[0].spec.replicas | default(1))
+      retries: 30
+      delay: 10
+
+    - name: Deploy the AWX custom resource
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: awx.ansible.com/v1beta1
+          kind: AWX
+          metadata:
+            name: "{{ awx_release_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            service_type: ClusterIP
+            ingress_type: ingress
+            ingress_class_name: "{{ ingress_class_name }}"
+            hostname: "{{ awx_hostname }}"
+
+            admin_user: admin
+            admin_password_secret: "{{ awx_admin_secret_name }}"
+
+            secret_key_secret: "{{ awx_secret_key_secret_name }}"
+
+            postgres_configuration_secret: "{{ awx_postgres_secret_name }}"
+
+            # scale as your homelab allows
+            replicas: 1
+            web_replicas: 1
+            task_replicas: 1
+
+    - name: Wait for AWX deployment to report Running
+      kubernetes.core.k8s_info:
+        api_version: awx.ansible.com/v1beta1
+        kind: AWX
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_release_name }}"
+      register: awx_status
+      until: >
+        awx_status.resources | length > 0 and
+        (awx_status.resources[0].status.conditions | default([]) |
+         selectattr('type', 'equalto', 'Running') |
+         selectattr('status', 'equalto', 'True') | list | length > 0)
+      retries: 60
+      delay: 15
+
+    - name: Show AWX access info
+      ansible.builtin.debug:
+        msg: >-
+          AWX deployed. Reach it at https://{{ awx_hostname }}/ once DNS/ingress
+          resolves. Admin password is stored in Vault at
+          {{ vault_kv_path }} (via the '{{ secretstore_name }}'
+          ClusterSecretStore) and synced into the '{{ awx_admin_secret_name }}'
+          k8s Secret every {{ refresh_interval }}.

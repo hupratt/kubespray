@@ -314,4 +314,4 @@
         definition:
           metadata:
             annotations:
-              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,backup,booking,chirpy,donetick,frigate,haproxy,harbor,immich,linkwarden,makita,mongo-express,monitoring,netbox,open-webui,paperless,patchmon,scriberr,sftpgo,spotify,technitium,thrifty,trellis,vault,vaultwarden,www-portfolio"
+              replicator.v1.mittwald.de/replicate-to: "amazon-clone,authentik,awx,backup,booking,chirpy,donetick,frigate,haproxy,harbor,immich,linkwarden,makita,mongo-express,monitoring,netbox,open-webui,paperless,patchmon,scriberr,sftpgo,spotify,technitium,thrifty,trellis,vault,vaultwarden,www-portfolio"
