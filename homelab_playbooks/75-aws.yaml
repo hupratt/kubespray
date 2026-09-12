@@ -7,7 +7,7 @@
 
   vars:
     awx_namespace: awx
-    awx_operator_version: "2.19.1"          # awx-operator helm chart version
+    awx_operator_version: "3.2.1"          # awx-operator helm chart version
     awx_release_name: awx
     # create_secret: true
 
@@ -122,14 +122,13 @@
                   labels:
                     "app.kubernetes.io/managed-by": "external-secrets"
                 data:
-                  # host/port point at the existing CNPG cluster's read-write
-                  # Service: <cluster-name>-rw.<namespace>.svc
                   host: "{{ cnpg_cluster_name }}-rw.{{ cnpg_cluster_namespace }}.svc"
                   port: "5432"
                   database: "{{ postgres_database_name }}"
                   username: "{{ '{{ .username }}' }}"
                   password: "{{ '{{ .password }}' }}"
-                  type: "managed"
+                  sslmode: "prefer"
+                  type: "unmanaged"
             data:
               - secretKey: username
                 remoteRef:
@@ -195,7 +194,48 @@
         wait: true
         values:
           AWX:
-            enabled: false   # we manage the AWX CR ourselves, below
+            enabled: false
+          operator-controller-containers:
+            awx-manager:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1001
+                seccompProfile:
+                  type: RuntimeDefault
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 6789
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 6789
+                initialDelaySeconds: 15
+                periodSeconds: 20
+            kube-rbac-proxy:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1001
+                seccompProfile:
+                  type: RuntimeDefault
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              readinessProbe:
+                tcpSocket:
+                  port: 8443
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                tcpSocket:
+                  port: 8443
+                initialDelaySeconds: 15
+                periodSeconds: 20
 
     - name: Wait for AWX Operator deployment to be ready
       kubernetes.core.k8s_info:
