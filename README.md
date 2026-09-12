@@ -124,6 +124,8 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 | <img src="./icons/volsync.svg" width="16"/> | **Volsync** | Orchestrate snapshots to use restic and back my data into an s3 storage. It ships with a CSI of its own and has the right node affinity rules to avoid the "multi-attach error" once you try to mount the source pods that you get when doing cronjobs. Volsync allows us to drastically reduce our RTO. I'm provisioning Volsync via [the official helm chart](https://backube.github.io/helm-charts/) | ✅ |
 | 🌐 | **Netbird** | Manage peer to peer VPN with firewall rules and much more. Provisioned via [the official helm chart](https://github.com/netbirdio/helms/tree/main/charts/netbird) | ✅ |
 | <img src="./icons/gitlab-svgrepo-com.svg" width="20"/> | GitLab | Git repository hosting, CI/CD, container registry, and DevOps platform. Running on a separate VM with docker |  |
+| <img src="./icons/ansible_logo-1699991645.png" width="20"/> | AWX | Upstream for the Ansible tower red hat project used to orchestrate playbooks. I'm provisioning it with the community maintained [helm chart](https://github.com/ansible-community/awx-operator-helm) | ✅ |
+
 
 ### 2. Identity & Security
 
