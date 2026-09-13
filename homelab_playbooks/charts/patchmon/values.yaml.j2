@@ -21,6 +21,11 @@ database:
 # Chart-managed Redis (no shared Redis in cluster)
 redis:
   enabled: true
+  image:
+    registry: "docker.io"
+    repository: "redis"
+    tag: "8.8.0-alpine"
+    pullPolicy: IfNotPresent
   auth:
     existingSecret: "patchmon-redis-secret"
     existingSecretPasswordKey: "password"
