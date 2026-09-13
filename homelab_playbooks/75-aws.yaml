@@ -285,6 +285,11 @@
             web_readiness_period: 15
             task_liveness_period: 15
             task_readiness_period: 15
+            task_readiness_timeout: 5
+            task_readiness_failure_threshold: 5
+            task_liveness_timeout: 5
+            web_readiness_timeout: 5
+            web_liveness_timeout: 5
 
             # scale as your homelab allows
             replicas: 1
