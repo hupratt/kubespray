@@ -88,6 +88,9 @@ machine-learning:
   enabled: true
   controllers:
     main:
+      pod:
+        securityContext:
+          fsGroup: 1000
       replicas: 1
       nodeSelector:
         node-role: slow-services

@@ -236,6 +236,7 @@
                           - kyverno
                           - volsync
                           - netbird
+                          - awx
                 validate:
                   message: "Liveness and readiness probes are required."
                   pattern:
