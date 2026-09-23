@@ -2,6 +2,8 @@
 """
 ansible_dep_inventory.py
 
+python ansible_dep_inventory.py --path /home/hugo/Documents/Dev/kubespray/homelab_playbooks --x86-only --check-updates --output json --output-file inventory.json
+
 Scans an Ansible repo (playbooks, roles, templates) for:
   - container image references (docker_container, k8s manifests,
     docker-compose files/templates, Dockerfiles, raw "image:" keys)
@@ -16,6 +18,11 @@ Features:
     tags like 'amd64', 'latest', 'stable' as recommended versions).
   - Best-effort Jinja2 variable resolution pass.
   - OCI v2 Registry & Helm index.yaml support.
+  - Helm repo-name resolution: maps short chart_ref prefixes (e.g.
+    "ananace-charts/element-web") back to a repo_url by scanning
+    kubernetes.core.helm_repository tasks and raw `helm repo add`
+    lines across the whole tree, so chart_repo_url no longer has to
+    be inlined on every single helm task.
 
 Requirements:
   - Python 3.8+
@@ -60,6 +67,7 @@ class HelmRef:
     chart: str
     version: str
     repo_url: Optional[str] = None
+    repo_url_source: Optional[str] = None  # "inline" | "repo_map" | None
     sources: set = field(default_factory=set)
     latest: Optional[str] = None
     outdated: Optional[bool] = None
@@ -127,6 +135,89 @@ def resolve_jinja(value: str, var_map: dict) -> str:
     if "{{" in resolved:
         return f"unresolved:{resolved.strip()}"
     return resolved
+
+
+# --------------------------------------------------------------------------
+# Helm repo-name resolution (NEW)
+# --------------------------------------------------------------------------
+#
+# A "chart_ref: reponame/chart" only tells you the repo *name*, not its
+# URL. That URL usually lives in a separate task somewhere in the repo:
+#
+#   - name: Add ananace-charts repo
+#     kubernetes.core.helm_repository:
+#       name: ananace-charts
+#       repo_url: https://ananace-charts.gitlab.io/charts/
+#
+# or as a raw CLI call:
+#
+#   helm repo add ananace-charts https://ananace-charts.gitlab.io/charts/
+#
+# We do a lightweight pre-pass over every file, look for the
+# `helm_repository:` module block and pull the `name:`/`repo_url:` pair
+# out of the few lines that follow it (bounded lookahead, so this can't
+# runaway-match across an entire file), plus the CLI form.
+
+# Matches the helm_repository module under any collection FQCN that ships
+# it (kubernetes.core is current; community.kubernetes is the older,
+# deprecated name for the same collection/module), or bare "helm_repository:"
+# when a play sets `collections:` and drops the prefix.
+HELM_REPOSITORY_MODULE_RE = re.compile(
+    r'(?:^|\.)helm_repository\s*:\s*$', re.MULTILINE
+)
+REPO_NAME_KEY_RE = re.compile(r'^\s*name\s*:\s*(.+)$')
+REPO_URL_KEY_RE = re.compile(r'^\s*repo_url\s*:\s*(.+)$')
+HELM_REPO_ADD_RE = re.compile(r'helm\s+repo\s+add\s+([^\s]+)\s+([^\s"\'\\]+)')
+
+# How many lines after the `helm_repository:` module line to search for
+# its name:/repo_url: sub-keys. Generous enough for typical task bodies
+# (state:, force_update:, etc. in between) without spilling into the
+# next task.
+REPO_BLOCK_LOOKAHEAD = 12
+
+
+def build_helm_repo_map(files, var_map):
+    """Return {repo_name: repo_url} collected from helm_repository tasks
+    and raw `helm repo add` lines across the whole repo."""
+    repo_map = {}
+    for f in files:
+        try:
+            text = f.read_text(errors="ignore")
+        except Exception:
+            continue
+        lines = text.splitlines()
+
+        # kubernetes.core.helm_repository: module blocks
+        for i, line in enumerate(lines):
+            if not HELM_REPOSITORY_MODULE_RE.search(line):
+                continue
+            name = None
+            url = None
+            for j in range(i + 1, min(i + 1 + REPO_BLOCK_LOOKAHEAD, len(lines))):
+                # stop early if we hit the start of a clearly new task
+                if re.match(r'^\s*-\s*name\s*:', lines[j]) and j != i:
+                    break
+                m = REPO_NAME_KEY_RE.match(lines[j])
+                if m and name is None:
+                    name = resolve_jinja(_clean_value(m.group(1)), var_map)
+                m = REPO_URL_KEY_RE.match(lines[j])
+                if m and url is None:
+                    url = resolve_jinja(_clean_value(m.group(1)), var_map)
+                if name and url:
+                    break
+            if name and url and not name.startswith("unresolved") and not url.startswith("unresolved"):
+                repo_map.setdefault(name, url)
+
+        # raw `helm repo add NAME URL` (shell/command tasks)
+        for line in lines:
+            m = HELM_REPO_ADD_RE.search(line)
+            if m:
+                name = resolve_jinja(m.group(1), var_map)
+                url = resolve_jinja(m.group(2), var_map)
+                if not name.startswith("unresolved") and not url.startswith("unresolved"):
+                    repo_map.setdefault(name, url)
+
+    return repo_map
 
 
 # --------------------------------------------------------------------------
@@ -220,7 +311,19 @@ def is_valid_chart(chart: str, version: str) -> bool:
     return True
 
 
-def scan_file(path: Path, var_map: dict, images: dict, helms: dict, stats: dict):
+def resolve_repo_url_for_chart(chart: str, inline_repo_url: Optional[str], repo_map: dict):
+    """Return (repo_url, source) for a chart ref, falling back to the
+    repo-name map when no chart_repo_url/--repo was given inline."""
+    if inline_repo_url:
+        return inline_repo_url, "inline"
+    if "/" in chart:
+        prefix = chart.split("/", 1)[0]
+        if prefix in repo_map:
+            return repo_map[prefix], "repo_map"
+    return None, None
+
+
+def scan_file(path: Path, var_map: dict, repo_map: dict, images: dict, helms: dict, stats: dict):
     try:
         text = path.read_text(errors="ignore")
     except Exception:
@@ -285,8 +388,22 @@ def scan_file(path: Path, var_map: dict, images: dict, helms: dict, stats: dict)
         if pending_chart_ref and pending_chart_version:
             stats["helms_seen"] += 1
             if is_valid_chart(pending_chart_ref, pending_chart_version):
+                repo_url, repo_url_source = resolve_repo_url_for_chart(
+                    pending_chart_ref, pending_repo_url, repo_map
+                )
                 key = (pending_chart_ref, pending_chart_version)
-                entry = helms.setdefault(key, HelmRef(chart=pending_chart_ref, version=pending_chart_version, repo_url=pending_repo_url))
+                entry = helms.setdefault(
+                    key,
+                    HelmRef(
+                        chart=pending_chart_ref,
+                        version=pending_chart_version,
+                        repo_url=repo_url,
+                        repo_url_source=repo_url_source,
+                    ),
+                )
+                if entry.repo_url is None and repo_url is not None:
+                    entry.repo_url = repo_url
+                    entry.repo_url_source = repo_url_source
                 entry.sources.add(str(path))
             else:
                 stats["helms_rejected"] += 1
@@ -298,11 +415,18 @@ def scan_file(path: Path, var_map: dict, images: dict, helms: dict, stats: dict)
             version_raw = resolve_jinja(m.group(2), var_map)
             chart = chart_raw.rsplit("/", 1)[-1] if "/" in chart_raw and not chart_raw.startswith("http") else chart_raw
             repo_m = HELM_CLI_REPO_RE.search(line)
-            repo_url = resolve_jinja(repo_m.group(1), var_map) if repo_m else None
+            inline_repo_url = resolve_jinja(repo_m.group(1), var_map) if repo_m else None
             stats["helms_seen"] += 1
             if is_valid_chart(chart, version_raw):
+                repo_url, repo_url_source = resolve_repo_url_for_chart(chart, inline_repo_url, repo_map)
                 key = (chart, version_raw)
-                entry = helms.setdefault(key, HelmRef(chart=chart, version=version_raw, repo_url=repo_url))
+                entry = helms.setdefault(
+                    key,
+                    HelmRef(chart=chart, version=version_raw, repo_url=repo_url, repo_url_source=repo_url_source),
+                )
+                if entry.repo_url is None and repo_url is not None:
+                    entry.repo_url = repo_url
+                    entry.repo_url_source = repo_url_source
                 entry.sources.add(str(path))
             else:
                 stats["helms_rejected"] += 1
@@ -391,8 +515,17 @@ def pick_latest(tags, current, filter_x86: bool = True):
 # Registry / chart repo lookups
 # --------------------------------------------------------------------------
 
+DEFAULT_HTTP_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (compatible; ansible-dep-inventory/1.0; +https://github.com/)",
+    "Accept": "*/*",
+}
+
+
 def http_get(url, headers=None, timeout=15):
-    req = urllib.request.Request(url, headers=headers or {})
+    merged = dict(DEFAULT_HTTP_HEADERS)
+    if headers:
+        merged.update(headers)
+    req = urllib.request.Request(url, headers=merged)
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.read(), dict(resp.getheaders())
 
@@ -438,6 +571,10 @@ def get_helm_latest(chart: str, repo_url: str):
     index_url = repo_url.rstrip("/") + "/index.yaml"
     try:
         body, _ = http_get(index_url)
+    except urllib.error.HTTPError as e:
+        if e.code == 403:
+            return None, f"fetch failed: HTTP 403 (repo may be blocking non-browser requests or rate-limiting)"
+        return None, f"fetch failed: HTTP {e.code}"
     except Exception as e:
         return None, f"fetch failed: {e}"
     try:
@@ -445,10 +582,13 @@ def get_helm_latest(chart: str, repo_url: str):
     except Exception as e:
         return None, f"parse failed: {e}"
     entries = idx.get("entries", {})
-    versions = entries.get(chart)
+    # chart may be stored either as the bare name ("element-web") or as
+    # "reponame/chart" depending on how it was captured; try both forms.
+    lookup_name = chart.split("/", 1)[-1] if "/" in chart else chart
+    versions = entries.get(lookup_name) or entries.get(chart)
     if not versions:
         for k in entries:
-            if k.endswith(chart) or chart.endswith(k):
+            if k.endswith(lookup_name) or lookup_name.endswith(k):
                 versions = entries[k]
                 break
     if not versions:
@@ -513,6 +653,8 @@ def to_rows(images: dict, helms: dict):
             "outdated": bool(e.outdated),
             "status": e.check_error or ("outdated" if e.outdated else ("up to date" if e.check_error is None else "")),
             "sources": sorted(e.sources),
+            "repo_url": e.repo_url or "",
+            "repo_url_source": e.repo_url_source or "",
         })
     return rows
 
@@ -577,6 +719,8 @@ def main():
                      help="Only evaluate x86/amd64 compatible tags during update checks (default)")
     ap.add_argument("--no-x86-only", dest="x86_only", action="store_false",
                      help="Include all architecture tags when evaluating updates")
+    ap.add_argument("--debug-repo-map", action="store_true",
+                     help="Print the resolved helm repo-name -> URL map to stderr and exit")
     args = ap.parse_args()
 
     root = Path(args.path).resolve()
@@ -593,12 +737,20 @@ def main():
         sys.exit(1)
 
     var_map = build_var_map(files)
+    repo_map = build_helm_repo_map(files, var_map)
+
+    if args.debug_repo_map:
+        if not repo_map:
+            print("No helm_repository tasks or `helm repo add` lines found.", file=sys.stderr)
+        for name, url in sorted(repo_map.items()):
+            print(f"{name} -> {url}")
+        return
 
     images: dict = {}
     helms: dict = {}
     stats = {"images_seen": 0, "images_rejected": 0, "helms_seen": 0, "helms_rejected": 0}
     for f in files:
-        scan_file(f, var_map, images, helms, stats)
+        scan_file(f, var_map, repo_map, images, helms, stats)
 
     print(
         f"Scanned {len(files)} files under {root} "
@@ -609,9 +761,20 @@ def main():
         f"Images: {len(images)} kept, {stats['images_rejected']} rejected as not real image refs "
         f"(out of {stats['images_seen']} candidate lines). "
         f"Helm: {len(helms)} kept, {stats['helms_rejected']} rejected "
-        f"(out of {stats['helms_seen']} candidates).",
+        f"(out of {stats['helms_seen']} candidates). "
+        f"Helm repo map: {len(repo_map)} repo name(s) resolved.",
         file=sys.stderr,
     )
+
+    n_helm_no_url = sum(1 for h in helms.values() if not h.repo_url)
+    if n_helm_no_url:
+        print(
+            f"Note: {n_helm_no_url} helm chart(s) still have no resolvable repo_url "
+            f"(no chart_repo_url/--repo inline, and their ref's prefix wasn't found in any "
+            f"helm_repository task or `helm repo add` line). Run with --debug-repo-map to inspect "
+            f"what was found.",
+            file=sys.stderr,
+        )
 
     if args.check_updates:
         check_updates(images, helms, args.delay, filter_x86=args.x86_only)

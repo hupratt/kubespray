@@ -27,7 +27,14 @@ def status_flag(row):
     if not status or status == "up to date":
         return "\u2705 up to date"
     # anything else (HTTP errors, "no repo_url known", "cannot check: ...",
-    # "chart not found in index", etc.) — surface it plainly, don't guess
+    # "chart not found in index", etc.) — surface it plainly, don't guess.
+    # For helm rows where we *did* resolve a repo_url (e.g. via the
+    # repo-name map) but the fetch itself failed, append the URL so the
+    # failure is actionable straight from the table instead of requiring
+    # a trip back into the raw JSON.
+    repo_url = row.get("repo_url")
+    if repo_url and "no repo_url known" not in status:
+        return f"\u2753 {status} (`{repo_url}`)"
     return f"\u2753 {status}"
 
 
@@ -108,10 +115,10 @@ def build_report(data, prefix, title):
         f"- **{len(images)}** container images tracked \u2014 {n_img_outdated} outdated, {n_img_unknown} unchecked/unknown",
         f"- **{len(helms)}** Helm charts tracked \u2014 {n_helm_outdated} outdated, {n_helm_unknown} unchecked/unknown",
         "",
-        "## Container Images",
+        "### Container Images",
         "",
         build_table(images, prefix),
-        "## Helm Charts",
+        "### Helm Charts",
         "",
         build_table(helms, prefix),
     ]
