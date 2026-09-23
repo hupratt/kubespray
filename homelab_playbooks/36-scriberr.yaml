@@ -4,7 +4,7 @@
   gather_facts: false
   vars:
     scriberr_namespace: scriberr
-    scriberr_image: ghcr.io/rishikanthc/scriberr:latest
+    scriberr_image: ghcr.io/rishikanthc/scriberr:v1.2.0
     scriberr_host: scrib.thekor.eu
     scriberr_tls_secret: wildcard-thekor
     scriberr_storage_class: rook-cephfs
@@ -68,11 +68,11 @@
             replicas: 1
             selector:
               matchLabels:
-                app: scriberr
+                app.kubernetes.io/name: scriberr
             template:
               metadata:
                 labels:
-                  app: scriberr
+                  app.kubernetes.io/name: scriberr
               spec:
                 restartPolicy: Always
                 containers:
