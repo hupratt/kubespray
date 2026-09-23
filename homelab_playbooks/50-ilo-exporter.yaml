@@ -6,7 +6,7 @@
      - group_vars/all/vault.yml
   vars:
     namespace: monitoring
-    image: mauvesoftware/ilo_exporter:latest
+    image: mauvesoftware/ilo_exporter:v1.0.4
     port: 9545
     ingress_host: ilo-exporter.thekor.eu
     vault_kv_path: ilo

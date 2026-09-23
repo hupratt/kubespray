@@ -156,7 +156,7 @@
 
                     initContainers:
                       - name: restic-init
-                        image: instrumentisto/restic:0.18.0
+                        image: instrumentisto/restic:0.18.1
                         securityContext:
                           runAsNonRoot: true
                           runAsUser: 1000
@@ -175,7 +175,7 @@
 
                     containers:
                       - name: restic
-                        image: instrumentisto/restic:0.18.0
+                        image: instrumentisto/restic:0.18.1
                         securityContext:
                           runAsNonRoot: true
                           runAsUser: 1000
