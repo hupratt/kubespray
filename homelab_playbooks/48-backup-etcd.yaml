@@ -14,7 +14,7 @@
     # Init container: copies etcdctl binary into the shared emptyDir volume
     etcd_init_image: "registry.k8s.io/etcd:3.5.12-0"
     # Main container: Alpine-based AWS CLI image — etcdctl is copied in by the init container
-    etcd_backup_image: "amazon/aws-cli:2.15.30"
+    etcd_backup_image: "amazon/aws-cli:2.36.45"
     # etcd endpoints — adjust to your control-plane IPs/hostnames
     etcd_endpoints: "https://127.0.0.1:2379"
     vault_s3_endpoint: "https://garage-s3.thekor.eu"
@@ -44,11 +44,11 @@
             data:
               - secretKey: AWS_ACCESS_KEY_ID
                 remoteRef:
-                  key: "{{ vault_kv_path }}"
+                  key: restic
                   property: AWS_ACCESS_KEY_ID
               - secretKey: AWS_SECRET_ACCESS_KEY
                 remoteRef:
-                  key: "{{ vault_kv_path }}"
+                  key: restic
                   property: AWS_SECRET_ACCESS_KEY
               - secretKey: vault_etcd_ca_crt
                 remoteRef:
@@ -69,6 +69,10 @@
         namespace: "{{ etcd_backup_namespace }}"
         name: etcd-backup-s3-credentials
       register: vault_secret
+
+    # - name: Debug secret
+    #   ansible.builtin.debug:
+    #     var: vault_secret.resources[0].data
 
     - name: Create etcd client secret (certs)
       kubernetes.core.k8s:
@@ -117,7 +121,7 @@
                         effect: NoSchedule
                     initContainers:
                       - name: install-etcdctl
-                        image: "curlimages/curl:8.7.1"
+                        image: "curlimages/curl:8.22.0"
                         command:
                           - sh
                           - -c

@@ -189,6 +189,10 @@
         wait: true
         wait_timeout: "10m"
         values:
+          image:
+            repository: ghcr.io/paperless-ngx/paperless-ngx
+            tag: "3.2.1"
+            pullPolicy: IfNotPresent
           ingress:
             host: "{{ vault_secret.resources[0].data.paperless_hostname | b64decode }}"
             tls:
@@ -217,6 +221,7 @@
               PAPERLESS_CSRF_TRUSTED_ORIGINS: "https://{{ vault_secret.resources[0].data.paperless_hostname | b64decode }}"
               PAPERLESS_OCR_MODE: skip
               PAPERLESS_OCR_OUTPUT_TYPE: pdf
+              PAPERLESS_DBENGINE: postgresql
             secret:
               secretKey: "{{ vault_secret.resources[0].data.paperless_secret_key | b64decode }}"
               dbPassword: "{{ vault_secret.resources[0].data.paperless_db_password | b64decode }}"
@@ -232,9 +237,3 @@
         -n {{ paperless_namespace }}
         --timeout=300s
       changed_when: false
-
-
-# tar -czvf documents.tgz -C /home/hugo/test/hosts/paperless-media/2026-09-05T19:14:47Z/data/ documents
-# k cp documents.tgz paperless-paperless-ngx-847fbb844-ptd2c:/tmp -n paperless -c paperless
-# tar -xvzf /tmp/documents.tgz -C /usr/src/paperless/media
-# tar -xvzf paperless.tgz --exclude='paperless/src' --exclude='paperless/static'
