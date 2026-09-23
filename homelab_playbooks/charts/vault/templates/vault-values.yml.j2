@@ -35,7 +35,8 @@ server:
     failureThreshold: 3
     
   image:
-    tag: "1.17.2"
+    repository: hashicorp/vault
+    tag: "{{ vault_version }}"
 
   resources:
     requests:
