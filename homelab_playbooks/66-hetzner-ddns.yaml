@@ -48,7 +48,7 @@
                     restartPolicy: Never
                     containers:
                       - name: ddns-hetzner
-                        image: alpine:3.19
+                        image: alpine:3.24.1
                         command:
                           - /bin/sh
                           - -c

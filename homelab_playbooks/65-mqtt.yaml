@@ -178,6 +178,8 @@
               app: mosquitto
           spec:
             replicas: 1
+            strategy:
+              type: Recreate
             selector:
               matchLabels:
                 app: mosquitto
@@ -188,6 +190,7 @@
               spec:
                 nodeSelector:
                   kubernetes.io/hostname: "{{ mosquitto_node_hostname }}"
+
                 # Pod shares the node's network namespace.
                 # Ports 1883 and 9001 are bound directly on the node NIC.
                 # dnsPolicy must be ClusterFirstWithHostNet to keep
@@ -195,12 +198,14 @@
                 hostNetwork: true
                 dnsPolicy: ClusterFirstWithHostNet
                 terminationGracePeriodSeconds: 30
+
                 containers:
                   - name: mosquitto
-                    image: eclipse-mosquitto:latest
+                    image: eclipse-mosquitto:2.1.2-alpine
                     imagePullPolicy: IfNotPresent
                     stdin: true
                     tty: true
+
                     ports:
                       - name: mqtt
                         containerPort: 1883
@@ -208,6 +213,7 @@
                       - name: mqtt-ws
                         containerPort: 9001
                         protocol: TCP
+
                     volumeMounts:
                       - name: config
                         mountPath: /mosquitto/config
@@ -216,6 +222,7 @@
                         mountPath: /mosquitto/data
                       - name: log
                         mountPath: /mosquitto/log
+
                     resources:
                       requests:
                         cpu: 50m
@@ -223,16 +230,19 @@
                       limits:
                         cpu: 200m
                         memory: 128Mi
+
                     livenessProbe:
                       tcpSocket:
                         port: 1883
                       initialDelaySeconds: 10
                       periodSeconds: 30
+
                     readinessProbe:
                       tcpSocket:
                         port: 1883
                       initialDelaySeconds: 5
                       periodSeconds: 10
+
                 volumes:
                   - name: config
                     persistentVolumeClaim:
@@ -244,6 +254,7 @@
                   - name: log
                     persistentVolumeClaim:
                       claimName: mosquitto-log-pvc
+
 
     # -----------------------------------------------------------------------
     # ClusterIP service — in-cluster DNS name for other pods
