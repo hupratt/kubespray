@@ -54,7 +54,7 @@
                       type: RuntimeDefault
                   containers:
                     - name: haproxy-ingress
-                      image: haproxytech/kubernetes-ingress:3.0.6
+                      image: haproxytech/kubernetes-ingress:3.2.15
                       args:
                         - --configmap=haproxy/haproxy-ingress-config
                         - --http-port=8080
