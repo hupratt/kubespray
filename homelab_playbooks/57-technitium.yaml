@@ -18,6 +18,25 @@
 
   tasks:
 
+    - name: Restrict CoreDNS to control-plane nodes
+      kubernetes.core.k8s:
+        state: patched
+        api_version: apps/v1
+        kind: Deployment
+        name: coredns
+        namespace: kube-system
+        definition:
+          spec:
+            template:
+              spec:
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: node-role.kubernetes.io/control-plane
+                              operator: Exists
+
     - name: Load vault_init.json
       ansible.builtin.set_fact:
         vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
