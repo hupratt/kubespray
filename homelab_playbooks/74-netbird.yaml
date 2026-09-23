@@ -118,7 +118,7 @@
               spec:
                 containers:
                 - name: eturnal
-                  image: ghcr.io/processone/eturnal:latest
+                  image: ghcr.io/processone/eturnal:1.12.3
                   ports:
                   - containerPort: 3478
                     name: stun-udp

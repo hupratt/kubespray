@@ -44,14 +44,14 @@
     synapse_enable_registration: true
 
     # ── mautrix-discord ───────────────────────────────────────────────────────
-    mautrix_discord_image: "dock.mau.dev/mautrix/discord:latest"
+    mautrix_discord_image: "dock.mau.dev/mautrix/discord:v0.7.7"
     mautrix_discord_port: 29334
 
   vars:
     # ── Namespaces & names ────────────────────────────────────────────────
     bridge_namespace: matrix
     bridge_name: mautrix-whatsapp
-    bridge_image: dock.mau.dev/mautrix/whatsapp:latest   # pin to a digest in prod!
+    bridge_image: dock.mau.dev/mautrix/whatsapp:v26.09   # pin to a digest in prod!
 
     # ── Matrix / Synapse ──────────────────────────────────────────────────
     # Internal cluster service URL for Synapse (no TLS needed inside cluster)
