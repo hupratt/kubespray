@@ -142,7 +142,7 @@
             namespace: "{{ scriberr_namespace }}"
           spec:
             selector:
-              app: scriberr
+              app.kubernetes.io/name: scriberr
             ports:
               - port: 8080
                 targetPort: 8080
