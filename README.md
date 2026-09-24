@@ -5,18 +5,18 @@
 ## Kubernetes Operations 🦊
 
 [![Discord](https://img.shields.io/discord/673534664354430999?style=for-the-badge&label&logo=discord&logoColor=white&color=blue)](https://discord.gg/home-operations)&nbsp;&nbsp;
-[![Fedora Core OS](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Ffedora_version&style=for-the-badge&logo=fedora&logoColor=white&color=blue&label=)](https://kromgo.thekor.eu/badges/fedora_version?format=shields)&nbsp;&nbsp;
-[![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fkubernetes_version&color=blue&style=for-the-badge&logo=kubernetes&logoColor=white&label=)](https://kromgo.thekor.eu/kubernetes_version)&nbsp;&nbsp;
+[![Fedora Core OS](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Ffedora_version%3Fformat%3Dshields&style=for-the-badge&logo=fedora&logoColor=white&color=blue&label=)](https://kromgo.thekor.eu/badges/fedora_version?format=shields)&nbsp;&nbsp;
+[![Kubernetes](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Fkubernetes_version%3Fformat%3Dshields&color=blue&style=for-the-badge&logo=kubernetes&logoColor=white&label=)](https://kromgo.thekor.eu/badges/kubernetes_version?format=shields)&nbsp;&nbsp;
 [![Status](https://img.shields.io/website?url=https%3A%2F%2Fuptime.thekor.eu%2Fstatus%2Fup&style=for-the-badge&label=kuma&up_message=Up&down_message=Down&down_color=red)](https://uptime.thekor.eu/status/up)&nbsp;&nbsp;
 
-[![Age-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu/cluster_age&style=flat-square&label=Age&color=green)](https://kromgo.thekor.eu/cluster_age)&nbsp;&nbsp;&nbsp;
-[![Uptime-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu/node_uptime&style=flat-square&label=Uptime&color=green)](https://kromgo.thekor.eu/node_uptime)&nbsp;&nbsp;&nbsp;
-[![Active-Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Funhealthy_services&style=flat-square&label=Alerts)](https://kromgo.thekor.eu/unhealthy_services)&nbsp;&nbsp;&nbsp;
-[![Node-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fnode_count&style=flat-square&label=Nodes&color=green)](https://kromgo.thekor.eu/node_count)&nbsp;&nbsp;&nbsp;
-[![Pod-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fpod_count&style=flat-square&label=Pods&color=green)](https://kromgo.thekor.eu/pod_count)&nbsp;&nbsp;&nbsp;
-[![CPU-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fcluster_cpu_usage&style=flat-square&label=CPU&color=green)](https://kromgo.thekor.eu/cluster_cpu_usage)&nbsp;&nbsp;&nbsp;
-[![Memory-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fcluster_memory_usage&style=flat-square&label=Memory&color=green)](https://kromgo.thekor.eu/cluster_memory_usage)&nbsp;&nbsp;&nbsp;
-[![Cluster Power-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Filo_power_current_watt&style=flat-square&label=Power&color=green)](https://kromgo.thekor.eu/ilo_power_current_watt)
+[![Age-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges/cluster_age%3Fformat%3Dshields&style=flat-square&label=Age&color=green)](https://kromgo.thekor.eu/badges/cluster_age?format=shields)&nbsp;&nbsp;&nbsp;
+[![Uptime-Days](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges/node_uptime?format=shields&style=flat-square&label=Uptime&color=green)](https://kromgo.thekor.eu/badges/node_uptime?format=shields)&nbsp;&nbsp;&nbsp;
+[![Active-Alerts](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Funhealthy_services%3Fformat%3Dshields&style=flat-square&label=Alerts)](https://kromgo.thekor.eu/badges/unhealthy_services?format=shields)&nbsp;&nbsp;&nbsp;
+[![Node-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Fnode_count%3Fformat%3Dshields&style=flat-square&label=Nodes&color=green)](https://kromgo.thekor.eu/badges/node_count?format=shields)&nbsp;&nbsp;&nbsp;
+[![Pod-Count](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Fpod_count%3Fformat%3Dshields&style=flat-square&label=Pods&color=green)](https://kromgo.thekor.eu/badges/pod_count?format=shields)&nbsp;&nbsp;&nbsp;
+[![CPU-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Fcluster_cpu_usage%3Fformat%3Dshields&style=flat-square&label=CPU&color=green)](https://kromgo.thekor.eu/badges/cluster_cpu_usage?format=shields)&nbsp;&nbsp;&nbsp;
+[![Memory-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Fcluster_memory_usage%3Fformat%3Dshields&style=flat-square&label=Memory&color=green)](https://kromgo.thekor.eu/badges/cluster_memory_usage?format=shields)&nbsp;&nbsp;&nbsp;
+[![Cluster Power-Usage](https://img.shields.io/endpoint?url=https%3A%2F%2Fkromgo.thekor.eu%2Fbadges%2Filo_power_current_watt%3Fformat%3Dshields&style=flat-square&label=Power&color=green)](https://kromgo.thekor.eu/badges/ilo_power_current_watt?format=shields)
 
 
 </div>
