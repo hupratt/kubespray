@@ -72,3 +72,35 @@ persistence:
   consume:
     storageClass: ""
     size: 2Gi
+
+probes:
+  startup:
+    httpGet:
+      path: /
+      port: http
+      scheme: HTTP
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 30
+    successThreshold: 1
+
+  liveness:
+    httpGet:
+      path: /
+      port: http
+      scheme: HTTP
+    periodSeconds: 30
+    timeoutSeconds: 2
+    failureThreshold: 5
+    successThreshold: 1
+
+  readiness:
+    httpGet:
+      path: /
+      port: http
+      scheme: HTTP
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+    successThreshold: 1
