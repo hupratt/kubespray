@@ -75,9 +75,22 @@
                   app.kubernetes.io/name: scriberr
               spec:
                 restartPolicy: Always
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: kubernetes.io/hostname
+                              operator: In
+                              values:
+                                - coreos-wk-4
                 containers:
                   - name: scriberr
                     image: "{{ scriberr_image }}"
+                    securityContext:
+                      runAsNonRoot: true
+                      runAsUser: 1000
+                      runAsGroup: 1000
                     ports:
                       - containerPort: 8080
                     env:
@@ -94,6 +107,22 @@
                         mountPath: /app/data
                       - name: whisperx-env
                         mountPath: /app/whisperx-env
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: 8080
+                      initialDelaySeconds: 3000
+                      periodSeconds: 15
+                      timeoutSeconds: 10
+                      failureThreshold: 3
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: 8080
+                      initialDelaySeconds: 1000
+                      periodSeconds: 10
+                      timeoutSeconds: 10
+                      failureThreshold: 3
                 volumes:
                   - name: scriberr-data
                     persistentVolumeClaim:
