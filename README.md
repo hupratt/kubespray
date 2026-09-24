@@ -139,7 +139,7 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 
 | | Application | Description | Helm | Operator | Chart | Container |
 |---|---|---|:---:|---|---|---|
-| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon. Deployed [via the official chart](https://cloudnative-pg.github.io/charts) with the operator | ✅ | — | cloudnative-pg-0.23.0 | ghcr.io/cloudnative-pg/postgis:16-3.5 | 
+| <img src="./icons/postgres.svg" width="35"/> | **PostgreSQL** | 2 CNPG clusters. One for immich and the another shared cluster for Authentik, NetBox, PostHog, Django apps, Grafana, Harbor, linkwarden, paperless-ngx and patchmon. Deployed [via the official chart](https://cloudnative-pg.github.io/charts) with the operator | ✅ | ghcr.io/cloudnative-pg/cloudnative-pg:1.30.1 | cloudnative-pg-0.23.0 | ghcr.io/cloudnative-pg/postgis:16-3.5 | 
 | <img src="./icons/mariadb.svg" width="35"/> | **MariaDB** | MySQL-compatible DB managed with a kubernetes operator. Deployed [via the official chart](https://helm.mariadb.com/mariadb-operator) with the operator | ✅ | ghcr.io/mariadb-operator/mariadb-operator:26.6.0 | mariadb-operator-26.6.0 | docker-registry1.mariadb.com/library/mariadb:11.8.5 | 
 | <img src="./icons/mongo.svg" width="25"/> | **MongoDB** | Document store for Node.js apps and the Amazon clone. Statefulset deployed via plain yaml files in homelab_playbooks | — | — | — | mongo:6.0 as statefulset | 
 

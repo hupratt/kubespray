@@ -3,7 +3,7 @@
   gather_facts: false
   vars:
     cnpg_namespace: cn-postgres
-    cnpg_version: "0.23.0"
+    cnpg_version: "0.29.1"
     storage_class: rook-ceph-block
     pg_image: ghcr.io/cloudnative-pg/postgis:16-3.5
     shared_cluster_name: shared-pg
@@ -108,7 +108,7 @@
         values:
           monitoring:
             podMonitorEnabled: true
-      when: cnpg_helm_status.status.status is not defined or cnpg_helm_status.status.status != "deployed"
+      # when: cnpg_helm_status.status.status is not defined or cnpg_helm_status.status.status != "deployed"
 
     - name: Create ExternalSecret for shared cluster superuser
       kubernetes.core.k8s:
