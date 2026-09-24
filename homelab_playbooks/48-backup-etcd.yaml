@@ -158,6 +158,12 @@
                             value: "{{ etcd_endpoints }}"
                           - name: BACKUP_RETENTION_DAYS
                             value: "{{ etcd_backup_retention_days | string }}"
+                          - name: S3_BUCKET
+                            value: "{{ vault_s3_bucket }}"
+                          - name: S3_ENDPOINT
+                            value: "{{ vault_s3_endpoint }}"
+                          - name: AWS_DEFAULT_REGION
+                            value: "{{ vault_s3_region }}"
                         volumeMounts:
                           - name: etcd-certs
                             mountPath: /etc/etcd/certs
