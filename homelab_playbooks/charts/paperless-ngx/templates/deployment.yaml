@@ -30,7 +30,7 @@ spec:
             - sh
             - -c
             - |
-              until nc -z {{ .Values.externalPostgres.host }} {{ .Values.externalPostgres.port }}; do
+              until nc -z {{ required "externalPostgres.host must be set" .Values.externalPostgres.host }} {{ required "externalPostgres.port must be set" .Values.externalPostgres.port }}; do
                 echo "Waiting for external postgres..."
                 sleep 2
               done
@@ -67,16 +67,16 @@ spec:
               value: "redis://{{ include "paperless-ngx.redisHost" . }}:6379"
 
             - name: PAPERLESS_DBHOST
-              value: {{ .Values.externalPostgres.host | quote }}
+              value: {{ required "externalPostgres.host must be set" .Values.externalPostgres.host | quote }}
 
             - name: PAPERLESS_DBPORT
-              value: {{ .Values.externalPostgres.port | quote }}
+              value: {{ required "externalPostgres.port must be set" .Values.externalPostgres.port | quote }}
 
             - name: PAPERLESS_DBNAME
-              value: {{ .Values.externalPostgres.database | quote }}
+              value: {{ required "externalPostgres.database must be set" .Values.externalPostgres.database | quote }}
 
             - name: PAPERLESS_DBUSER
-              value: {{ .Values.externalPostgres.user | quote }}
+              value: {{ required "externalPostgres.user must be set" .Values.externalPostgres.user | quote }}
 
             - name: PAPERLESS_DBPASS
               valueFrom:
@@ -92,6 +92,9 @@ spec:
 
           readinessProbe:
             {{- toYaml .Values.probes.readiness | nindent 12 }}
+
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
 
           volumeMounts:
             - name: data

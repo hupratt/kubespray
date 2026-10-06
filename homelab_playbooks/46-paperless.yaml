@@ -188,6 +188,7 @@
         create_namespace: true
         wait: true
         wait_timeout: "10m"
+        reuse_values: true
         values:
           image:
             repository: ghcr.io/paperless-ngx/paperless-ngx
@@ -197,6 +198,13 @@
             host: "{{ vault_secret.resources[0].data.paperless_hostname | b64decode }}"
             tls:
               secretName: "{{ vault_secret.resources[0].data.paperless_tls_secret | b64decode }}"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
           externalPostgres:
             host: "{{ vault_secret.resources[0].data.paperless_db_host | b64decode }}"
             port: "{{ vault_secret.resources[0].data.paperless_db_port | b64decode }}"
