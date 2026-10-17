@@ -293,9 +293,9 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 
 | Flow             | Tool               | Destinations                                                                                 | Schedule          |
 |------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
-| Application level data -> S3 | SQL dumps | databases get dumped into compressed archives | see below |
-| Volsync Block based backups -> S3 | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | see below |
-| S3 replication | first garage instance gets replicated to the second one in the cloud | Sync | see below |
+| Application level data -> S3 | database dumps | databases get dumped into compressed archives | see below |
+| Volsync Block based backups -> S3 | volsync | Block devices get snapshoted, split into chunks and encrypted locally | see below |
+| S3 replication | garage | first garage instance gets replicated to the second one in the cloud  | see below |
 
 
 #### Backup strategy per service
