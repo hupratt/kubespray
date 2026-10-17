@@ -289,18 +289,16 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 
 #### Backup Flows
 
-3-2-1 strategy. I have 3 copies of my data: the one in production, the one on my proxmox backup server and a remote copy on a cloud server. 
+3-2-1 strategy. I have 3 copies of my data: the one in production and the one on my local garage S3 server which is clustered with two cloud servers.
 
 | Flow             | Tool               | Destinations                                                                                 | Schedule          |
 |------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
-| Application level data -> S3 | volsync and restic | PVCs get snapshoted and the incrementals get stored on an external S3 storage + databases get dumped into compressed archives into that same S3 storage | see below |
-| Block based backups -> Proxmox backup server | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | manual trigger once a week |
-| Block based backups -> Proxmox replication | first proxmox backup server gets replicated to the second proxmox backup server | Sync | manual trigger once a week |
+| Application level data -> S3 | SQL dumps | databases get dumped into compressed archives | see below |
+| Volsync Block based backups -> S3 | proxmox integration | Block devices get snapshoted, split into chunks and encrypted locally | see below |
+| S3 replication | first garage instance gets replicated to the second one in the cloud | Sync | see below |
 
 
 #### Backup strategy per service
-
-The Application level data gets backed up to a cloud based offsite VPS to an S3 storage hosted at hetzner on an ext4 luks encrypted partition
 
 ![Backup Matrix](./backup-matrix/backup-matrix.png)
 
