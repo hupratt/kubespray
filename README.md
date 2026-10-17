@@ -294,8 +294,8 @@ While most of my infrastructure and workloads are self-hosted I do rely upon the
 | Flow             | Tool               | Destinations                                                                                 | Schedule          |
 |------------------|--------------------|----------------------------------------------------------------------------------------------|-------------------|
 | Application level data -> S3 | database dumps | databases get dumped into compressed archives | see below |
-| Volsync Block based backups -> S3 | volsync | Block devices get snapshoted, split into chunks and encrypted locally | see below |
-| S3 replication | garage | first garage instance gets replicated to the second one in the cloud  | see below |
+| Volsync Block based backups -> S3 | volsync/restic | PVCs get snapshoted, split into chunks and stored on the encrypted cloud storage box | see below |
+| Clustered S3 replication | garage | first garage instance gets replicated to the second one in the cloud  | see below |
 
 
 #### Backup strategy per service
