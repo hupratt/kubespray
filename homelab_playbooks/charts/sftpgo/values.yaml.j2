@@ -291,7 +291,14 @@ resources:
     memory: 128Mi
 
 
+tolerations:
+  - key: dedicated
+    operator: Equal
+    value: slow-services
+    effect: NoSchedule
 
+nodeSelector:
+  node-role: slow-services
 
 # -- [Topology Spread Constraints](https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/) configuration.
 # Accepts a list of constraints. The legacy object format is also supported for backward compatibility.
