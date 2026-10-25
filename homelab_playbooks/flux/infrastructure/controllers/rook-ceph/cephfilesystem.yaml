@@ -1,0 +1,23 @@
+---
+# Source: 01b-storage.yaml — "Apply CephFilesystem (myfs)".
+# This is the ONLY inline `definition:` in the rook playbooks. The rook operator,
+# common/crds manifests, the RBD + CephFS StorageClasses and the toolbox are all
+# applied from a cloned private git repo (git@gitlab.thekor.eu:kube/rook.git) via
+# `kubernetes.core.k8s src:` and are NOT reproducible here — see BLOCKERS.
+# Requires the rook-ceph CRDs (ceph.rook.io/v1) to exist before it can apply.
+apiVersion: ceph.rook.io/v1
+kind: CephFilesystem
+metadata:
+  name: myfs
+  namespace: rook-ceph
+spec:
+  metadataPool:
+    replicated:
+      size: 3
+  dataPools:
+    - name: data0
+      replicated:
+        size: 3
+  metadataServer:
+    activeCount: 1
+    activeStandby: true

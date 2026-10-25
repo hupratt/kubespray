@@ -1,0 +1,15 @@
+---
+# Source: 54c-matrix.yaml — task "Create PVC for signal bridge data"
+# storageClassName is intentionally left unset (cluster default), matching the
+# commented-out line in the source playbook.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mautrix-signal-data
+  namespace: matrix
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: "1Gi"
+  # storageClassName: rook-ceph-block  # uncomment if needed (as in source)

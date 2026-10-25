@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mariadb-toolbox
+  namespace: mariadb
+  labels:
+    app: mariadb-toolbox
+spec:
+  containers:
+  - name: mariadb-client
+    image: mariadb:11.0
+    command:
+      - sleep
+      - "infinity"
+    env:
+    - name: MARIADB_HOST
+      value: "mariadb.mariadb.svc.cluster.local"
+    - name: MARIADB_PORT
+      value: "3306"
+    - name: MARIADB_DATABASE
+      value: "uptimekuma"
+  #   volumeMounts:
+  #   - name: root-password
+  #     mountPath: /secrets
+  #     readOnly: true
+  # volumes:
+  # - name: root-password
+  #   secret:
+  #     secretName: mariadb-root-secret
+  # restartPolicy: Always
+
+    securityContext:
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      runAsNonRoot: true
+      runAsUser: 999
+      runAsGroup: 999
+      capabilities:
+        drop:
+          - ALL
+
+
+# mariadb -h $MARIADB_HOST -u root -p uptimekuma < uptimekuma-2026-02-07.sql 
+# mariadb -h "$MARIADB_HOST" -P "$MARIADB_PORT" -u root -p

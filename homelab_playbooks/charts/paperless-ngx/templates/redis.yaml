@@ -1,0 +1,80 @@
+---
+# Regular ClusterIP service — gets a stable DNS record immediately,
+# regardless of pod readiness. Headless isn't needed for a single Redis instance.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "paperless-ngx.redisHost" . }}
+  labels:
+    {{- include "paperless-ngx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: broker
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: redis
+      name: redis
+  selector:
+    {{- include "paperless-ngx.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: broker
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "paperless-ngx.fullname" . }}-broker
+  labels:
+    {{- include "paperless-ngx.labels" . | nindent 4 }}
+    app.kubernetes.io/component: broker
+spec:
+  serviceName: {{ include "paperless-ngx.redisHost" . }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "paperless-ngx.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: broker
+  template:
+    metadata:
+      labels:
+        {{- include "paperless-ngx.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: broker
+    spec:
+      containers:
+        - name: redis
+          image: "docker.io/library/redis:{{ .Values.redis.tag }}"
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+            - --save
+            - "60 1"
+            - --loglevel
+            - warning
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          livenessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command: [redis-cli, ping]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.redis.storageClass }}
+        storageClassName: {{ .Values.redis.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.storage }}

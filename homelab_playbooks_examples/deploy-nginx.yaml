@@ -1,0 +1,37 @@
+---
+- name: Deploy simple Nginx webserver
+#  hosts: kube_control_plane[0]
+  hosts: localhost
+  become: true
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: /root/.kube/config
+
+  tasks:
+    - name: Apply Nginx manifests
+      kubernetes.core.k8s:
+        state: present
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop:
+        - nginx-deploy.yaml
+        - nginx-svc.yaml
+
+    - name: Wait for Nginx pod to become Ready
+      ansible.builtin.shell: |
+        kubectl get pods -l app=nginx -n default --no-headers | \
+        awk '{print $3}' | grep -vE 'Running|Completed' | wc -l
+      register: nginx_status
+      retries: 30
+      delay: 10
+      until: nginx_status.stdout|int == 0
+
+    - name: Fail if no Nginx pods are running
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: default
+        label_selectors:
+          - app=nginx
+      register: nginx_pods_info
+      failed_when: nginx_pods_info.resources | selectattr('status.phase', 'equalto', 'Running') | list | length == 0

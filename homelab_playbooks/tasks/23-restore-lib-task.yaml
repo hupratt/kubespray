@@ -1,0 +1,94 @@
+---
+# tasks/08e-restore-task.yaml
+
+- name: Scale down Immich workloads before restoring {{ pvc.pvc_name }}
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ pvc.namespace }}"
+    replicas: 0
+    wait: true
+    wait_timeout: 300
+  loop:
+    - immich-server
+    - immich-machine-learning
+
+- name: Ensure destination PVC {{ pvc.pvc_name }} exists for Direct restore
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: "{{ pvc.pvc_name }}"
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: "{{ pvc.storage_class }}"
+        resources:
+          requests:
+            storage: "{{ pvc.storage_size }}"
+    wait: true
+    wait_timeout: 300
+
+- name: Create VolSync ReplicationDestination for {{ pvc.name }}
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: volsync.backube/v1alpha1
+      kind: ReplicationDestination
+      metadata:
+        name: "{{ pvc.name }}-restore"
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        trigger:
+          manual: "restore-once"
+        restic:
+          repository: "{{ pvc.secret }}"
+          destinationPVC: "{{ pvc.pvc_name }}"
+          copyMethod: Direct
+          storageClassName: "{{ pvc.storage_class }}"
+          accessModes:
+            - ReadWriteOnce
+          capacity: "{{ pvc.storage_size }}"
+          enableFileDeletion: true
+          cleanupCachePVC: true
+          cleanupTempPVC: true
+  register: replication_destination
+
+- name: Wait for ReplicationDestination restore to complete for {{ pvc.name }}
+  kubernetes.core.k8s_info:
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "{{ pvc.name }}-restore"
+    namespace: "{{ pvc.namespace }}"
+  register: rd_status
+  until: >
+    rd_status.resources[0].status is defined and
+    rd_status.resources[0].status.lastManualSync is defined and
+    rd_status.resources[0].status.lastManualSync == "restore-once"
+  retries: 100
+  delay: 240
+
+- name: Remove ReplicationDestination after successful restore for {{ pvc.name }}
+  kubernetes.core.k8s:
+    state: absent
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "{{ pvc.name }}-restore"
+    namespace: "{{ pvc.namespace }}"
+
+- name: Scale Immich workloads back up after restoring {{ pvc.pvc_name }}
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ pvc.namespace }}"
+    replicas: 1
+    wait: true
+    wait_timeout: 300
+  loop:
+    - immich-server
+    - immich-machine-learning

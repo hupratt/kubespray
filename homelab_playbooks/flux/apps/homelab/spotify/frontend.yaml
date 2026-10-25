@@ -1,0 +1,86 @@
+---
+# Migrated from 05-spotify.yaml
+#   task: "Deploy complete Spotify application stack to Kubernetes"
+#         (spotify-frontend Deployment + Service + Ingress)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spotify-frontend
+  namespace: spotify
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: spotify-frontend
+  template:
+    metadata:
+      labels:
+        app: spotify-frontend
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      containers:
+        - name: spotify-frontend
+          image: registry.thekor.eu/docker/spotify-stats/web:latest
+          ports:
+            - containerPort: 3000
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: API_ENDPOINT
+              value: "https://spotifyapi.thekor.eu"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spotify-frontend
+  namespace: spotify
+spec:
+  selector:
+    app: spotify-frontend
+  ports:
+    - port: 3000
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spotify-frontend-ingress
+  namespace: spotify
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - spotify.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: spotify.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spotify-frontend
+                port:
+                  number: 3000

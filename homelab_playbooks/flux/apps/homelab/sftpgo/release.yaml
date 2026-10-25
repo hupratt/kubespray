@@ -1,0 +1,211 @@
+---
+# Replaces the "Render values" + "Install chart" tasks in 25-sftpgo.yaml. Chart
+# pulled from the sftpgo GitRepository (chart path `sftpgo`). Non-secret values
+# from charts/sftpgo/values.yaml.j2 are inlined; every `{{ ... | b64decode }}` the
+# template interpolated is injected from the ESO-managed Secret sftpgo-vault-secrets
+# via valuesFrom + targetPath.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: my-sftpgo
+  namespace: sftpgo
+spec:
+  releaseName: my-sftpgo
+  interval: 30m
+  timeout: 10m
+  chart:
+    spec:
+      chart: sftpgo
+      sourceRef:
+        kind: GitRepository
+        name: sftpgo
+        namespace: sftpgo
+      interval: 30m
+  valuesFrom:
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_FTPD__BINDINGS__0__ADDRESS
+      targetPath: env.SFTPGO_FTPD__BINDINGS__0__ADDRESS
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_FTPD__BINDINGS__0__TLS_MODE
+      targetPath: env.SFTPGO_FTPD__BINDINGS__0__TLS_MODE
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_FTPD__BINDINGS__0__DEBUG
+      targetPath: env.SFTPGO_FTPD__BINDINGS__0__DEBUG
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
+      targetPath: env.SFTPGO_FTPD__PASSIVE_PORT_RANGE__START
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
+      targetPath: env.SFTPGO_FTPD__PASSIVE_PORT_RANGE__END
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_FTPD__DISABLE_ACTIVE_MODE
+      targetPath: env.SFTPGO_FTPD__DISABLE_ACTIVE_MODE
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_WEBDAVD__BINDINGS__0__PORT
+      targetPath: env.SFTPGO_WEBDAVD__BINDINGS__0__PORT
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_DATA_PROVIDER__DRIVER
+      targetPath: env.SFTPGO_DATA_PROVIDER__DRIVER
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_DATA_PROVIDER__NAME
+      targetPath: env.SFTPGO_DATA_PROVIDER__NAME
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_DATA_PROVIDER__HOST
+      targetPath: env.SFTPGO_DATA_PROVIDER__HOST
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_DATA_PROVIDER__PORT
+      targetPath: env.SFTPGO_DATA_PROVIDER__PORT
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_DATA_PROVIDER__USERNAME
+      targetPath: env.SFTPGO_DATA_PROVIDER__USERNAME
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_DATA_PROVIDER__PASSWORD
+      targetPath: env.SFTPGO_DATA_PROVIDER__PASSWORD
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_COMMON_DEFENDER__ENABLED
+      targetPath: env.SFTPGO_COMMON_DEFENDER__ENABLED
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_COMMON_DEFENDER__BAN_TIME
+      targetPath: env.SFTPGO_COMMON_DEFENDER__BAN_TIME
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT
+      targetPath: env.SFTPGO_COMMON_DEFENDER__BAN_TIME_INCREMENT
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_COMMON_DEFENDER__THRESHOLD
+      targetPath: env.SFTPGO_COMMON_DEFENDER__THRESHOLD
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME
+      targetPath: env.SFTPGO_COMMON_DEFENDER__OBSERVATION_TIME
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__SCOPES
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__ROLE_FIELD
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_ID
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__CLIENT_SECRET
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__CONFIG_URL
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__REDIRECT_BASE_URL
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
+      targetPath: env.SFTPGO_HTTPD__BINDINGS__0__OIDC__USERNAME_FIELD
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: hostname
+      targetPath: ui.ingress.hosts[0].host
+    - kind: Secret
+      name: sftpgo-vault-secrets
+      valuesKey: hostname
+      targetPath: ui.ingress.tls[0].hosts[0]
+  values:
+    image:
+      repository: ghcr.io/drakkan/sftpgo
+      pullPolicy: IfNotPresent
+    sftpd:
+      enabled: true
+      port: 2022
+    ftpd:
+      enabled: false
+      port: 2021
+    webdavd:
+      enabled: false
+      port: 8081
+    httpd:
+      enabled: true
+      port: 8080
+    config: {}
+    volumes:
+      - name: sftpgo-data
+        persistentVolumeClaim:
+          claimName: sftpgo-data
+    volumeMounts:
+      - name: sftpgo-data
+        mountPath: /var/lib/sftpgo
+    envFrom: []
+    # All env.* values are injected via valuesFrom above.
+    env: {}
+    podSecurityContext:
+      fsGroup: 1000
+    securityContext: {}
+    initContainers: []
+    extraContainers: []
+    service:
+      annotations: {}
+      labels: {}
+      type: ClusterIP
+      ports:
+        sftp:
+          port: 22
+        ftp:
+          port: 21
+          passiveRange:
+            start: 50000
+            end: 50020
+        webdav:
+          port: 81
+        http:
+          port: 80
+    services: {}
+    additionalPorts: {}
+    ui:
+      ingress:
+        enabled: true
+        className: "haproxy"
+        annotations: {}
+        # hosts[0].host and tls[0].hosts[0] injected via valuesFrom above.
+        hosts:
+          - host: ""
+            paths:
+              - path: /
+                pathType: ImplementationSpecific
+        tls:
+          - secretName: wildcard-thekor
+            hosts:
+              - ""
+    api:
+      ingress:
+        enabled: false
+    resources:
+      limits:
+        memory: 128Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+    topologySpreadConstraints: []
+    persistence:
+      enabled: false
+      annotations: {}
+    hostNetwork: false

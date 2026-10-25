@@ -1,0 +1,16 @@
+---
+# Migrated from "Create Immich library PVC" in 47-immich-install.yaml.
+# Binds to the pre-provisioned static PV `immich-library` (slow-local); the PV
+# itself is provisioned outside GitOps.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library
+  namespace: immich
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeName: immich-library
+  storageClassName: slow-local
+  resources:
+    requests:
+      storage: 3000Gi

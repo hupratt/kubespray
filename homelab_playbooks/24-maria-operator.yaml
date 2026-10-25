@@ -1,0 +1,177 @@
+---
+- name: Deploy the mariadb operator
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: ~/.kube/config
+  
+  tasks:
+    - name: Add MariaDB Operator Helm repo
+      community.kubernetes.helm_repository:
+        name: mariadb-operator
+        repo_url: https://helm.mariadb.com/mariadb-operator
+        state: present
+
+    - name: Install MariaDB Operator CRDs via Helm
+      community.kubernetes.helm:
+        name: mariadb-operator-crds
+        chart_ref: mariadb-operator/mariadb-operator-crds
+        release_namespace: mariadb
+        create_namespace: false
+        state: present
+        wait: yes
+
+    - name: Wait for MariaDB CRD to be available
+      kubernetes.core.k8s_info:
+        api_version: apiextensions.k8s.io/v1
+        kind: CustomResourceDefinition
+        name: mariadbs.k8s.mariadb.com
+      register: mariadb_crd
+      retries: 30
+      delay: 5
+      until: mariadb_crd.resources | length == 1
+
+    - name: Install MariaDB Operator with custom values
+      community.kubernetes.helm:
+        name: mariadb-operator
+        chart_ref: mariadb-operator/mariadb-operator
+        release_namespace: mariadb
+        create_namespace: true
+        values_files: 
+          - ./charts/mariadb/mariadb-operator-values.yml
+        state: present
+        wait: yes
+
+    - name: Wait for operator deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: mariadb
+        name: mariadb-operator
+      register: mariadb_operator_info
+      until: >
+        mariadb_operator_info.resources | length == 1 and
+        mariadb_operator_info.resources[0].status.readyReplicas is defined and
+        mariadb_operator_info.resources[0].status.readyReplicas == mariadb_operator_info.resources[0].spec.replicas
+      retries: 30
+      delay: 10
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: mariadb-root-secret
+            namespace: mariadb
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: mariadb-root-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: mariadb
+                  property: superuser_password
+
+    - name: Sleep for 5 seconds
+      ansible.builtin.wait_for:
+        timeout: 5
+
+    - name: Deploy MariaDB Operator Instance
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: MariaDB
+          metadata:
+            name: mariadb
+            namespace: mariadb
+          spec:
+            version: "11.0"
+            storage:
+              size: 50Gi
+              storageClassName: rook-ceph-block
+            rootPasswordSecretKeyRef:
+              name: mariadb-root-secret
+              key: password
+            databases:
+              - name: uptimekuma
+
+    - name: Wait for MariaDB instance to be ready
+      kubernetes.core.k8s_info:
+        api_version: k8s.mariadb.com/v1alpha1
+        kind: MariaDB
+        namespace: mariadb
+      register: mariadb_instance
+      retries: 60
+      delay: 10
+      until: >
+        mariadb_instance.resources | length > 0 and
+        mariadb_instance.resources[0].status is defined and
+        mariadb_instance.resources[0].status.conditions is defined and
+        mariadb_instance.resources[0].status.conditions |
+        selectattr('type', 'equalto', 'Ready') |
+        selectattr('status', 'equalto', 'True') | list | length > 0
+
+    - name: Deploy MariaDB Database Resource
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: uptimekuma
+            namespace: mariadb
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: mariadb
+              namespace: mariadb
+              waitForIt: true
+            characterSet: utf8
+            collate: utf8_general_ci
+
+    - name: Deploy MariaDB Toolbox Pod
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: mariadb-toolbox
+            namespace: mariadb
+            labels:
+              app: mariadb-toolbox
+          spec:
+            containers:
+              - name: mariadb-client
+                image: mariadb:11.0
+                command:
+                  - sleep
+                  - "infinity"
+                env:
+                  - name: MARIADB_HOST
+                    value: "mariadb.mariadb.svc.cluster.local"
+                  - name: MARIADB_PORT
+                    value: "3306"
+                  - name: MARIADB_DATABASE
+                    value: "uptimekuma"
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  readOnlyRootFilesystem: false
+                  runAsNonRoot: true
+                  runAsUser: 999
+                  runAsGroup: 999
+                  capabilities:
+                    drop:
+                      - ALL
+            restartPolicy: Always

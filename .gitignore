@@ -1,3 +1,4 @@
+backup-matrix/node_modules
 .vagrant
 *.retry
 **/vagrant_ansible_inventory
@@ -23,12 +24,6 @@ contrib/terraform/aws/credentials.tfvars
 *~
 vagrant/
 plugins/mitogen
-
-# Ansible inventory
-inventory/*
-!inventory/local
-!inventory/sample
-inventory/*/artifacts/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -120,3 +115,12 @@ tmp.md
 # Ansible collection files
 kubernetes_sigs-kubespray*tar.gz
 ansible_collections
+.ansible
+harbor_nosync.md
+script.sh
+
+terraform.tfvars
+*.bu
+*.env
+*.json
+INVENTORY.md

@@ -1,0 +1,57 @@
+---
+# Migrated from "Deploy Lightweight Co-located STUN/TURN Engine (eturnal)" +
+# "Expose STUN Server via L4 LoadBalancer" in 56-netbird.yml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: netbird-stun
+  namespace: netbird
+  labels:
+    app: netbird-stun
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: netbird-stun
+  template:
+    metadata:
+      labels:
+        app: netbird-stun
+    spec:
+      containers:
+        - name: eturnal
+          image: ghcr.io/processone/eturnal:latest
+          ports:
+            - containerPort: 3478
+              name: stun-udp
+              protocol: UDP
+            - containerPort: 3478
+              name: stun-tcp
+              protocol: TCP
+          env:
+            - name: ETURNAL_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: netbird
+                  key: turnServerPassword
+            - name: ETURNAL_LOG_DIR
+              value: "stdout"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: netbird-stun-lb
+  namespace: netbird
+spec:
+  type: LoadBalancer
+  selector:
+    app: netbird-stun
+  ports:
+    - name: stun-udp
+      port: 3478
+      targetPort: 3478
+      protocol: UDP
+    - name: stun-tcp
+      port: 3478
+      targetPort: 3478
+      protocol: TCP

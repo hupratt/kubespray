@@ -1,0 +1,30 @@
+---
+# Migrated from 12-influx.yaml, task "Deploy Influx via Helm"
+# (chart influxdata/influxdb2, release influxdb, namespace monitoring).
+#
+# BLOCKER: the Ansible install passed values from charts/influx/influx-values.yml,
+# which is ANSIBLE-VAULT ENCRYPTED and therefore unreadable at migration time. It
+# almost certainly carries the influx admin user/password/token and bootstrap
+# config. Those must not be committed as plaintext: model them as an ExternalSecret
+# (ClusterSecretStore vault-backend) + HelmRelease valuesFrom/targetPath once the
+# vault file is decrypted and its keys are known. No `values:` are set here yet, so
+# this release would come up with chart defaults only. See BLOCKERS.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: influxdb
+  namespace: monitoring
+spec:
+  releaseName: influxdb
+  interval: 30m
+  chart:
+    spec:
+      chart: influxdb2
+      version: "*"          # original used latest chart; pin once validated
+      sourceRef:
+        kind: HelmRepository
+        name: influxdata
+        namespace: monitoring
+      interval: 1h
+  install:
+    createNamespace: false

@@ -1,0 +1,5 @@
+apiVersion: v2
+name: vanity
+description: A simple container to display vanity metrics
+version: 0.1.0
+appVersion: "1.0"

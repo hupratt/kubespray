@@ -1,0 +1,62 @@
+---
+# Migrated from "Deploy CNPG Cluster for Immich" + "Deploy Database CRD" in
+# 47-immich-install.yaml. Ansible vars inlined:
+#   immich_db_image          -> ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+#   immich_db_storage_class  -> slow-local
+#   immich_db_storage_size   -> 100Gi
+#   immich_node_selector     -> {node-role: slow-services}
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: immich-pg
+  namespace: immich
+spec:
+  instances: 2
+  enableSuperuserAccess: true
+  imageName: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+  affinity:
+    nodeSelector:
+      node-role: slow-services
+    tolerations:
+      - key: dedicated
+        operator: Equal
+        value: slow-services
+        effect: NoSchedule
+  postgresql:
+    shared_preload_libraries:
+      - vchord.so
+  superuserSecret:
+    name: superuser-vault-secret
+  bootstrap:
+    initdb:
+      database: immich
+      owner: immich
+      secret:
+        name: superuser-vault-secret
+      postInitSQLRefs:
+        secretRefs:
+          - name: cnpg-backup-user
+            key: setup.sql
+      postInitSQL:
+        - CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
+        - CREATE EXTENSION IF NOT EXISTS vector CASCADE;
+        - CREATE EXTENSION IF NOT EXISTS cube CASCADE;
+        - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
+  storage:
+    pvcTemplate:
+      accessModes: [ReadWriteOnce]
+      storageClassName: slow-local
+      resources:
+        requests:
+          storage: 100Gi
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: immich-db
+  namespace: immich
+spec:
+  name: immich
+  owner: immich
+  cluster:
+    name: immich-pg

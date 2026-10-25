@@ -1,0 +1,89 @@
+---
+# Migrated from 07-amazon.yaml
+#   task: "Deploy Amazon clone stack to Kubernetes"
+#         (amazon-frontend Deployment + Service + Ingress)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: amazon-frontend
+  namespace: amazon-clone
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: amazon-frontend
+  template:
+    metadata:
+      labels:
+        app: amazon-frontend
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      containers:
+        - name: amazon-frontend
+          image: registry.thekor.eu/docker/amazon/front:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8965
+          env:
+            - name: REACT_APP_BACKEND_URL
+              value: "https://retroapi.thekor.eu"
+            - name: PORT
+              value: "8965"
+          securityContext:
+            runAsUser: 1001
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8965
+            initialDelaySeconds: 600
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 8965
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amazon-frontend
+  namespace: amazon-clone
+spec:
+  selector:
+    app: amazon-frontend
+  ports:
+    - port: 8965
+      targetPort: 8965
+  type: ClusterIP
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: amazon-frontend-ingress
+  namespace: amazon-clone
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - retro.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: retro.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: amazon-frontend
+                port:
+                  number: 8965

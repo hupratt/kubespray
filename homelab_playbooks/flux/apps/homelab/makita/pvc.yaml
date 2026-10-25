@@ -1,0 +1,28 @@
+---
+# Migrated verbatim from 29-makita.yaml (tasks: "Create PVC for static files",
+# "Create PVC for media files").
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: makita-static
+  namespace: makita
+spec:
+  storageClassName: rook-cephfs-makita
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: "500M"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: makita-media
+  namespace: makita
+spec:
+  storageClassName: rook-cephfs-makita
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: "100M"

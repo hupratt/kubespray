@@ -1,0 +1,30 @@
+{
+  "extends": [
+    "config:recommended"
+  ],
+  "ignorePaths": [
+    "env/**"
+  ],
+  "enabledManagers": [
+    "regex"
+  ],
+  "regexManagers": [
+    {
+      "fileMatch": [
+        "\\.ya?ml$"
+      ],
+      "matchStrings": [
+        "(?:image|image_name|container_image|[a-zA-Z0-9_]+_image)\\s*:\\s*[\"']?(?<depName>[a-zA-Z0-9._/-]+):(?<currentValue>[a-zA-Z0-9._-]+)[\"']?"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
+  "hostRules": [
+    {
+      "matchHost": "yourregistry.example.com",
+      "hostType": "docker",
+      "username": "deploytoken",
+      "password": "..."
+    }
+  ]
+}

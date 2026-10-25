@@ -1,0 +1,285 @@
+---
+# Component:  mautrix-discord
+# Ingress:    HAProxy
+# Policy:     Kyverno PolicyExceptions
+# Storage:    Rook-Ceph RBD (RWO)
+# DB:         External CNPG
+
+
+- name: Deploy the mautrix/discord puppeting bridge
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vault_kv_path: "backup-matrix"
+    # ── Domains ──────────────────────────────────────────────────────────────
+    matrix_server_name: "matrix.thekor.eu"
+    matrix_public_hostname: "matrix.thekor.eu"
+    element_hostname: "element.thekor.eu"
+
+    # ── Namespace ─────────────────────────────────────────────────────────────
+    matrix_namespace: matrix
+
+    # ── Storage ───────────────────────────────────────────────────────────────
+    synapse_storage_class: rook-ceph-block
+    synapse_media_size: "20Gi"
+    bridge_data_size: "2Gi"
+
+    # ── CNPG ──────────────────────────────────────────────────────────────────
+    synapse_db_host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+    synapse_db_name: synapse
+    synapse_db_user: synapse
+
+    # ── Ingress / TLS ─────────────────────────────────────────────────────────
+    ingress_class: haproxy
+    cert_issuer: letsencrypt-prod
+
+    # ── Helm chart versions ───────────────────────────────────────────────────
+    synapse_chart_version: "3.12.28"
+    element_chart_version: "1.4.34"
+
+    # ── Synapse tuning ────────────────────────────────────────────────────────
+    synapse_max_upload_size: "50M"
+    synapse_enable_registration: true
+
+    # ── mautrix-discord ───────────────────────────────────────────────────────
+    mautrix_discord_image: "dock.mau.dev/mautrix/discord:v0.7.7"
+    mautrix_discord_port: 29334
+
+  tasks:
+
+    - name: Create mautrix-discord ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: mautrix-discord-config
+            namespace: "{{ matrix_namespace }}"
+          data:
+            config.yaml: |
+              homeserver:
+                address: http://matrix-synapse:8008
+                domain: {{ matrix_server_name }}
+                software: standard
+                async_media: false
+                # Disable websocket ping — bridge connects via HTTP, not websocket
+                ping_interval_seconds: 0
+
+              appservice:
+                address: http://mautrix-discord:{{ mautrix_discord_port }}
+                hostname: 0.0.0.0
+                port: {{ mautrix_discord_port }}
+                id: mautrix-discord
+                bot:
+                  username: discordbot
+                  displayname: Discord Bridge
+                as_token: {{ mautrix_discord_as_token }}
+                hs_token: {{ mautrix_discord_hs_token }}
+                database:
+                  type: sqlite3-fk-wal
+                  uri: file:/data/mautrix-discord.db?_txlock=immediate
+
+              bridge:
+                username_template: "discord_{{'{{'}}  .}}"
+                command_prefix: "!discord"
+                permissions:
+                  "*": relay
+                  "{{ matrix_server_name }}": user
+                  "@admin:{{ matrix_server_name }}": admin
+                relay:
+                  enabled: false
+
+              discord:
+                bot: true
+                token: {{ mautrix_discord_bot_token }}
+
+              logging:
+                min_level: info
+                writers:
+                  - type: stdout
+                    format: pretty-colored
+
+    - name: Create mautrix-discord PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: mautrix-discord-data
+            namespace: "{{ matrix_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: "{{ synapse_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ bridge_data_size }}"
+
+    - name: Create mautrix-discord Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: mautrix-discord
+            namespace: "{{ matrix_namespace }}"
+            labels:
+              app.kubernetes.io/name: mautrix-discord
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            replicas: 1
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: mautrix-discord
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: mautrix-discord
+              spec:
+                securityContext:
+                  runAsUser: 1337
+                  runAsGroup: 1337
+                  fsGroup: 1337
+                  runAsNonRoot: true
+                volumes:
+                  - name: config-template
+                    configMap:
+                      name: mautrix-discord-config
+                  - name: data
+                    persistentVolumeClaim:
+                      claimName: mautrix-discord-data
+                # mautrix rewrites config in-place — copy from read-only ConfigMap to /data
+                initContainers:
+                  - name: copy-config
+                    image: busybox
+                    command: [sh, -c, "cp /config-template/config.yaml /data/config.yaml"]
+                    volumeMounts:
+                      - name: config-template
+                        mountPath: /config-template
+                        readOnly: true
+                      - name: data
+                        mountPath: /data
+                    securityContext:
+                      runAsUser: 1337
+                      runAsGroup: 1337
+                      allowPrivilegeEscalation: false
+                      capabilities:
+                        drop: [ALL]
+                containers:
+                  - name: mautrix-discord
+                    image: "{{ mautrix_discord_image }}"
+                    imagePullPolicy: Always
+                    command:
+                      - /usr/bin/mautrix-discord
+                      - --config=/data/config.yaml
+                    ports:
+                      - containerPort: "{{ mautrix_discord_port }}"
+                        name: appservice
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: false
+                      capabilities:
+                        drop: [ALL]
+                    resources:
+                      requests:
+                        cpu: 50m
+                        memory: 128Mi
+                      limits:
+                        cpu: 500m
+                        memory: 512Mi
+                    livenessProbe:
+                      httpGet:
+                        path: /_matrix/mau/live
+                        port: appservice
+                      initialDelaySeconds: 10
+                      periodSeconds: 10
+                      failureThreshold: 30
+                    readinessProbe:
+                      httpGet:
+                        path: /_matrix/mau/live
+                        port: appservice
+                      initialDelaySeconds: 5
+                      periodSeconds: 5
+                      failureThreshold: 1
+
+    - name: Create mautrix-discord Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: mautrix-discord
+            namespace: "{{ matrix_namespace }}"
+            labels:
+              app.kubernetes.io/name: mautrix-discord
+          spec:
+            clusterIP: None
+            selector:
+              app.kubernetes.io/name: mautrix-discord
+            ports:
+              - name: appservice
+                port: "{{ mautrix_discord_port }}"
+                targetPort: appservice
+
+
+    - name: Create mautrix-discord Ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: mautrix-discord
+            namespace: "{{ matrix_namespace }}"
+            annotations:
+              cert-manager.io/cluster-issuer: "{{ cert_issuer }}"
+          spec:
+            ingressClassName: "{{ ingress_class }}"
+            tls:
+              - secretName: mautrix-discord-tls
+                hosts:
+                  - "{{ discord_bridge_hostname }}"
+            rules:
+              - host: "{{ discord_bridge_hostname }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: mautrix-discord
+                          port:
+                            number: "{{ mautrix_discord_port }}"
+
+    - name: Wait for mautrix-discord pod to be Running
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ matrix_namespace }}"
+        label_selectors:
+          - "app.kubernetes.io/name=mautrix-discord"
+      register: bridge_pods
+      until: >
+        bridge_pods.resources | length > 0 and
+        bridge_pods.resources[0].status.phase == 'Running'
+      retries: 20
+      delay: 10
+
+    - name: Deployment complete
+      ansible.builtin.debug:
+        msg:
+          - "Synapse:      https://{{ matrix_public_hostname }}"
+          - "Element:      https://{{ element_hostname }}"
+          - "Bridge:       DM @discordbot:{{ matrix_server_name }} and send 'login'"
+          - ""
+          - "type login then guilds status and then guilds bridge <guild ID>"
+          - ""
+          - "Check federation: https://federationtester.matrix.org/#{{ matrix_server_name }}"

@@ -1,0 +1,122 @@
+---
+# Migrated from 49b-scriberr.yaml (VolSync restic backups). ExternalSecrets and
+# ReplicationSources reproduced verbatim; run_as_user/group inlined to 1000.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: scriberr-restic
+  namespace: scriberr
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: scriberr-restic
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        RESTIC_REPOSITORY: "{{ .RESTIC_REPOSITORY }}"
+        RESTIC_PASSWORD: "{{ .resticPassword }}"
+        AWS_ACCESS_KEY_ID: "{{ .accessKey }}"
+        AWS_SECRET_ACCESS_KEY: "{{ .secretKey }}"
+  data:
+    - secretKey: RESTIC_REPOSITORY
+      remoteRef:
+        key: scriberr
+        property: RESTIC_REPOSITORY
+    - secretKey: resticPassword
+      remoteRef:
+        key: scriberr
+        property: RESTIC_PASSWORD
+    - secretKey: accessKey
+      remoteRef:
+        key: restic
+        property: AWS_ACCESS_KEY_ID
+    - secretKey: secretKey
+      remoteRef:
+        key: restic
+        property: AWS_SECRET_ACCESS_KEY
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: scriberr-restic-models
+  namespace: scriberr
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: scriberr-restic-models
+    creationPolicy: Owner
+    template:
+      type: Opaque
+      data:
+        RESTIC_REPOSITORY: "{{ .RESTIC_REPOSITORY }}"
+        RESTIC_PASSWORD: "{{ .resticPassword }}"
+        AWS_ACCESS_KEY_ID: "{{ .accessKey }}"
+        AWS_SECRET_ACCESS_KEY: "{{ .secretKey }}"
+  data:
+    - secretKey: RESTIC_REPOSITORY
+      remoteRef:
+        key: scriberr
+        property: RESTIC_REPOSITORY_MODELS
+    - secretKey: resticPassword
+      remoteRef:
+        key: scriberr
+        property: RESTIC_PASSWORD
+    - secretKey: accessKey
+      remoteRef:
+        key: restic
+        property: AWS_ACCESS_KEY_ID
+    - secretKey: secretKey
+      remoteRef:
+        key: restic
+        property: AWS_SECRET_ACCESS_KEY
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: scriberr-data
+  namespace: scriberr
+spec:
+  sourcePVC: scriberr-data
+  trigger:
+    schedule: "31 2 * * *"
+  restic:
+    repository: scriberr-restic
+    copyMethod: Direct
+    pruneIntervalDays: 1
+    retain:
+      daily: 7
+      weekly: 4
+      monthly: 3
+    moverSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000
+---
+apiVersion: volsync.backube/v1alpha1
+kind: ReplicationSource
+metadata:
+  name: scriberr-whisperx-env
+  namespace: scriberr
+spec:
+  sourcePVC: scriberr-whisperx-env
+  trigger:
+    schedule: "31 7 * * *"
+  restic:
+    repository: scriberr-restic-models
+    copyMethod: Direct
+    pruneIntervalDays: 2
+    retain:
+      daily: 7
+      weekly: 4
+      monthly: 3
+    moverSecurityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      fsGroup: 1000

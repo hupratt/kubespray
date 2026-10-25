@@ -1,0 +1,38 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: maria-sql-backup-template
+  namespace: mariadb
+spec:
+  schedule: "0 0 31 2 *"  # Never runs automatically
+  suspend: true
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          labels:
+            app: maria-sql-backup
+        spec:
+          imagePullSecrets:
+          - name: docker-registry-secret
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/hostname: coreos-cp-1
+          containers:
+            - name: tools
+              image: registry.thekor.eu/docker/k8s-fedora-backup/mariadb-tools:latest
+              command: ["/root/backupoutput/sql_generated.sh", "uptimekuma", "vaultwarden"]
+              stdin: true
+              tty: true
+              volumeMounts:
+                - name: backupoutput
+                  mountPath: /root/backupoutput
+          volumes:
+            - name: backupoutput
+              hostPath:
+                path: /mnt/backupoutput
+                type: DirectoryOrCreate
+
+# rbd --conf /mnt/ceph/ceph.conf --keyring /mnt/ceph/keyring rbd showmapped
+# kubectl create job --from=cronjob/maria-sql-backup-template maria-sql-backup-$(date +%F) -n mariadb

@@ -1,0 +1,57 @@
+- name: ExternalSecret — pulls Vault token + S3/restic creds from your provider
+  hosts: localhost
+  gather_facts: false
+  vars:
+    vault_kv_restic_path: "restic"
+    namespaces:
+      - name: cn-postgres
+
+  tasks:
+    - name: ExternalSecret for backup credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: restic-credentials
+            namespace: "{{ ns.name }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: restic-credentials
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+
+              # Restic repo password
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: RESTIC_PASSWORD
+
+              # S3 / Garage credentials
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: AWS_ACCESS_KEY_ID
+
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: AWS_SECRET_ACCESS_KEY
+
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_restic_path }}"
+                  property: RESTIC_DB_REPOSITORY
+
+      loop: "{{ namespaces }}"
+      loop_control:
+        loop_var: ns
+        label: "{{ ns.name }}"
+

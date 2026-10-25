@@ -1,0 +1,517 @@
+---
+
+# Prerequisites:
+#   - Synapse already running (homeserver_url reachable from within the cluster)
+#   - HAProxy IngressClass installed (ingressClassName: haproxy)
+#   - Kyverno policies in place (this playbook adds the required labels/annotations)
+#   - A PostgreSQL database for the bridge (CNPG recommended — see vars below)
+#   - An S3-compatible store (Garage) or PV for media cache
+
+- name: Deploy mautrix-whatsapp bridge
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vault_kv_path: "backup-matrix"
+    # ── Domains ──────────────────────────────────────────────────────────────
+    matrix_server_name: "matrix.thekor.eu"
+    matrix_public_hostname: "matrix.thekor.eu"
+    element_hostname: "element.thekor.eu"
+
+    # ── Namespace ─────────────────────────────────────────────────────────────
+    matrix_namespace: matrix
+
+    # ── Storage ───────────────────────────────────────────────────────────────
+    synapse_storage_class: rook-ceph-block
+    synapse_media_size: "20Gi"
+    bridge_data_size: "2Gi"
+
+    # ── CNPG ──────────────────────────────────────────────────────────────────
+    synapse_db_host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+    synapse_db_name: synapse
+    synapse_db_user: synapse
+
+    # ── Ingress / TLS ─────────────────────────────────────────────────────────
+    ingress_class: haproxy
+    cert_issuer: letsencrypt-prod
+
+    # ── Helm chart versions ───────────────────────────────────────────────────
+    synapse_chart_version: "3.12.28"
+    element_chart_version: "1.4.34"
+
+    # ── Synapse tuning ────────────────────────────────────────────────────────
+    synapse_max_upload_size: "50M"
+    synapse_enable_registration: true
+
+    # ── mautrix-discord ───────────────────────────────────────────────────────
+    mautrix_discord_image: "dock.mau.dev/mautrix/discord:v0.7.7"
+    mautrix_discord_port: 29334
+
+  vars:
+    # ── Namespaces & names ────────────────────────────────────────────────
+    bridge_namespace: matrix
+    bridge_name: mautrix-whatsapp
+    bridge_image: dock.mau.dev/mautrix/whatsapp:v26.09   # pin to a digest in prod!
+
+    # ── Matrix / Synapse ──────────────────────────────────────────────────
+    # Internal cluster service URL for Synapse (no TLS needed inside cluster)
+    homeserver_url: "http://matrix-synapse.matrix.svc.cluster.local:8008"
+    # Public-facing domain for your Matrix server
+    homeserver_domain: "matrix.thekor.eu"
+    # Where Synapse's appservice registration files live (mounted into Synapse pod)
+    # Adjust to match how your Synapse deployment picks up registration files.
+    synapse_registration_configmap: synapse-appservice-registrations
+
+    # ── Bridge public address ─────────────────────────────────────────────
+    # The URL Synapse uses to reach the bridge (via HAProxy Ingress)
+    bridge_private_url: "http://mautrix-whatsapp.matrix.svc.cluster.local"
+    # Internal listen port inside the container
+    bridge_port: 29318
+    bridge_private_uri: "{{ bridge_private_url }}:{{ bridge_port }}"
+
+    # # ── Ingress (HAProxy) ─────────────────────────────────────────────────
+    # ingress_host: "whatsapp-bridge.matrix.example.com"
+    # # TLS secret — must exist (e.g. cert-manager Certificate)
+    # ingress_tls_secret: whatsapp-bridge-tls
+    # # cert-manager cluster-issuer name (set "" to skip cert-manager annotation)
+    # cert_manager_issuer: letsencrypt-prod
+
+    # ── Database (CNPG) ───────────────────────────────────────────────────
+    vault_path_mautrix: mautrixwhatsapp
+
+    # ── Storage ───────────────────────────────────────────────────────────
+    # PVC for the bridge's SQLite fallback / state (100 Mi is plenty)
+    # The bridge uses Postgres for messages but needs a writable data dir.
+    bridge_data_pvc_size: 1Gi
+    bridge_data_storage_class: rook-ceph-block
+
+    # ── Kyverno / policy labels ───────────────────────────────────────────
+    # Your cluster requires these on every pod; add/remove as needed.
+    kyverno_required_labels:
+      app.kubernetes.io/name: "{{ bridge_name }}"
+      app.kubernetes.io/component: bridge
+      app.kubernetes.io/part-of: matrix
+
+    # ── Resource limits ───────────────────────────────────────────────────
+    resources:
+      requests:
+        memory: "128Mi"
+      limits:
+        memory: "512Mi"
+
+  tasks:
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 1. ExternalSecret
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Deploy ExternalSecret for bridge credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: mautrix-whatsapp-creds
+            namespace: "{{ bridge_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend          # adjust to your ClusterSecretStore name
+              kind: ClusterSecretStore
+            target:
+              name: mautrix-whatsapp-creds
+              creationPolicy: Owner
+              template:
+                engineVersion: v2
+                data:
+                  as_token: "{{ '{{' }} .as_token {{ '}}' }}"
+                  hs_token: "{{ '{{' }} .hs_token {{ '}}' }}"
+                  pg_password: "{{ '{{' }} .pg_password {{ '}}' }}"
+                  pg_username: "{{ '{{' }} .pg_username {{ '}}' }}"
+                  dbname: "{{ '{{' }} .dbname {{ '}}' }}"
+                  # POSTGRES_USER: "{{ '{{' }} .username {{ '}}' }}"
+                  # POSTGRES_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
+                  # POSTGRES_DB: "{{ '{{' }} .name {{ '}}' }}"
+                  uri: "postgresql://{{ '{{' }} .pg_username {{ '}}' }}:{{ '{{' }} .pg_password {{ '}}' }}@shared-pg-rw.cn-postgres.svc/{{ '{{' }} .dbname {{ '}}' }}"
+            data:
+              - secretKey: as_token
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: as_token
+              - secretKey: hs_token
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: hs_token
+              - secretKey: pg_password
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: pg_password
+              - secretKey: pg_username
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: pg_username
+              - secretKey: dbname
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: dbname
+
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 2. CONFIGMAP – bridge config
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Deploy bridge config ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ bridge_name }}-config"
+            namespace: "{{ bridge_namespace }}"
+            labels: "{{ kyverno_required_labels }}"
+          data:
+            config.yaml: "{{ lookup('template', 'charts/matrix/mautrix-whatsapp-config.yaml.j2') }}"
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 3. CONFIGMAP – Synapse appservice registration
+    #    Synapse needs this file to trust the bridge AS.
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Deploy Synapse appservice registration ConfigMap
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: "{{ bridge_name }}-registration"
+            namespace: "{{ bridge_namespace }}"
+            labels: "{{ kyverno_required_labels }}"
+          data:
+            whatsapp-registration.yaml: |
+              id: whatsapp
+              url: {{ bridge_private_uri }}
+              # Tokens must match the Secret values — update if you rotate them.
+              as_token: {{ mautrix_whatsapp_as_token }}
+              hs_token: {{ mautrix_whatsapp_hs_token }}
+              sender_localpart: whatsappreg
+              rate_limited: false
+              deactivate_login_for_users_under_this_as: false
+              namespaces:
+                users:
+                  - exclusive: true
+                    regex: "@whatsapp.*:{{ homeserver_domain }}"
+                aliases: []
+                rooms: []
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 5. PERSISTENT VOLUME CLAIM
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Create bridge data PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ bridge_name }}-data"
+            namespace: "{{ bridge_namespace }}"
+            labels: "{{ kyverno_required_labels }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            storageClassName: "{{ bridge_data_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ bridge_data_pvc_size }}"
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 6. SERVICE ACCOUNT
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Create bridge ServiceAccount
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ServiceAccount
+          metadata:
+            name: "{{ bridge_name }}"
+            namespace: "{{ bridge_namespace }}"
+            labels: "{{ kyverno_required_labels }}"
+          automountServiceAccountToken: false
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 7. DEPLOYMENT
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Deploy mautrix-whatsapp Deployment
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: "{{ bridge_name }}"
+            namespace: "{{ bridge_namespace }}"
+            labels: "{{ kyverno_required_labels }}"
+          spec:
+            replicas: 1   # bridge must be single-replica (WhatsApp WS session)
+            strategy:
+              type: Recreate
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: "{{ bridge_name }}"
+            template:
+              metadata:
+                labels: "{{ kyverno_required_labels }}"
+                annotations:
+                  # Force rollout when config changes
+                  checksum/config: "{{ lookup('pipe', 'date +%s') }}"
+              spec:
+                serviceAccountName: "{{ bridge_name }}"
+                automountServiceAccountToken: false
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1337
+                  runAsGroup: 1337
+                  fsGroup: 1337
+                  seccompProfile:
+                    type: RuntimeDefault
+                initContainers:
+                  - name: copy-config
+                    image: "{{ bridge_image }}"
+                    command: ["cp", "/config-src/config.yaml", "/data/config.yaml"]
+                    volumeMounts:
+                      - name: config
+                        mountPath: /config-src/config.yaml
+                        subPath: config.yaml
+                        readOnly: true
+                      - name: data
+                        mountPath: /data
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: false
+                      capabilities:
+                        drop: [ALL]
+                containers:
+                  - name: bridge
+                    image: "{{ bridge_image }}"
+                    imagePullPolicy: Always
+                    command: ["/usr/bin/mautrix-whatsapp"]
+                    args: ["--config", "/data/config.yaml", "--no-update"]
+                    ports:
+                      - name: http
+                        containerPort: "{{ bridge_port }}"
+                        protocol: TCP
+                    env:
+                      - name: MAUTRIX_WA_NETWORK__DISPLAYNAME_TEMPLATE
+                        value: !unsafe '{{or .BusinessName .PushName .Phone .RedactedPhone "Unknown user"}} (WA)'
+                      - name: MAUTRIX_WA_APPSERVICE__USERNAME_TEMPLATE
+                        value: !unsafe 'whatsapp_{{.}}'
+                      # Inject secrets as env vars; the bridge reads these automatically
+                      - name: MAUTRIX_WA_APPSERVICE__AS_TOKEN
+                        valueFrom:
+                          secretKeyRef:
+                            name: mautrix-whatsapp-creds
+                            key: as_token
+                      - name: MAUTRIX_WA_APPSERVICE__HS_TOKEN
+                        valueFrom:
+                          secretKeyRef:
+                            name: mautrix-whatsapp-creds
+                            key: hs_token
+                      - name: MAUTRIX_WA_DATABASE__URI
+                        valueFrom:
+                          secretKeyRef:
+                            name: mautrix-whatsapp-creds
+                            key: uri
+                    volumeMounts:
+                      - name: data
+                        mountPath: /data
+                    resources: "{{ resources }}"
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: true
+                      capabilities:
+                        drop: [ALL]
+                    livenessProbe:
+                      httpGet:
+                        path: /_matrix/mau/live
+                        port: http
+                      initialDelaySeconds: 300
+                      periodSeconds: 30
+                      failureThreshold: 10
+                    readinessProbe:
+                      httpGet:
+                        path: /_matrix/mau/ready
+                        port: http
+                      initialDelaySeconds: 300
+                      periodSeconds: 30
+                      failureThreshold: 10
+                volumes:
+                  - name: config
+                    configMap:
+                      name: "{{ bridge_name }}-config"
+                  - name: data
+                    persistentVolumeClaim:
+                      claimName: "{{ bridge_name }}-data"
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 8. SERVICE
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Create bridge Service
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: "{{ bridge_name }}"
+            namespace: "{{ bridge_namespace }}"
+            labels: "{{ kyverno_required_labels }}"
+          spec:
+            publishNotReadyAddresses: true
+            selector:
+              app.kubernetes.io/name: "{{ bridge_name }}"
+            ports:
+              - name: http
+                port: "{{ bridge_port }}"
+                protocol: TCP
+                targetPort: "{{ bridge_port }}"
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 9. INGRESS (HAProxy)
+    # ════════════════════════════════════════════════════════════════════════
+    # - name: Create HAProxy Ingress
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: networking.k8s.io/v1
+    #       kind: Ingress
+    #       metadata:
+    #         name: "{{ bridge_name }}"
+    #         namespace: "{{ bridge_namespace }}"
+    #         labels: "{{ kyverno_required_labels }}"
+    #         annotations:
+    #           kubernetes.io/ingress.class: haproxy
+    #           # cert-manager — remove if you manage TLS manually
+    #           cert-manager.io/cluster-issuer: "{{ cert_manager_issuer }}"
+    #           # HAProxy specific — tune as needed
+    #           haproxy.org/check: "true"
+    #           haproxy.org/forwarded-for: "true"
+    #           haproxy.org/backend-config-snippet: |
+    #             timeout connect 5s
+    #             timeout server 60s
+    #       spec:
+    #         ingressClassName: haproxy
+    #         tls:
+    #           - hosts:
+    #               - "{{ ingress_host }}"
+    #             secretName: "{{ ingress_tls_secret }}"
+    #         rules:
+    #           - host: "{{ ingress_host }}"
+    #             http:
+    #               paths:
+    #                 - path: /
+    #                   pathType: Prefix
+    #                   backend:
+    #                     service:
+    #                       name: "{{ bridge_name }}"
+    #                       port:
+    #                         name: http
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 10. NETWORK POLICY
+    # ════════════════════════════════════════════════════════════════════════
+    # - name: Create NetworkPolicy for bridge
+    #   kubernetes.core.k8s:
+    #     state: present
+    #     definition:
+    #       apiVersion: networking.k8s.io/v1
+    #       kind: NetworkPolicy
+    #       metadata:
+    #         name: "{{ bridge_name }}"
+    #         namespace: "{{ bridge_namespace }}"
+    #         labels: "{{ kyverno_required_labels }}"
+    #       spec:
+    #         podSelector:
+    #           matchLabels:
+    #             app.kubernetes.io/name: "{{ bridge_name }}"
+    #         policyTypes: [Ingress, Egress]
+    #         ingress:
+    #           # Allow traffic from HAProxy ingress controller only
+    #           - from:
+    #               - namespaceSelector:
+    #                   matchLabels:
+    #                     kubernetes.io/metadata.name: haproxy-controller   # adjust NS
+    #                 podSelector:
+    #                   matchLabels:
+    #                     app.kubernetes.io/name: kubernetes-ingress         # adjust label
+    #             ports:
+    #               - port: "{{ bridge_port }}"
+    #           # Allow Synapse → bridge (push transactions)
+    #           - from:
+    #               - podSelector:
+    #                   matchLabels:
+    #                     app.kubernetes.io/name: synapse
+    #             ports:
+    #               - port: "{{ bridge_port }}"
+    #         egress:
+    #           # Bridge → Synapse (homeserver API)
+    #           - to:
+    #               - podSelector:
+    #                   matchLabels:
+    #                     app.kubernetes.io/name: synapse
+    #             ports:
+    #               - port: 8008
+    #           # Bridge → CNPG Postgres
+    #           - to:
+    #               - podSelector:
+    #                   matchLabels:
+    #                     cnpg.io/cluster: cnpg-cluster   # adjust to your CNPG cluster label
+    #             ports:
+    #               - port: 5432
+    #           # Bridge → WhatsApp (internet egress via port 443 / HTTPS)
+    #           - to:
+    #               - ipBlock:
+    #                   cidr: 0.0.0.0/0
+    #                   except:
+    #                     - 10.0.0.0/8
+    #                     - 172.16.0.0/12
+    #                     - 192.168.0.0/16
+    #             ports:
+    #               - port: 443
+    #           # DNS
+    #           - to:
+    #               - namespaceSelector:
+    #                   matchLabels:
+    #                     kubernetes.io/metadata.name: kube-system
+    #             ports:
+    #               - port: 53
+    #                 protocol: UDP
+    #               - port: 53
+    #                 protocol: TCP
+
+    # ════════════════════════════════════════════════════════════════════════
+    # 11. WAIT & VERIFY
+    # ════════════════════════════════════════════════════════════════════════
+    - name: Wait for Deployment rollout
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ bridge_name }}"
+        namespace: "{{ bridge_namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 120
+      register: deploy_info
+
+    - name: Show bridge pod status
+      debug:
+        msg: >-
+          Bridge deployment is Available.
+          Next step: mount the '{{ bridge_name }}-registration' ConfigMap
+          into your Synapse pod as /data/appservices/whatsapp-registration.yaml
+          and add it to homeserver.yaml under 'app_service_config_files'.
+          @whatsappbot:matrix.thekor.eu
+          login qr
+          sync groups
+          sync contacts

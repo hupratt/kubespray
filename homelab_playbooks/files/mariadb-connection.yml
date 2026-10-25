@@ -1,0 +1,16 @@
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: Connection
+metadata:
+  name: hpratt-bwptl
+  namespace: bwptl-prod
+spec:
+  username: bwptl-hpratt
+  database: bwptl_hpratt
+  mariaDbRef:
+    name: mariadb
+    namespace: mariadb
+    waitForIt: true
+  passwordSecretKeyRef:
+    name: hpratt-bwptl-dbuser-secret
+    key: password
+  secretName: hpratt-bwptl-connection

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "paperless-ngx.fullname" . }}-config
+  labels:
+    {{- include "paperless-ngx.labels" . | nindent 4 }}
+data:
+  {{- range $key, $val := .Values.paperless.config }}
+  {{ $key }}: {{ $val | quote }}
+  {{- end }}

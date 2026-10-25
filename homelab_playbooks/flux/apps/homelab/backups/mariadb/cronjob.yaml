@@ -1,0 +1,70 @@
+---
+# Migrated from 16-backup-mariadb.yaml
+#   task: "Deploy mariadb CronJob"
+# MARIADB_BACKUP_USER/MARIADB_BACKUP_PASS were Ansible-templated from
+# backup_secret.*; now sourced from the `mariadb-backup-credentials` Secret
+# (see external-secret.yaml).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: maria-sql-backup-template
+  namespace: mariadb
+spec:
+  schedule: "0 0 31 2 *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: docker-registry-secret
+          nodeSelector:
+            kubernetes.io/hostname: coreos-cp-1
+          containers:
+            - name: tools
+              image: registry.thekor.eu/docker/k8s-fedora-backup/mariadb-tools:latest
+              command: ["/home/appuser/sql_generated.sh", "uptimekuma", "vaultwarden", "sftp-go", "technitium"]
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: MARIADB_HOST
+                  value: mariadb.mariadb.svc.cluster.local
+                - name: MARIADB_BACKUP_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: mariadb-backup-credentials
+                      key: DB_USERNAME
+                - name: MARIADB_BACKUP_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: mariadb-backup-credentials
+                      key: DB_PASSWORD
+              volumeMounts:
+                - name: backupoutput
+                  mountPath: /home/appuser
+              livenessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+              readinessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+          volumes:
+            - name: backupoutput
+              hostPath:
+                path: /mnt/backupoutput
+                type: DirectoryOrCreate

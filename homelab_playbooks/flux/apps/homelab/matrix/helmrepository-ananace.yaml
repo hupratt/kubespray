@@ -1,0 +1,11 @@
+---
+# Source: 54-matrix.yaml — task "Add ananace Helm repo"
+# External Helm repository backing the matrix-synapse and element-web charts.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: ananace-charts
+  namespace: matrix
+spec:
+  interval: 1h
+  url: https://ananace.gitlab.io/charts

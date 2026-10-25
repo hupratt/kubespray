@@ -1,0 +1,9 @@
+hcloud-linux-amd64/
+*.hcl
+*.info
+*.xz
+*.tar.gz
+*.tfstate
+*.backup
+.terraform
+terraform.tfvars

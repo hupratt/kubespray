@@ -1,0 +1,93 @@
+---
+# Migrated verbatim from 29-makita.yaml (task: "Deploy backend").
+# backend_image / backend_port vars inlined; port templated strings -> integers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: makita-backend
+  namespace: makita
+  labels:
+    app: makita-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: makita-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: makita-backend
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      initContainers:
+        - name: migrate
+          image: registry.thekor.eu/docker/makita/makita-backend:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - |
+              python manage.py makemigrations &&
+              python manage.py migrate &&
+              python manage.py collectstatic --noinput
+          envFrom:
+            - secretRef:
+                name: makita-backend-env
+          volumeMounts:
+            - name: app-static
+              mountPath: /app/static
+            - name: app-media
+              mountPath: /app/media
+      containers:
+        - name: backend
+          image: registry.thekor.eu/docker/makita/makita-backend:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - python manage.py runserver 0.0.0.0:9224
+          ports:
+            - containerPort: 9224
+          envFrom:
+            - secretRef:
+                name: makita-backend-env
+          volumeMounts:
+            - name: app-static
+              mountPath: /app/static
+            - name: app-media
+              mountPath: /app/media
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9224
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9224
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: app-static
+          persistentVolumeClaim:
+            claimName: makita-static
+        - name: app-media
+          persistentVolumeClaim:
+            claimName: makita-media

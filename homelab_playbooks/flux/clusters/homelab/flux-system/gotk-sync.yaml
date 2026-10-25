@@ -1,0 +1,32 @@
+---
+# Git source Flux reconciles this cluster from.
+# The kubespray repo is private (gitlab.thekor.eu) so this syncs over SSH using
+# the `flux-system` secret. That secret is created for you by `flux bootstrap`,
+# or manually with `flux create secret git` (see flux/README.md).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 1m0s
+  ref:
+    branch: homelab
+  secretRef:
+    name: flux-system
+  url: ssh://git@gitlab.thekor.eu/kube/kubespray.git
+---
+# Root Kustomization: points Flux at this cluster's directory. Everything else
+# (infrastructure, apps) is pulled in from clusters/homelab/*.yaml below.
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: flux-system
+  namespace: flux-system
+spec:
+  interval: 10m0s
+  path: ./homelab_playbooks/flux/clusters/homelab
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: flux-system

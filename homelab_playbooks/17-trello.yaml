@@ -1,0 +1,131 @@
+---
+- name: Deploy trello
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: "mongodb"
+  
+  tasks:
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: trello-database-url
+            namespace: trellis
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: trello-database-url
+              creationPolicy: Owner
+              template:
+                data:
+                  trello_mongo_endpoint: |-
+                    {% raw %}
+                    mongodb://{{ .mongo_testapp_username }}:{{ .mongo_testapp_password }}@mongodb-service.mongodb.svc.cluster.local:27017/Trellis?authSource=admin
+                    {% endraw %}
+            data:
+              - secretKey: mongo_testapp_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_username
+              - secretKey: mongo_testapp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: mongo_testapp_password
+
+    - name: Deploy Trellis ExpressJS stack to Kubernetes
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          - apiVersion: apps/v1
+            kind: Deployment
+            metadata:
+              name: trellis-expressjs
+              namespace: trellis
+              labels:
+                app: trellis-expressjs
+            spec:
+              replicas: 1
+              selector:
+                matchLabels:
+                  app: trellis-expressjs
+              template:
+                metadata:
+                  labels:
+                    app: trellis-expressjs
+                spec:
+                  imagePullSecrets:
+                    - name: docker-registry-secret
+                  containers:
+                    - name: trellis-expressjs
+                      image: registry.thekor.eu/docker/trellis:latest
+                      ports:
+                        - containerPort: 1313
+                      env:
+                        - name: DATABASE_URL
+                          valueFrom:
+                            secretKeyRef:
+                              name: trello-database-url
+                              key: trello_mongo_endpoint
+
+          - apiVersion: v1
+            kind: Service
+            metadata:
+              name: trellis-expressjs-svc
+              namespace: trellis
+            spec:
+              selector:
+                app: trellis-expressjs
+              type: ClusterIP
+              ports:
+                - protocol: TCP
+                  port: 1313
+                  targetPort: 1313
+
+          - apiVersion: networking.k8s.io/v1
+            kind: Ingress
+            metadata:
+              name: trellis-ingress
+              namespace: trellis
+              annotations:
+                haproxy.org/check: "disabled"
+                haproxy.org/backend-config-snippet: |
+                  no option httpchk
+            spec:
+              ingressClassName: haproxy
+              tls:
+                - hosts:
+                    - trello.thekor.eu
+                  secretName: wildcard-thekor
+              rules:
+                - host: trello.thekor.eu
+                  http:
+                    paths:
+                      - path: /
+                        pathType: Prefix
+                        backend:
+                          service:
+                            name: trellis-expressjs-svc
+                            port:
+                              number: 1313
+
+    - name: Wait for trellis-expressjs to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: trellis-expressjs
+        namespace: trellis
+      register: deploy_info
+      until:
+        - deploy_info.resources | length > 0
+        - deploy_info.resources[0].status.readyReplicas is defined
+        - deploy_info.resources[0].status.readyReplicas == deploy_info.resources[0].status.replicas
+      retries: 40   # e.g. wait up to 200s total
+      delay: 5

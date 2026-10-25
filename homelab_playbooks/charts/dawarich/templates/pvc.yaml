@@ -1,0 +1,49 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "dawarich.fullname" . }}-public
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dawarich.labels" . | nindent 4 }}
+
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.public.size }}
+  {{- if .Values.persistence.public.storageClass }}
+  storageClassName: {{ .Values.persistence.public.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "dawarich.fullname" . }}-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dawarich.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.storage.size }}
+  {{- if .Values.persistence.storage.storageClass }}
+  storageClassName: {{ .Values.persistence.storage.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "dawarich.fullname" . }}-watched
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "dawarich.labels" . | nindent 4 }}
+spec:
+  accessModes: [ReadWriteMany]
+  resources:
+    requests:
+      storage: {{ .Values.persistence.watched.size }}
+  {{- if .Values.persistence.watched.storageClass }}
+  storageClassName: {{ .Values.persistence.watched.storageClass }}
+  {{- end }}

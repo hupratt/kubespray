@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="42" height="51" viewBox="0 0 42 51">
+  <rect width="42" height="51" fill="none"/>
+
+  <!-- bars -->
+  <rect x="5" y="28" width="3" height="15" fill="#ff7a00"/>
+  <rect x="12" y="22" width="3" height="21" fill="#ff7a00"/>
+  <rect x="19" y="16" width="3" height="27" fill="#ff7a00"/>
+  <rect x="26" y="10" width="3" height="33" fill="#ff7a00"/>
+
+  <!-- arrow -->
+  <polyline points="18,30 28,20 28,25 36,15" 
+            fill="none" stroke="#ff7a00" stroke-width="2" 
+            stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="36,15 33,15 36,12" fill="#ff7a00"/>
+</svg>

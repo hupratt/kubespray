@@ -1,0 +1,12 @@
+apiVersion: v2
+name: dawarich
+description: Self-hostable Google Timeline alternative
+type: application
+version: 0.1.0
+appVersion: "1.7.9"
+keywords:
+  - location
+  - tracking
+  - maps
+maintainers:
+  - name: hugo

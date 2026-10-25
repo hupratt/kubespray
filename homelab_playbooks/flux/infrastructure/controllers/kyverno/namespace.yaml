@@ -1,0 +1,8 @@
+---
+# Declared inline (not in the central configs/namespaces list) because this
+# controller lives in the wait:true infra-controllers layer, which reconciles
+# BEFORE infra-configs would create the namespace.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kyverno

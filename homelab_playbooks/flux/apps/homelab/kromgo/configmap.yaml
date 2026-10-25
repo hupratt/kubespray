@@ -1,0 +1,88 @@
+---
+# Migrated verbatim from 36-kromgo.yaml, task "Deploy kromgo ConfigMap".
+# The Ansible-escaped `{{ '{{' }} . | simplifyDays {{ '}}' }}` resolves to the
+# literal kromgo template `{{ . | simplifyDays }}`.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kromgo-config
+  namespace: monitoring
+data:
+  config.yaml: |
+    badge:
+      font: Verdana.ttf
+      size: 12
+
+    metrics:
+      - name: kubernetes_version
+        query: kubernetes_build_info{service="kubernetes"}
+        label: git_version
+
+      - name: node_count
+        query: count(kube_node_info)
+        suffix: " nodes"
+
+      - name: cluster_cpu_usage
+        query: "round(cluster:node_cpu:ratio_rate5m * 100, 0.1)"
+        suffix: "%"
+        colors:
+          - { color: "green",  min: 0,  max: 35  }
+          - { color: "orange", min: 36, max: 75  }
+          - { color: "red",    min: 76, max: 1000 }
+
+      - name: cluster_memory_usage
+        query: "round((1 - sum(node_memory_MemAvailable_bytes) / sum(node_memory_MemTotal_bytes)) * 100, 0.1)"
+        suffix: "%"
+        colors:
+          - { color: "green",  min: 0,  max: 60  }
+          - { color: "orange", min: 61, max: 85  }
+          - { color: "red",    min: 86, max: 100 }
+
+      - name: pod_count
+        query: count(kube_pod_info)
+        suffix: " pods"
+
+      - name: ceph_health
+        query: ceph_health_status{}
+        colors:
+          - { valueOverride: "OK",      color: "green",  min: 0, max: 0 }
+          - { valueOverride: "Warning", color: "orange", min: 1, max: 1 }
+          - { valueOverride: "Error",   color: "red",    min: 2, max: 2 }
+
+      - name: cluster_age
+        query: "max(floor((time() - kube_node_created) / 86400))"
+        valueTemplate: "clusterAge"
+
+      - name: unhealthy_services
+        query: "(count(monitor_status == 0) or vector(0))"
+        suffix: " down"
+        colors:
+          - { color: "green",  min: 0, max: 0 }
+          - { color: "red",    min: 1, max: 1000 }
+
+      - name: node_uptime
+        query: "floor(max(time() - node_boot_time_seconds{namespace=\"monitoring\"}) / 86400)"
+        suffix: "d"
+
+      - name: fedora_version
+        query: node_os_info{id="fedora"}
+        label: version_id
+
+      - name: ilo_power_current_watt
+        query: sum(ilo_power_current_watt)
+        suffix: "W"
+        colors:
+          - { color: "green",  min: 0,   max: 300  }
+          - { color: "orange", min: 301, max: 600  }
+          - { color: "red",    min: 601, max: 9999 }
+
+      - name: cluster_memory_used_gb
+        query: "round(sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / 1073741824, 0.1)"
+        suffix: "Gi"
+        colors:
+          - { color: "green",  min: 0,   max: 150 }
+          - { color: "orange", min: 151, max: 200 }
+          - { color: "red",    min: 201, max: 9999 }
+
+    templates:
+      clusterAge: "{{ . | simplifyDays }}"

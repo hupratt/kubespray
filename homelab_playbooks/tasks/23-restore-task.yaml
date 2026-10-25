@@ -1,0 +1,472 @@
+
+- name: "[{{ pvc.pvc_name }}] Get latest ReplicationSource snapshot info"
+  kubernetes.core.k8s_info:
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationSource
+    name: "cn-postgres-{{ pvc.pvc_name }}-pg-1"
+    namespace: "{{ pvc.namespace }}"
+  register: rs_info
+  when: pvc.name == "shared"
+
+- name: "[{{ pvc.pvc_name }}] Get latest ReplicationSource snapshot info"
+  kubernetes.core.k8s_info:
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationSource
+    name: "immich-db-backup"
+    namespace: "{{ pvc.namespace }}"
+  register: rs_info
+  when: pvc.name == "immich"
+
+
+- name: Scale down Immich workloads before restoring {{ pvc.pvc_name }}
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ pvc.namespace }}"
+    replicas: 0
+    wait: true
+    wait_timeout: 300
+  loop:
+    - immich-server
+    - immich-machine-learning
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Get PVC capacity from source"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.pvc_name }}-pg-1"
+    namespace: "{{ pvc.namespace }}"
+  register: source_pvc_info
+  when: pvc.name == "shared"
+
+- name: "[{{ pvc.pvc_name }}] Get PVC capacity from source"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: immich-pg-1
+    namespace: "{{ pvc.namespace }}"
+  register: source_pvc_info
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Set PVC capacity fact"
+  set_fact:
+    pvc_capacity: "{{ source_pvc_info.resources[0].spec.resources.requests.storage | default('100Gi')}}"
+
+- name: "[{{ pvc.pvc_name }}] Delete all CNPG Database CRDs"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: postgresql.cnpg.io/v1
+    kind: Database
+    namespace: "{{ pvc.namespace }}"
+    delete_all: true
+
+# if you deleted the cluster before deleting the CRDS
+# kubectl get databases.postgresql.cnpg.io -n cn-postgres -o name | \
+#   xargs -I{} kubectl patch {} -n cn-postgres --type=merge -p '{"metadata":{"finalizers":null}}'
+- name: "[{{ pvc.pvc_name }}] Wait for Database CRDs to be deleted"
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Database
+    namespace: "{{ pvc.namespace }}"
+  register: db_crds
+  until: db_crds.resources | length == 0
+  retries: 12
+  delay: 5
+
+- name: "[{{ pvc.pvc_name }}] Delete CNPG cluster"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: "{{ pvc.cluster }}"
+    namespace: "{{ pvc.namespace }}"
+
+- name: "[{{ pvc.pvc_name }}] Wait for CNPG pods to terminate"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    namespace: "{{ pvc.namespace }}"
+    label_selectors:
+      - "cnpg.io/cluster={{ pvc.cluster }}"
+  register: pg_pods
+  until: pg_pods.resources | length == 0
+  retries: 24
+  delay: 10
+
+- name: "[{{ pvc.pvc_name }}] Delete existing PVC"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.pvc_name }}"
+    namespace: "{{ pvc.namespace }}"
+
+- name: "[{{ pvc.pvc_name }}] Wait for PVC deletion"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.pvc_name }}"
+    namespace: "{{ pvc.namespace }}"
+  register: pvc_gone
+  until: pvc_gone.resources | length == 0
+  retries: 12
+  delay: 5
+
+- name: Remove claimRef from PV immich-pg-1
+  kubernetes.core.k8s:
+    state: patched
+    kind: PersistentVolume
+    name: immich-pg-1
+    definition:
+      spec:
+        claimRef: null
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Create destination PVC for restore"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: PersistentVolumeClaim
+      metadata:
+        name: "{{ pvc.pvc_name }}-pg-1"
+        namespace: "{{ pvc.namespace }}"
+        labels:
+          cnpg.io/cluster: "{{ pvc.cluster }}"
+          cnpg.io/instanceName: "{{ pvc.cluster }}-1"
+          cnpg.io/instanceRole: primary
+          cnpg.io/pvcRole: PG_DATA
+          role: primary
+        annotations:
+          cnpg.io/nodeSerial: "1"
+          cnpg.io/operatorVersion: "1.25.0"
+          cnpg.io/pvcStatus: ready
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: "{{ pvc.storage_class }}"
+        resources:
+          requests:
+            storage: "{{ pvc_capacity }}"
+
+- name: "[{{ pvc.pvc_name }}] Wait for destination PVC to be bound"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: PersistentVolumeClaim
+    name: "{{ pvc.pvc_name }}-pg-1"
+    namespace: "{{ pvc.namespace }}"
+  register: dest_pvc
+  until: >-
+    dest_pvc.resources | length > 0 and
+    dest_pvc.resources[0].status.phase == "Bound"
+  retries: 12
+  delay: 5
+  when: pvc.name == "shared"
+
+- name: Sleep for 2 seconds
+  command: sleep 2
+  when: pvc.name == "immich"
+
+- name: Patch PV claimRef for immich-pg-1
+  kubernetes.core.k8s:
+    state: patched
+    kind: PersistentVolume
+    name: immich-pg-1
+    definition:
+      spec:
+        claimRef:
+          namespace: immich
+          name: immich-pg-1
+  when: pvc.name == "immich"
+
+- name: Sleep for 2 seconds
+  command: sleep 2
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Deploy ReplicationDestination"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: volsync.backube/v1alpha1
+      kind: ReplicationDestination
+      metadata:
+        name: "restore-{{ pvc.pvc_name }}"
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        trigger:
+          manual: "restore-{{ lookup('pipe', 'date +%s') }}"
+        restic:
+          moverConfig:
+            tolerations:
+              - key: node-role
+                operator: Equal
+                value: slow-services
+                effect: NoSchedule
+          moverSecurityContext:
+            runAsUser: 26
+            runAsGroup: 26
+            fsGroup: 26
+          repository: "{{ pvc.secret }}"
+          destinationPVC: "{{ pvc.pvc_name }}-pg-1"
+          cacheStorageClassName: "{{ pvc.storage_class }}"
+          cacheCapacity: 1Gi
+          accessModes:
+            - ReadWriteOnce
+          capacity: "{{ pvc_capacity }}"
+          copyMethod: Direct
+  # when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Wait for ReplicationDestination to complete"
+  kubernetes.core.k8s_info:
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "restore-{{ pvc.pvc_name }}"
+    namespace: "{{ pvc.namespace }}"
+  register: rd_status
+  until: rd_status.resources | length > 0
+    and rd_status.resources[0].status is defined
+    and rd_status.resources[0].status.latestMoverStatus is defined
+    and rd_status.resources[0].status.latestMoverStatus['result'] is defined
+    and rd_status.resources[0].status.latestMoverStatus['result'] == "Successful"
+  retries: 60
+  delay: 15
+
+- name: "[{{ pvc.pvc_name }}] Fix PGDATA consistency on restored PVC"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Pod
+      metadata:
+        name: pgdata-cleanup
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        restartPolicy: Never
+        volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: "{{ pvc.pvc_name }}-pg-1"
+        containers:
+          - name: cleanup
+            image: "{{ pvc.pg_image }}"
+            command:
+              - sh
+              - -c
+              - |
+                rm -f /data/pgdata/postmaster.pid
+                echo "done"
+            volumeMounts:
+              - name: data
+                mountPath: /data
+            securityContext:
+              runAsUser: 26
+              runAsGroup: 26
+            readinessProbe:
+              exec:
+                command: ["sh", "-c", "true"]
+              initialDelaySeconds: 1
+              periodSeconds: 5
+            livenessProbe:
+              exec:
+                command: ["sh", "-c", "true"]
+              initialDelaySeconds: 1
+              periodSeconds: 5
+
+- name: "[{{ pvc.pvc_name }}] Wait for cleanup pod to complete"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Pod
+    name: pgdata-cleanup
+    namespace: "{{ pvc.namespace }}"
+  register: cleanup_pod
+  until: cleanup_pod.resources[0].status.phase in ['Succeeded', 'Failed']
+  retries: 50
+  delay: 10
+
+- name: "[{{ pvc.pvc_name }}] Assert cleanup succeeded"
+  assert:
+    that:
+      - cleanup_pod.resources[0].status.phase == "Succeeded"
+    fail_msg: "postmaster.pid cleanup pod failed"
+
+- name: "[{{ pvc.pvc_name }}] Delete cleanup pod"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: v1
+    kind: Pod
+    name: pgdata-cleanup
+    namespace: "{{ pvc.namespace }}"
+
+- name: Build CNPG managed roles
+  set_fact:
+    cnpg_managed_roles: >-
+      {{
+        cnpg_managed_roles | default([]) + [{
+          'name': item.owner,
+          'ensure': 'present',
+          'login': true,
+          'passwordSecret': {'name': item.owner + '-pg-secret'}
+        }]
+      }}
+  loop: "{{ db_owners }}"
+  when: pvc.name == "shared"
+
+- name: "[{{ pvc.pvc_name }}] Recreate CNPG cluster"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: "{{ pvc.cluster }}"
+        namespace: "{{ pvc.namespace }}"
+        annotations:
+          helm.sh/resource-policy: keep
+      spec:
+        instances: 1
+        imageName: "{{ pvc.pg_image }}"
+        enableSuperuserAccess: true
+        superuserSecret:
+          name: "{{ pvc.pvc_name }}-pg-superuser-vault-secret"
+        managed:
+          roles: "{{ cnpg_managed_roles }}"
+        storage:
+          size: "{{ pvc_capacity }}"
+          storageClass: "{{ pvc.storage_class }}"
+        monitoring:
+          enablePodMonitor: true
+  when: pvc.name == "shared"
+
+- name: "[{{ pvc.pvc_name }}] Recreate CNPG cluster"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Cluster
+      metadata:
+        name: "{{ pvc.cluster }}"
+        namespace: "{{ pvc.namespace }}"
+        annotations:
+          helm.sh/resource-policy: keep
+      spec:
+        instances: 1
+        affinity:
+          nodeSelector: "{{ immich_node_selector }}"
+          tolerations: "{{ immich_tolerations }}"
+        postgresql:
+          shared_preload_libraries:
+            - vchord.so
+        imageName: "{{ pvc.pg_image }}"
+        enableSuperuserAccess: true
+        superuserSecret:
+          name: "superuser-vault-secret"
+        storage:
+          pvcTemplate:
+            accessModes: [ReadWriteOnce]
+            volumeName: immich-pg-1
+            storageClassName: "{{ pvc.storage_class }}"
+            resources:
+              requests:
+                storage: "{{ pvc_capacity }}"
+        monitoring:
+          enablePodMonitor: true
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Wait for CNPG cluster to be ready"
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: shared-pg
+    namespace: "{{ pvc.namespace }}"
+  register: cluster_status
+  until: >-
+    cluster_status.resources | length > 0 and
+    cluster_status.resources[0].status is defined and
+    cluster_status.resources[0].status.conditions is defined and
+    cluster_status.resources[0].status.conditions |
+      selectattr('type', 'eq', 'Ready') |
+      selectattr('status', 'eq', 'True') | list | length > 0
+  retries: 36
+  delay: 10
+  when: pvc.name == "shared"
+
+- name: "[{{ pvc.pvc_name }}] Wait for CNPG cluster to be ready"
+  kubernetes.core.k8s_info:
+    api_version: postgresql.cnpg.io/v1
+    kind: Cluster
+    name: immich-pg
+    namespace: "{{ pvc.namespace }}"
+  register: cluster_status
+  until: >-
+    cluster_status.resources | length > 0 and
+    cluster_status.resources[0].status is defined and
+    cluster_status.resources[0].status.conditions is defined and
+    cluster_status.resources[0].status.conditions |
+      selectattr('type', 'eq', 'Ready') |
+      selectattr('status', 'eq', 'True') | list | length > 0
+  retries: 36
+  delay: 10
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Deploy Database CRDs"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Database
+      metadata:
+        name: "{{ item.name }}-db"
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        name: "{{ item.name }}"
+        owner: "{{ item.owner }}"
+        cluster:
+          name: "{{ pvc.cluster }}"
+  loop: "{{ databases }}"
+  when: pvc.name == "shared"
+
+- name: "[{{ pvc.pvc_name }}] Deploy Database CRD"
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: postgresql.cnpg.io/v1
+      kind: Database
+      metadata:
+        name: immich-db
+        namespace: "{{ pvc.namespace }}"
+      spec:
+        name: immich
+        owner: immich
+        cluster:
+          name: "{{ pvc.cluster }}"
+  when: pvc.name == "immich"
+
+- name: "[{{ pvc.pvc_name }}] Clean up ReplicationDestination"
+  kubernetes.core.k8s:
+    state: absent
+    api_version: volsync.backube/v1alpha1
+    kind: ReplicationDestination
+    name: "restore-{{ pvc.pvc_name }}"
+    namespace: "{{ pvc.namespace }}"
+
+- name: "[{{ pvc.pvc_name }}] Print restore summary"
+  debug:
+    msg:
+      - "Restore completed for PVC: {{ pvc.pvc_name }}"
+      - "Cluster ready: {{ pvc.cluster }}"
+
+- name: Scale Immich workloads back up after restoring {{ pvc.pvc_name }}
+  kubernetes.core.k8s_scale:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ item }}"
+    namespace: "{{ pvc.namespace }}"
+    replicas: 1
+    wait: true
+    wait_timeout: 300
+  loop:
+    - immich-server
+    - immich-machine-learning  
+  when: pvc.name == "immich"

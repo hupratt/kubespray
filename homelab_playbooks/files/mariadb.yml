@@ -1,0 +1,20 @@
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: mariadb
+  namespace: mariadb
+spec:
+  # Example spec — adjust as needed
+  version: "11.0"
+  storage:
+    size: 5Gi
+    storageClassName: rook-ceph-block
+  rootPasswordSecretKeyRef:
+    name: mariadb-root-secret
+    key: password
+  # users:
+  #   - name: uptimekuma
+  #     passwordSecretRef:
+  #       name: uptimekuma-password
+  databases:
+    - name: uptimekuma

@@ -1,0 +1,16 @@
+---
+# Migrated from 04b-chirpy.yaml
+#   task: "Deploy Jekyll Chirpy application and storage resources" (Service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jekyll
+  namespace: chirpy
+spec:
+  selector:
+    app: jekyll
+  ports:
+    - protocol: TCP
+      port: 4000
+      targetPort: 4000
+  type: ClusterIP

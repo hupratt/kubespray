@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jekyll
+  namespace: chirpy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jekyll
+  template:
+    metadata:
+      labels:
+        app: jekyll
+    spec:
+      containers:
+        - name: jekyll
+          image: registry.thekor.eu/docker/chirpy:latest
+          ports:
+            - containerPort: 4000
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 4000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 4000
+            initialDelaySeconds: 30
+            periodSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: bundle-volume
+              mountPath: /mnt/bundle
+      volumes:
+        - name: bundle-volume
+          persistentVolumeClaim:
+            claimName: chirpy-pvc
+      imagePullSecrets:
+        - name: docker-registry-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jekyll
+  namespace: chirpy
+spec:
+  selector:
+    app: jekyll
+  ports:
+    - protocol: TCP
+      port: 4000
+      targetPort: 4000
+  type: ClusterIP

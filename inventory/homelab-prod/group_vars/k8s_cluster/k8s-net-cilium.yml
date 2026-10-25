@@ -1,0 +1,136 @@
+---
+# Cilium Native Routing Configuration for Hetzner Cloud
+# Use this when Hetzner private network is already configured via Terraform
+# Place this in: inventory/mycluster/group_vars/k8s_cluster/k8s-net-cilium.yml
+
+# ============================================
+# NATIVE ROUTING (No VXLAN Overlay!)
+# ============================================
+
+# Disable tunneling - use direct routing since we have L2 connectivity
+# via Hetzner's private network
+cilium_tunnel_mode: vxlan
+cilium_cgroup_host_root: "/sys/fs/cgroup"
+# Enable auto direct node routes
+# This tells Cilium to automatically create routes between nodes
+cilium_auto_direct_node_routes: false
+
+# ============================================
+# NETWORK SETTINGS
+# ============================================
+
+# MTU can be higher since we're not using VXLAN
+# Hetzner default is 1500, but 1450 is safer
+cilium_mtu: "1450"
+
+cilium_enable_ipv4: true
+cilium_enable_ipv6: false
+
+# ============================================
+# NATIVE ROUTING CIDR
+# ============================================
+
+# This is CRITICAL! Tell Cilium that traffic to these CIDRs should be
+# routed natively without any encapsulation
+# Include BOTH your Hetzner private network AND your Kubernetes networks
+cilium_native_routing_cidr: ""
+
+# Alternative: Be more specific
+# cilium_native_routing_cidr: "10.0.0.0/16"  # Hetzner private network only
+
+# ============================================
+# IPAM MODE
+# ============================================
+
+cilium_ipam_mode: "kubernetes"
+
+# ============================================
+# KUBE-PROXY REPLACEMENT
+# ============================================
+
+cilium_kube_proxy_replacement: true
+cilium_loadbalancer_mode: "snat"
+
+# ============================================
+# INTERFACE CONFIGURATION
+# ============================================
+
+# IMPORTANT: Update 'devices' to match your private network interface
+# Check with: ssh core@<node-ip> "ip link show"
+# Common values: ens10, eth1, ens3
+cilium_config_extra_vars:
+  devices: "ens18"
+  # Don't use tunnel: "disabled" - it's invalid!
+  # Instead, just don't set tunnel at all when using native routing
+  enable-endpoint-routes: "false"
+  # ipv4-native-routing-cidr: "10.0.0.0/8"
+  enable-host-reachable-services: "true"
+  host-reachable-services-protos: "tcp,udp"
+  host-reachable-services-cidrs: "10.233.0.0/18"
+  bpf-lb-mode: "snat"
+  enable-local-redirect-policy: "true"
+  bpf-lb-sock: "true"
+  
+  
+
+# ============================================
+# MASQUERADING
+# ============================================
+
+# Enable BPF masquerade
+cilium_enable_bpf_masquerade: true
+cilium_enable_ipv4_masquerade: true
+
+# Don't masquerade traffic to these CIDRs
+# This is important - traffic within these ranges should NOT be NATed
+cilium_non_masquerade_cidrs:
+  - 10.0.1.0/24        # Hetzner private net
+  - 10.233.0.0/16      # Kubernetes pod/service range
+
+# ============================================
+# IDENTITY & ROUTING
+# ============================================
+
+cilium_identity_allocation_mode: "crd"
+cilium_enable_remote_node_identity: true
+cilium_enable_host_legacy_routing: false
+
+# ============================================
+# MONITORING
+# ============================================
+
+cilium_enable_hubble: true
+cilium_enable_hubble_ui: true
+cilium_enable_hubble_metrics: true
+cilium_hubble_install: true
+
+cilium_hubble_metrics:
+  - dns
+  - drop
+  - tcp
+  - flow
+  - icmp
+  - "httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction"
+  
+cilium_hubble_metrics_enable_open_metrics: true
+
+# ============================================
+# PERFORMANCE
+# ============================================
+
+cilium_cgroup_auto_mount: true
+cilium_enable_prometheus: true
+
+# ============================================
+# RESOURCE LIMITS
+# ============================================
+
+cilium_memory_limit: "1Gi"
+cilium_memory_requests: "256Mi"
+cilium_cpu_requests: "200m"
+
+# Ensure Cilium fully owns the CNI config directory
+cilium_cni_exclusive: true
+
+# tracing
+cilium_bpf_monitor_trace_ip_option: 136

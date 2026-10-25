@@ -1,0 +1,9 @@
+---
+# Migrated from the "Create linkwarden authentik ConfigMap" task in 21-linkwarden.yaml.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: my-linkwarden-auth-authentik
+  namespace: linkwarden
+data:
+  AUTHENTIK_ISSUER: "https://auth.thekor.eu/application/o/linkwarden/"

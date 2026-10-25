@@ -1,0 +1,155 @@
+---
+# Migrated from 52-neolink.yaml (neolink RTSP bridge). Vars inlined:
+#   neolink_node       -> coreos-wk-4
+#   neolink_namespace  -> frigate
+#   neolink_rtsp_port  -> 8554
+# The config.toml is delivered by the ESO-managed `neolink-config` Secret.
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: neolink-config
+  namespace: frigate
+spec:
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  target:
+    name: neolink-config
+    creationPolicy: Owner
+  data:
+    - secretKey: config.toml
+      remoteRef:
+        key: frigate
+        property: config.toml
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: neolink
+  namespace: frigate
+---
+# local PV pinned to coreos-wk-4 (dir of /opt/neolink/neolink).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: neolink-bin-pv
+spec:
+  capacity:
+    storage: 10Mi
+  accessModes:
+    - ReadOnlyMany
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ""
+  local:
+    path: /opt/neolink
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values:
+                - coreos-wk-4
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: neolink-bin-pvc
+  namespace: frigate
+spec:
+  accessModes:
+    - ReadOnlyMany
+  storageClassName: ""
+  volumeName: neolink-bin-pv
+  resources:
+    requests:
+      storage: 10Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: neolink
+  namespace: frigate
+  labels:
+    app: neolink
+spec:
+  selector:
+    app: neolink
+  ports:
+    - name: rtsp
+      port: 8554
+      targetPort: rtsp
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: neolink
+  namespace: frigate
+  labels:
+    app: neolink
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: neolink
+  template:
+    metadata:
+      labels:
+        app: neolink
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      serviceAccountName: neolink
+      nodeName: coreos-wk-4
+      tolerations:
+        - operator: "Exists"
+      volumes:
+        - name: neolink-config
+          secret:
+            secretName: neolink-config
+            defaultMode: 0444
+      containers:
+        - name: neolink
+          image: registry.thekor.eu/docker/neolink:latest
+          imagePullPolicy: Always
+          args:
+            - rtsp
+            - "--config=/config/config.toml"
+          ports:
+            - name: rtsp
+              containerPort: 8554
+              protocol: TCP
+          volumeMounts:
+            - name: neolink-config
+              mountPath: /config
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            runAsGroup: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          livenessProbe:
+            tcpSocket:
+              port: rtsp
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            tcpSocket:
+              port: rtsp
+            initialDelaySeconds: 10
+            periodSeconds: 10

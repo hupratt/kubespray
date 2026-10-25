@@ -1,0 +1,305 @@
+- name: Deploy CloudNativePG Operator and Clusters
+  hosts: localhost
+  gather_facts: false
+  vars:
+    cnpg_namespace: cn-postgres
+    cnpg_version: "0.29.1"
+    storage_class: rook-ceph-block
+    pg_image: ghcr.io/cloudnative-pg/postgis:16-3.5
+    shared_cluster_name: shared-pg
+    shared_cluster_storage: 100Gi
+
+    db_owners:
+      - owner: grafana
+        vault_path: monitoring
+      - owner: netbox
+        vault_path: netbox
+      - owner: authentik
+        vault_path: authentik
+      - owner: patchmon
+        vault_path: patchmon
+      - owner: harbor
+        vault_path: harbor
+      - owner: paperless
+        vault_path: paperless
+      - owner: ubuntu
+        vault_path: makita-booking
+      - owner: linkwarden
+        vault_path: linkwarden 
+      - owner: synapse
+        vault_path: synapse
+      - owner: mautrix
+        vault_path: mautrixsignal
+      - owner: mautrixwhatsapp
+        vault_path: mautrixwhatsapp
+      - owner: dawarich
+        vault_path: dawarich
+      - owner: netbirduser
+        vault_path: netbird
+      - owner: awx
+        vault_path: awx
+    databases:
+      - name: grafana
+        owner: grafana
+      - name: netbox
+        owner: netbox
+      - name: authentik
+        owner: authentik
+      - name: patchmon
+        owner: patchmon
+      - name: harbor-core
+        owner: harbor
+      - name: harbor-notary-server
+        owner: harbor
+      - name: harbor-notary-signer
+        owner: harbor
+      - name: harbor-trivy
+        owner: harbor
+      - name: booking
+        owner: ubuntu
+      - name: paperless
+        owner: paperless
+      - name: makita
+        owner: ubuntu
+      - name: linkwarden
+        owner: linkwarden
+      - name: craftstudios
+        owner: ubuntu
+      - name: youtubeclone
+        owner: ubuntu
+      - name: backupmatrix
+        owner: backupmatrix
+      - name: synapse
+        owner: synapse
+      - name: mautrixsignal
+        owner: mautrix
+      - name: mautrixwhatsapp
+        owner: mautrixwhatsapp
+      - name: dawarich
+        owner: dawarich
+      - name: netbird
+        owner: netbirduser
+      - name: netbird-activity-log
+        owner: netbirduser
+      - name: awx
+        owner: awx
+  tasks:
+
+    - name: Check if CNPG operator Helm release exists
+      kubernetes.core.helm_info:
+        name: cloudnative-pg
+        release_namespace: "{{ cnpg_namespace }}"
+      register: cnpg_helm_status
+      failed_when: false
+
+    - name: Debug CNPG Helm release status
+      ansible.builtin.debug:
+        var: cnpg_helm_status.status.status
+
+    - name: Deploy CNPG operator via Helm
+      kubernetes.core.helm:
+        name: cloudnative-pg
+        chart_ref: cloudnative-pg
+        chart_repo_url: https://cloudnative-pg.github.io/charts
+        chart_version: "{{ cnpg_version }}"
+        release_namespace: "{{ cnpg_namespace }}"
+        create_namespace: true
+        wait: true
+        values:
+          monitoring:
+            podMonitorEnabled: true
+      # when: cnpg_helm_status.status.status is not defined or cnpg_helm_status.status.status != "deployed"
+
+    - name: Create ExternalSecret for shared cluster superuser
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ shared_cluster_name }}-superuser-vault-secret"
+            namespace: "{{ cnpg_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ shared_cluster_name }}-superuser-vault-secret"
+              creationPolicy: Owner
+              template:
+                type: kubernetes.io/basic-auth
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ cnpg_namespace }}"
+                  property: superuser_username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ cnpg_namespace }}"
+                  property: superuser_password
+
+    - name: Create ExternalSecret for backup user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: cnpg-backup-user
+            namespace: "{{ cnpg_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: cnpg-backup-user
+              creationPolicy: Owner
+            data:
+              - secretKey: setup.sql
+                remoteRef:
+                  key: "{{ cnpg_namespace }}"
+                  property: setup.sql
+
+    - name: Create ExternalSecrets for app database credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ item.owner }}-pg-secret"
+            namespace: "{{ cnpg_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "{{ item.owner }}-pg-secret"
+              creationPolicy: Owner
+              template:
+                type: kubernetes.io/basic-auth
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ item.vault_path }}"
+                  property: pg_username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ item.vault_path }}"
+                  property: pg_password
+      loop: "{{ db_owners }}"
+
+    - name: Wait for app ExternalSecrets to sync
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1
+        kind: ExternalSecret
+        name: "{{ item.owner }}-pg-secret"
+        namespace: "{{ cnpg_namespace }}"
+      register: es_status
+      until: >-
+        (es_status.resources | default([])) | length > 0
+        and (
+          es_status.resources[0].status.conditions | default([])
+          | selectattr('type', 'eq', 'Ready')
+          | selectattr('status', 'eq', 'True')
+          | list | length
+        ) > 0
+      retries: 22
+      delay: 10
+      loop: "{{ db_owners }}"
+
+    - name: Build CNPG managed roles
+      set_fact:
+        cnpg_managed_roles: >-
+          {{
+            cnpg_managed_roles | default([]) + [{
+              'name': item.owner,
+              'ensure': 'present',
+              'login': true,
+              'passwordSecret': {'name': item.owner + '-pg-secret'}
+            }]
+          }}
+      loop: "{{ db_owners }}"
+
+    - name: Deploy shared CNPG Cluster
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Cluster
+          metadata:
+            name: "{{ shared_cluster_name }}"
+            namespace: "{{ cnpg_namespace }}"
+            annotations:
+              helm.sh/resource-policy: keep
+          spec:
+            instances: 1
+            imageName: "{{ pg_image }}"
+            enableSuperuserAccess: true
+            superuserSecret:
+              name: "{{ shared_cluster_name }}-superuser-vault-secret"
+            managed:
+              roles: "{{ cnpg_managed_roles }}"
+            bootstrap:
+              initdb:
+                database: postgres
+                owner: postgres
+                postInitSQLRefs:
+                  secretRefs:
+                    - name: cnpg-backup-user
+                      key: setup.sql
+            storage:
+              size: "{{ shared_cluster_storage }}"
+              storageClass: "{{ storage_class }}"
+            monitoring:
+              enablePodMonitor: true
+
+    - name: Wait for shared cluster to be ready
+      kubernetes.core.k8s_info:
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        name: "{{ shared_cluster_name }}"
+        namespace: "{{ cnpg_namespace }}"
+      register: cluster_status
+      until: >-
+        cluster_status.resources | length > 0 and
+        cluster_status.resources[0].status is defined and
+        cluster_status.resources[0].status.conditions is defined and
+        cluster_status.resources[0].status.conditions |
+          selectattr('type', 'eq', 'Ready') |
+          selectattr('status', 'eq', 'True') | list | length > 0
+      retries: 24
+      delay: 10
+
+    - name: Deploy Database CRDs
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Database
+          metadata:
+            name: "{{ item.name }}-db"
+            namespace: "{{ cnpg_namespace }}"
+          spec:
+            name: "{{ item.name }}"
+            owner: "{{ item.owner }}"
+            cluster:
+              name: "{{ shared_cluster_name }}"
+      loop: "{{ databases }}"
+
+    - name: Enable PostGIS extensions in dawarich database
+      kubernetes.core.k8s_exec:
+        namespace: "{{ cnpg_namespace }}"
+        pod: "{{ shared_cluster_name }}-1"
+        command: >
+          psql -U postgres dawarich -c
+          "CREATE EXTENSION IF NOT EXISTS postgis;
+          CREATE EXTENSION IF NOT EXISTS postgis_topology;"
+      register: postgis_ext
+      failed_when: postgis_ext.return_code != 0
+# check role reconciliation
+
+# kubectl get cluster shared-pg -n cn-postgres -o yaml | grep -A20 managedRoles

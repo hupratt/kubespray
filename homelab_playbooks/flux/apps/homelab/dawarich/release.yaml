@@ -1,0 +1,76 @@
+---
+# Migrated from "Deploy Dawarich via Helm" in 55-dawarich.yaml.
+#
+# BLOCKER: the Ansible playbook installed a LOCAL chart at
+# `homelab_playbooks/charts/dawarich` (chart_ref = {{ playbook_dir }}/charts/dawarich).
+# There is no git clone step, so there is no source Flux can reconcile from yet.
+# This GitRepository is a SCAFFOLD/PLACEHOLDER — publish the dawarich chart to a
+# git repo (like the linkwarden chart) and fix `url` / `ref` / `secretRef` below,
+# or switch to a HelmRepository if the chart gets published to a Helm registry.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: dawarich
+  namespace: dawarich
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  # TODO(blocker): create this repo + `dawarich-git-auth` secret, then update url.
+  secretRef:
+    name: dawarich-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/dawarich.git
+---
+# Non-secret values carried over from 55-dawarich.yaml's inline Helm values.
+# Vars inlined: image tag 1.7.9, host dawarich.thekor.eu, TZ Europe/Berlin,
+# CNPG host shared-pg-rw.cn-postgres.svc.cluster.local, storage classes.
+# The secret DATABASE_URL (which Ansible built from the Vault pg_password) is
+# injected from the ESO Secret via valuesFrom + targetPath instead of being
+# interpolated as plaintext.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: dawarich
+  namespace: dawarich
+spec:
+  releaseName: dawarich
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/dawarich
+      sourceRef:
+        kind: GitRepository
+        name: dawarich
+        namespace: dawarich
+      interval: 30m
+  valuesFrom:
+    - kind: Secret
+      name: dawarich-dawarich-secret
+      valuesKey: DATABASE_URL
+      targetPath: externalDatabase.uri
+  values:
+    image:
+      tag: "1.7.9"
+    # Use the ESO-managed Secret instead of the chart's placeholder Secret.
+    existingSecret: dawarich-dawarich-secret
+    app:
+      applicationHosts: "dawarich.thekor.eu,127.0.0.1,::1"
+      timeZone: "Europe/Berlin"
+    externalDatabase:
+      # uri is injected via valuesFrom above.
+      host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+    ingress:
+      host: "dawarich.thekor.eu"
+    postgresql:
+      persistence:
+        storageClass: "rook-ceph-block"
+    redis:
+      persistence:
+        storageClass: "rook-ceph-block"
+    persistence:
+      public:
+        storageClass: "rook-cephfs"
+      storage:
+        storageClass: "rook-cephfs"
+      watched:
+        storageClass: "rook-cephfs"

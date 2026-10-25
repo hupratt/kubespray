@@ -1,0 +1,23 @@
+---
+# Source: 11-uptimekuma.yaml, tasks "Clone Uptime Kuma git repo" + "Install helm
+# chart" (chart_ref {{ uptime_dir }}/charts/uptime-kuma). The chart lives at
+# charts/uptime-kuma in the private repo, so Flux needs SSH creds. Create the
+# referenced secret once (not GitOps-managed):
+#
+#   flux create secret git uptime-kuma-git-auth \
+#     --namespace monitoring \
+#     --url ssh://git@gitlab.thekor.eu/kube/uptime-kuma.git \
+#     --private-key-file ~/.ssh/id_ed25519
+#
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: uptime-kuma
+  namespace: monitoring
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  secretRef:
+    name: uptime-kuma-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/uptime-kuma.git

@@ -1,0 +1,272 @@
+---
+
+- name: Deploys Scriberr to Kubernetes using inline manifests
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # ── General ────────────────────────────────────────────────────────────────
+    namespace: scriberr
+    state: present   # present | absent
+    kubeconfig: ~/.kube/config
+
+    # ── Image ──────────────────────────────────────────────────────────────────
+    image_repository: ghcr.io/rishikanthc/scriberr
+    image_tag: v1.2.0
+    image_pull_policy: IfNotPresent
+
+    # ── Security ───────────────────────────────────────────────────────────────
+    run_as_user: 1000
+    run_as_group: 1000
+
+    # ── App config ─────────────────────────────────────────────────────────────
+    allowed_origins: "*"
+
+    # ── Storage – static PVs must exist before running ─────────────────────────
+    # Set pv_name to "" to skip volumeName binding and rely on label selectors only.
+    data_pvc_name: scriberr-data
+    data_pv_name: scriberr-data-pv           # name of the pre-provisioned PV
+    data_storage_size: 10Gi
+
+    whisperx_pvc_name: scriberr-whisperx-env
+    whisperx_pv_name: scriberr-whisperx-env-pv
+    whisperx_storage_size: 100Gi
+
+    # Use "" (empty string) to pick up the cluster default StorageClass.
+    # For static PVs this should match whatever storageClassName you set on the PV,
+    # or use "" if the PV has storageClassName: "".
+    storage_class: "slow-local"
+
+    # ── Ingress ────────────────────────────────────────────────────────────────
+    ingress_enabled: enabled
+    ingress_class: haproxy
+    ingress_host: scrib.thekor.eu
+
+  tasks:
+
+    # ── PVCs (bind to pre-provisioned static PVs) ──────────────────────────────
+
+    - name: PVC scriberr-data
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ data_pvc_name }}"
+            namespace: "{{ namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "{{ storage_class }}"
+            volumeName: "{{ data_pv_name }}"   # static binding
+            resources:
+              requests:
+                storage: "{{ data_storage_size }}"
+
+    - name: PVC scriberr-whisperx-env
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ whisperx_pvc_name }}"
+            namespace: "{{ namespace }}"
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            storageClassName: "{{ storage_class }}"
+            volumeName: "{{ whisperx_pv_name }}"   # static binding
+            resources:
+              requests:
+                storage: "{{ whisperx_storage_size }}"
+
+    # ── Deployment ─────────────────────────────────────────────────────────────
+
+    - name: Deployment scriberr
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: scriberr
+            namespace: "{{ namespace }}"
+            labels:
+              app.kubernetes.io/name: scriberr
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: scriberr
+            strategy:
+              type: Recreate   # RWO PVCs require Recreate
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: scriberr
+              spec:
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: "{{ run_as_user }}"
+                  runAsGroup: "{{ run_as_group }}"
+                  fsGroup: "{{ run_as_group }}"
+                  seccompProfile:
+                    type: RuntimeDefault
+                containers:
+                  - name: scriberr
+                    image: "{{ image_repository }}:{{ image_tag }}"
+                    imagePullPolicy: "{{ image_pull_policy }}"
+                    securityContext:
+                      allowPrivilegeEscalation: false
+                      readOnlyRootFilesystem: false   # app writes to /app/data
+                      capabilities:
+                        drop:
+                          - ALL
+                    ports:
+                      - name: http
+                        containerPort: 8080
+                        protocol: TCP
+                    env:
+                      - name: APP_ENV
+                        value: production
+                      - name: ALLOWED_ORIGINS
+                        value: "{{ allowed_origins }}"
+                      - name: PUID
+                        value: "1000"
+                      - name: PGID
+                        value: "1000"
+                    startupProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      initialDelaySeconds: 10
+                      periodSeconds: 5
+                      failureThreshold: 300   # up to 25 min for first start
+                      timeoutSeconds: 3
+                    livenessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      initialDelaySeconds: 30
+                      periodSeconds: 15
+                      timeoutSeconds: 5
+                      failureThreshold: 5
+                    readinessProbe:
+                      httpGet:
+                        path: /
+                        port: http
+                      initialDelaySeconds: 15
+                      periodSeconds: 10
+                      timeoutSeconds: 3
+                      failureThreshold: 30
+                    resources:
+                      requests:
+                        cpu: 200m
+                        memory: 512Mi
+                      limits:
+                        memory: 4Gi
+                    volumeMounts:
+                      - name: data
+                        mountPath: /app/data
+                      - name: whisperx-env
+                        mountPath: /app/whisperx-env
+                volumes:
+                  - name: data
+                    persistentVolumeClaim:
+                      claimName: "{{ data_pvc_name }}"
+                  - name: whisperx-env
+                    persistentVolumeClaim:
+                      claimName: "{{ whisperx_pvc_name }}"
+
+    # ── Service ────────────────────────────────────────────────────────────────
+
+    - name: Service scriberr
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: scriberr
+            namespace: "{{ namespace }}"
+            labels:
+              app.kubernetes.io/name: scriberr
+          spec:
+            type: ClusterIP
+            selector:
+              app.kubernetes.io/name: scriberr
+            ports:
+              - name: http
+                port: 80
+                targetPort: http
+                protocol: TCP
+
+    # ── Ingress (optional) ─────────────────────────────────────────────────────
+
+    - name: Ingress scriberr
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state if ingress_enabled else 'absent' }}"
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: scriberr
+            namespace: "{{ namespace }}"
+            labels:
+              app.kubernetes.io/name: scriberr
+          spec:
+            ingressClassName: "{{ ingress_class }}"
+            tls:
+              - hosts:
+                  - "{{ ingress_host }}"
+                secretName: wildcard-thekor
+            rules:
+              - host: "{{ ingress_host }}"
+                http:
+                  paths:
+                    - path: /
+                      pathType: Prefix
+                      backend:
+                        service:
+                          name: scriberr
+                          port:
+                            name: http
+
+    # ── Wait + status ──────────────────────────────────────────────────────────
+
+    - name: Wait for deployment to become available
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Deployment
+        name: scriberr
+        namespace: "{{ namespace }}"
+        wait: true
+        wait_condition:
+          type: Available
+          status: "True"
+        wait_timeout: 300
+      when: state == "present"
+
+    - name: Show pod status
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig }}"
+        kind: Pod
+        namespace: "{{ namespace }}"
+        label_selectors:
+          - app.kubernetes.io/name=scriberr
+      register: pods
+      when: state == "present"
+
+    - name: Print pod status
+      ansible.builtin.debug:
+        msg: "{{ item.metadata.name }}: {{ item.status.phase }}"
+      loop: "{{ pods.resources }}"
+      when: state == "present"

@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "vanity.fullname" . }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "vanity.name" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "vanity.name" . }}
+    spec:
+      volumes:
+        - name: fedora-json
+          configMap:
+            name: fedora-version-json
+        - name: kubernetes-json
+          configMap:
+            name: kubernetes-version-json
+        - name: nginx-conf
+          configMap:
+            name: nginx-conf
+      containers:
+        - name: {{ .Chart.Name }}
+          image: quay.io/nginx/nginx-unprivileged:latest
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          volumeMounts:
+            - name: fedora-json
+              mountPath: /usr/share/nginx/html/fedora-version.json
+              subPath: fedora-version.json
+            - name: kubernetes-json
+              mountPath: /usr/share/nginx/html/kubernetes-version.json
+              subPath: kubernetes-version.json
+            - name: nginx-conf
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+          ports:
+            - containerPort: 8080
+          livenessProbe:
+          httpGet:
+              path: /
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          readinessProbe:
+          httpGet:
+              path: /
+              port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10

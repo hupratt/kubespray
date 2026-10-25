@@ -1,0 +1,25 @@
+---
+# Migrated verbatim from 36-kromgo.yaml, task "Deploy kromgo Ingress".
+# kromgo_hostname -> kromgo.thekor.eu ; kromgo_tls_secret -> wildcard-thekor
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kromgo
+  namespace: monitoring
+spec:
+  ingressClassName: haproxy
+  rules:
+    - host: "kromgo.thekor.eu"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kromgo
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - "kromgo.thekor.eu"
+      secretName: "wildcard-thekor"

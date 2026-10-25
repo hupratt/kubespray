@@ -1,0 +1,311 @@
+---
+- name: Deploy Harbor with Helm using Rook-Ceph PVCs and HAProxy
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: harbor
+
+  tasks:
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: harbor-vault-secrets
+            namespace: harbor
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: harbor-vault-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: clientId
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: clientId
+              - secretKey: clientSecret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: clientSecret
+              - secretKey: core_database
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: core_database
+              - secretKey: host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: host
+              - secretKey: notary_server_database
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: notary_server_database
+              - secretKey: notary_signer_database
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: notary_signer_database
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: password
+              - secretKey: pg_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_port
+              - secretKey: registry_htpasswd
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: registry_htpasswd
+              - secretKey: registry_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: registry_password
+              - secretKey: sslmode
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: sslmode
+              - secretKey: trivy_database
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: trivy_database
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: username
+              - secretKey: admin_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: admin_password
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: harbor-db-secret
+            namespace: harbor
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: harbor-db-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: password
+
+    - name: Wait for harbor-vault-secrets to sync
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: harbor-vault-secrets
+        namespace: harbor
+      register: harbor_secret
+      until: >
+        harbor_secret.resources | length > 0
+        and 'registry_password' in harbor_secret.resources[0].data
+      retries: 30
+      delay: 10
+
+    - name: Read synced secret into a fact
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: harbor-vault-secrets
+        namespace: harbor
+      register: harbor_secret_raw
+
+    - name: Decode secret data into Ansible vars
+      set_fact:
+        harbor_vault:
+          admin_password: "{{ harbor_secret_raw.resources[0].data.admin_password | b64decode }}"
+          client_id: "{{ harbor_secret_raw.resources[0].data.clientId | b64decode }}"
+          client_secret: "{{ harbor_secret_raw.resources[0].data.clientSecret | b64decode }}"
+          core_database: "{{ harbor_secret_raw.resources[0].data.core_database | b64decode }}"
+          host: "{{ harbor_secret_raw.resources[0].data.host | b64decode }}"
+          notary_server_database: "{{ harbor_secret_raw.resources[0].data.notary_server_database | b64decode }}"
+          notary_signer_database: "{{ harbor_secret_raw.resources[0].data.notary_signer_database | b64decode }}"
+          password: "{{ harbor_secret_raw.resources[0].data.password | b64decode }}"
+          pg_port: "{{ harbor_secret_raw.resources[0].data.pg_port | b64decode }}"
+          registry_htpasswd: "{{ harbor_secret_raw.resources[0].data.registry_htpasswd | b64decode }}"
+          registry_password: "{{ harbor_secret_raw.resources[0].data.registry_password | b64decode }}"
+          sslmode: "{{ harbor_secret_raw.resources[0].data.sslmode | b64decode }}"
+          trivy_database: "{{ harbor_secret_raw.resources[0].data.trivy_database | b64decode }}"
+          username: "{{ harbor_secret_raw.resources[0].data.username | b64decode }}"
+      no_log: true
+
+    # - name: Debug full harbor_vault dict (DEV ONLY)
+    #   debug:
+    #     var: harbor_vault
+    #   no_log: false
+
+    - name: Mark rook-ceph-block as default StorageClass
+      kubernetes.core.k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-ceph-block
+        definition:
+          metadata:
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+
+    - name: Add Harbor Helm repo
+      community.kubernetes.helm_repository:
+        name: harbor
+        repo_url: https://helm.goharbor.io
+
+    - name: Update Helm repos
+      command: helm repo update
+
+    - name: Deploy Harbor with Helm
+      community.kubernetes.helm:
+        name: harbor
+        chart_ref: harbor/harbor
+        chart_version: "1.18.3"
+        create_namespace: true
+        release_namespace: harbor
+        state: present
+        release_values:
+          logLevel: debug
+          registry:
+            credentials:
+              username: "harbor_registry_user"
+              password: "{{ harbor_vault.registry_password }}"
+              htpasswdString: "{{ harbor_vault.registry_htpasswd }}"
+            replicaCount: 1
+            updateStrategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 1
+          jobservice:
+            replicaCount: 1
+            updateStrategy:
+              type: RollingUpdate
+              rollingUpdate:
+                maxUnavailable: 1
+          expose:
+            type: ingress
+            ingress:
+              hosts:
+                core: harbor.thekor.eu
+                portal: harbor.thekor.eu
+                notary: notary-harbor.thekor.eu
+              annotations:
+                haproxy.org/ssl-redirect: "true"
+                haproxy.org/forwarded-for: "true"
+                haproxy.org/backend-config-snippet: |
+                  http-request set-header X-Forwarded-Proto https
+                  http-request set-header X-Forwarded-Port 443
+                haproxy.org/server-ssl: "false"
+                haproxy.org/check: "true"
+                haproxy.org/check-interval: "10s"
+          externalURL: "https://harbor.thekor.eu"
+          harborAdminPassword: "{{ harbor_vault.admin_password }}"
+          persistence:
+            enabled: true
+            resourcePolicy: keep
+            persistentVolumeClaim:
+              registry:
+                storageClass: rook-cephfs
+                size: 60Gi
+                accessMode: ReadWriteMany
+              chartmuseum:
+                storageClass: rook-cephfs
+                size: 10Gi
+                accessMode: ReadWriteMany
+              jobservice:
+                storageClass: rook-cephfs
+                size: 2Gi
+                accessMode: ReadWriteMany
+              # database and redis PVCs removed — no longer needed
+              redis:
+                storageClass: rook-ceph-block
+                size: 5Gi
+                accessMode: ReadWriteOnce
+          database:
+            type: external
+            external:
+              host: "{{ harbor_vault.host }}"
+              port: "{{ harbor_vault.port | default('5432') }}"
+              username: "{{ harbor_vault.username }}"
+              existingSecret: "harbor-db-secret"
+              coreDatabase: "{{ harbor_vault.core_database}}"
+              notaryServerDatabase: "{{ harbor_vault.notary_server_database}}"
+              notarySignerDatabase: "{{ harbor_vault.notary_signer_database}}"
+              sslmode: "{{ harbor_vault.sslmode}}"
+              trivyDatabase: "{{ harbor_vault.trivy_database}}"
+
+    - name: Wait until Harbor pods are ready
+      ansible.builtin.pause:
+        prompt: "Press Enter to proceed or Ctrl+C to abort."
+
+    - name: Configure Harbor OIDC Authentication
+      uri:
+        url: "https://harbor.thekor.eu/api/v2.0/configurations"
+        method: PUT
+        user: admin
+        password: "{{ harbor_vault.admin_password }}"
+        force_basic_auth: yes
+        body_format: json
+        body:
+          auth_mode: "oidc_auth"
+          oidc_name: "Authentik"
+          oidc_endpoint: "https://auth.thekor.eu/application/o/harbor/"
+          oidc_client_id: "{{ harbor_vault.client_id }}"
+          oidc_client_secret: "{{ harbor_vault.client_secret }}"
+          oidc_groups_claim: "groups"
+          oidc_admin_group: "lvl1"
+          oidc_scope: "openid,profile,email,offline_access"
+          oidc_user_claim: "preferred_username"
+          oidc_verify_cert: false
+          oidc_auto_onboard: true
+        validate_certs: no
+        status_code: 200
+      retries: 5
+      delay: 10
+
+    - name: Patch Harbor Ingress TLS secret
+      kubernetes.core.k8s:
+        api_version: networking.k8s.io/v1
+        kind: Ingress
+        name: harbor-ingress
+        namespace: harbor
+        merge_type: strategic-merge
+        definition:
+          spec:
+            tls:
+              - hosts:
+                  - harbor.thekor.eu
+                secretName: wildcard-thekor
+
+    - name: Get harbor PV names
+      kubernetes.core.k8s_info:
+        kind: PersistentVolumeClaim
+        namespace: harbor
+      register: harbor_pvcs
+
+    - name: Set PV reclaim policy to Retain for all harbor PVs
+      kubernetes.core.k8s:
+        state: patched
+        kind: PersistentVolume
+        name: "{{ item.spec.volumeName }}"
+        definition:
+          spec:
+            persistentVolumeReclaimPolicy: Retain
+      loop: "{{ harbor_pvcs.resources }}"
+      when: item.spec.volumeName is defined
+
+
+# for staging: conflict with oidc 
+# UPDATE harbor_user SET username = 'hpratt_old', email = 'hpratt_old@thekor.eu' WHERE username = 'hpratt' OR email = 'hpratt@thekor.eu';

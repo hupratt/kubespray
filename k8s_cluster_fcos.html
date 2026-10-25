@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K8s Cluster — Fedora CoreOS</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#f8f8f6;color:#1a1a18;min-height:100vh;padding:24px 16px}
+@media(prefers-color-scheme:dark){body{background:#1a1a18;color:#e8e6de}}
+
+.wrap{max-width:960px;margin:0 auto;padding:8px 0 32px}
+
+.cluster-outer{border:1.5px solid #326CE5;border-radius:16px;padding:14px 14px 18px;position:relative}
+.cluster-label{position:absolute;top:-11px;left:18px;background:#f8f8f6;padding:0 8px;font-size:11px;font-weight:500;color:#326CE5;letter-spacing:.06em;display:flex;align-items:center;gap:6px}
+@media(prefers-color-scheme:dark){.cluster-label{background:#1a1a18}}
+.k8s-wheel{width:18px;height:18px;flex-shrink:0}
+
+.infra-row{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+@media(max-width:540px){.infra-row{grid-template-columns:1fr}}
+.node-card{border:1px solid #3C6EB4;border-radius:10px;padding:10px 10px 8px;background:rgba(50,108,229,.05)}
+@media(prefers-color-scheme:dark){.node-card{background:rgba(50,108,229,.1);border-color:#3B6AA0}}
+.node-header{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.fcos-icon{width:22px;height:22px;flex-shrink:0}
+.node-name{font-size:12px;font-weight:500}
+.node-sub{font-size:10.5px;color:#6b6b66;margin-top:1px}
+.node-card p{font-size:10px;color:#888780;margin-bottom:4px}
+@media(prefers-color-scheme:dark){.node-sub{color:#9c9a92}}
+.node-chips{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px}
+.chip{font-size:9.5px;padding:2px 6px;border-radius:4px;border:0.5px solid #c8c6be;color:#6b6b66;background:#f1efe8}
+@media(prefers-color-scheme:dark){.chip{background:#2c2c2a;border-color:#444441;color:#9c9a92}}
+.chip.ctrl{border-color:#326CE5;color:#0C447C;background:rgba(50,108,229,.08)}
+.chip.wkr{border-color:#3B6D11;color:#27500A;background:rgba(99,153,34,.08)}
+@media(prefers-color-scheme:dark){
+  .chip.ctrl{color:#85B7EB;background:rgba(50,108,229,.18)}
+  .chip.wkr{color:#C0DD97;background:rgba(99,153,34,.14)}
+}
+
+.divider{border:none;border-top:1px dashed rgba(0,0,0,.12);margin:10px 0 14px}
+@media(prefers-color-scheme:dark){.divider{border-top-color:rgba(255,255,255,.1)}}
+
+.ns-section{margin-bottom:14px}
+.ns-section-title{font-size:10px;font-weight:500;letter-spacing:.07em;color:#888780;margin-bottom:7px;text-transform:uppercase}
+.app-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:6px}
+.infra-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(104px,1fr));gap:6px}
+
+.app-card,.infra-card{border:0.5px solid rgba(0,0,0,.12);border-radius:8px;padding:8px 6px 7px;cursor:pointer;transition:border-color .15s,background .15s;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;background:white;position:relative}
+@media(prefers-color-scheme:dark){
+  .app-card,.infra-card{background:#2c2c2a;border-color:rgba(255,255,255,.1)}
+}
+.app-card:hover,.infra-card:hover{border-color:#326CE5;background:rgba(50,108,229,.04)}
+.app-logo-svg{width:28px;height:28px;border-radius:6px;flex-shrink:0;display:flex;align-items:center;justify-content:center}
+.app-name{font-size:10px;font-weight:500;line-height:1.3}
+.app-ns{font-size:9px;color:#888780}
+.app-badge{font-size:8.5px;padding:1px 5px;border-radius:3px;margin-top:1px}
+.badge-new{background:rgba(186,117,23,.15);color:#633806;border:0.5px solid #BA7517}
+@media(prefers-color-scheme:dark){.badge-new{background:rgba(186,117,23,.22);color:#FAC775}}
+
+/* ── Tooltip ── */
+#tt{
+  position:fixed;
+  z-index:9999;
+  pointer-events:none;
+  width:240px;
+  background:#fff;
+  border:0.5px solid rgba(0,0,0,.14);
+  border-radius:10px;
+  box-shadow:0 4px 20px rgba(0,0,0,.12);
+  overflow:hidden;
+  opacity:0;
+  transition:opacity .12s;
+}
+@media(prefers-color-scheme:dark){
+  #tt{background:#2c2c2a;border-color:rgba(255,255,255,.12);box-shadow:0 4px 20px rgba(0,0,0,.45)}
+}
+#tt.show{opacity:1}
+#tt-img{width:100%;height:130px;object-fit:cover;object-position:top;display:none;background:#f1efe8;border-bottom:0.5px solid rgba(0,0,0,.08)}
+@media(prefers-color-scheme:dark){#tt-img{background:#1a1a18;border-bottom-color:rgba(255,255,255,.08)}}
+#tt-img.visible{display:block}
+#tt-body{padding:10px 12px 11px}
+#tt-title{font-size:12px;font-weight:500;margin-bottom:4px;color:#1a1a18}
+@media(prefers-color-scheme:dark){#tt-title{color:#e8e6de}}
+#tt-text{font-size:11px;line-height:1.55;color:#5f5e5a}
+@media(prefers-color-scheme:dark){#tt-text{color:#9c9a92}}
+#tt-ns{display:inline-block;margin-top:6px;font-size:9.5px;padding:2px 7px;border-radius:4px;border:0.5px solid rgba(50,108,229,.4);color:#185FA5;background:rgba(50,108,229,.07)}
+@media(prefers-color-scheme:dark){#tt-ns{color:#85B7EB;background:rgba(50,108,229,.15)}}
+</style>
+</head>
+<body>
+
+<!-- Global tooltip element -->
+<div id="tt">
+  <img id="tt-img" alt="">
+  <div id="tt-body">
+    <div id="tt-title"></div>
+    <div id="tt-text"></div>
+    <span id="tt-ns"></span>
+  </div>
+</div>
+
+<div class="wrap">
+<div class="cluster-outer">
+<div class="cluster-label">
+<svg class="k8s-wheel" viewBox="0 0 32 32" fill="none">
+<circle cx="16" cy="16" r="15" fill="#326CE5"/>
+<circle cx="16" cy="16" r="4.5" fill="white"/>
+<g stroke="white" stroke-width="2" stroke-linecap="round">
+<line x1="16" y1="2" x2="16" y2="8"/><line x1="16" y1="24" x2="16" y2="30"/>
+<line x1="2" y1="16" x2="8" y2="16"/><line x1="24" y1="16" x2="30" y2="16"/>
+<line x1="5.5" y1="5.5" x2="9.8" y2="9.8"/><line x1="22.2" y1="22.2" x2="26.5" y2="26.5"/>
+<line x1="26.5" y1="5.5" x2="22.2" y2="9.8"/><line x1="9.8" y1="22.2" x2="5.5" y2="26.5"/>
+</g>
+</svg>
+Fedora CoreOS VMs provisioned with the terraform proxmox provider
+</div>
+
+<div class="infra-row">
+<div class="node-card">
+<div class="node-header">
+<svg class="fcos-icon" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#0B57A4"/><path d="M20 8 L32 14 L32 26 L20 32 L8 26 L8 14 Z" fill="none" stroke="white" stroke-width="1.5"/><circle cx="20" cy="20" r="4" fill="white"/><line x1="20" y1="8" x2="20" y2="14" stroke="white" stroke-width="1.2"/><line x1="20" y1="26" x2="20" y2="32" stroke="white" stroke-width="1.2"/><line x1="8" y1="14" x2="13" y2="17" stroke="white" stroke-width="1.2"/><line x1="27" y1="23" x2="32" y2="26" stroke="white" stroke-width="1.2"/><line x1="32" y1="14" x2="27" y2="17" stroke="white" stroke-width="1.2"/><line x1="13" y1="23" x2="8" y2="26" stroke="white" stroke-width="1.2"/></svg>
+<div><div class="node-name">node-1</div><div class="node-sub">Dell PowerEdge R720</div></div>
+</div>
+<div><p>k8s provisioned via kubespray</p></div>
+<div class="node-chips"><span class="chip ctrl">control-plane</span><span class="chip wkr">worker</span><span class="chip">etcd</span><span class="chip">Fedora CoreOS</span></div>
+</div>
+
+<div class="node-card">
+<div class="node-header">
+<svg class="fcos-icon" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#0B57A4"/><path d="M20 8 L32 14 L32 26 L20 32 L8 26 L8 14 Z" fill="none" stroke="white" stroke-width="1.5"/><circle cx="20" cy="20" r="4" fill="white"/><line x1="20" y1="8" x2="20" y2="14" stroke="white" stroke-width="1.2"/><line x1="20" y1="26" x2="20" y2="32" stroke="white" stroke-width="1.2"/><line x1="8" y1="14" x2="13" y2="17" stroke="white" stroke-width="1.2"/><line x1="27" y1="23" x2="32" y2="26" stroke="white" stroke-width="1.2"/><line x1="32" y1="14" x2="27" y2="17" stroke="white" stroke-width="1.2"/><line x1="13" y1="23" x2="8" y2="26" stroke="white" stroke-width="1.2"/></svg>
+<div><div class="node-name">node-2</div><div class="node-sub">Dell PowerEdge R720</div></div>
+</div>
+<div><p>k8s provisioned via kubespray</p></div>
+<div class="node-chips"><span class="chip ctrl">control-plane</span><span class="chip wkr">worker</span><span class="chip">etcd</span><span class="chip">Fedora CoreOS</span></div>
+</div>
+
+<div class="node-card">
+<div class="node-header">
+<svg class="fcos-icon" viewBox="0 0 40 40" fill="none"><rect width="40" height="40" rx="8" fill="#0B57A4"/><path d="M20 8 L32 14 L32 26 L20 32 L8 26 L8 14 Z" fill="none" stroke="white" stroke-width="1.5"/><circle cx="20" cy="20" r="4" fill="white"/><line x1="20" y1="8" x2="20" y2="14" stroke="white" stroke-width="1.2"/><line x1="20" y1="26" x2="20" y2="32" stroke="white" stroke-width="1.2"/><line x1="8" y1="14" x2="13" y2="17" stroke="white" stroke-width="1.2"/><line x1="27" y1="23" x2="32" y2="26" stroke="white" stroke-width="1.2"/><line x1="32" y1="14" x2="27" y2="17" stroke="white" stroke-width="1.2"/><line x1="13" y1="23" x2="8" y2="26" stroke="white" stroke-width="1.2"/></svg>
+<div><div class="node-name">node-3</div><div class="node-sub">Dell PowerEdge R720</div></div>
+</div>
+<div><p>k8s provisioned via kubespray</p></div>
+<div class="node-chips"><span class="chip ctrl">control-plane</span><span class="chip wkr">worker</span><span class="chip">etcd</span><span class="chip">Fedora CoreOS</span></div>
+</div>
+</div>
+
+<hr class="divider">
+
+<div class="ns-section">
+<div class="ns-section-title">Cluster infrastructure</div>
+<div class="infra-grid">
+
+<div class="infra-card"
+  data-title="Cilium"
+  data-ns="cilium · cilium-secrets"
+  data-tooltip="eBPF-based CNI providing networking, load balancing, and network policies. Also manages TLS secrets in the cilium-secrets namespace.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#FCA016"/><g fill="white"><ellipse cx="32" cy="18" rx="8" ry="5"/><ellipse cx="32" cy="46" rx="8" ry="5"/><ellipse cx="18" cy="32" rx="5" ry="8"/><ellipse cx="46" cy="32" rx="5" ry="8"/><circle cx="32" cy="32" r="5"/></g></svg>
+<div class="app-name">Cilium</div><div class="app-ns">CNI · eBPF</div>
+</div>
+
+<div class="infra-card"
+  data-title="Rook-Ceph"
+  data-ns="rook-ceph"
+  data-tooltip="Distributed storage operator providing block (RBD), filesystem (CephFS), and object storage (S3-compatible) for persistent volume claims across the cluster.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#EF5C55"/><g fill="white" fill-opacity=".9"><circle cx="32" cy="20" r="7"/><circle cx="20" cy="40" r="7"/><circle cx="44" cy="40" r="7"/></g><line x1="32" y1="27" x2="20" y2="33" stroke="white" stroke-width="2.5"/><line x1="32" y1="27" x2="44" y2="33" stroke="white" stroke-width="2.5"/></svg>
+<div class="app-name">Rook-Ceph</div><div class="app-ns">block · fs · object</div>
+</div>
+
+<div class="infra-card"
+  data-title="cert-manager"
+  data-ns="cert-manager"
+  data-tooltip="Automatic TLS certificate provisioning via DNS ACME challenge. Issues and renews certificates from Let's Encrypt for all ingress routes.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#4CAF50"/><rect x="16" y="22" width="32" height="22" rx="4" fill="none" stroke="white" stroke-width="2.5"/><path d="M24 22 V18 Q24 12 32 12 Q40 12 40 18 V22" fill="none" stroke="white" stroke-width="2.5"/><circle cx="32" cy="33" r="4" fill="white"/></svg>
+<div class="app-name">cert-manager</div><div class="app-ns">DNS ACME challenge</div>
+</div>
+
+<div class="infra-card"
+  data-title="HAProxy Ingress"
+  data-ns="haproxy"
+  data-tooltip="HAProxy-based ingress controller and load balancer. Routes external traffic to services, terminates TLS, and handles upstream health checks.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#1A73E8"/><text x="32" y="42" text-anchor="middle" fill="white" font-size="22" font-weight="700" font-family="monospace">HA</text></svg>
+<div class="app-name">HAProxy</div><div class="app-ns">ingress · LB</div>
+</div>
+
+<div class="infra-card"
+  data-title="Grafana"
+  data-ns="monitoring"
+  data-tooltip="Metrics dashboards and alerting. Scrapes Prometheus data from across the cluster and visualises node health, pod resource usage, and application metrics.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#E6522C"/><circle cx="32" cy="32" r="14" fill="none" stroke="white" stroke-width="2.5"/><circle cx="32" cy="32" r="5" fill="white"/><line x1="32" y1="12" x2="32" y2="18" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="32" y1="46" x2="32" y2="52" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="12" y1="32" x2="18" y2="32" stroke="white" stroke-width="2.5" stroke-linecap="round"/><line x1="46" y1="32" x2="52" y2="32" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>
+<div class="app-name">Grafana</div><div class="app-ns">metrics · alerts</div>
+</div>
+
+<div class="infra-card"
+  data-title="Harbor"
+  data-ns="harbor"
+  data-tooltip="Private OCI-compatible container registry. Stores all internally built images, scans for vulnerabilities with Trivy, and acts as a pull-through cache for Docker Hub.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#60B932"/><path d="M14 20 H50 V44 H14 Z" fill="none" stroke="white" stroke-width="2"/><path d="M14 28 H50" stroke="white" stroke-width="1.5"/><circle cx="32" cy="36" r="5" fill="none" stroke="white" stroke-width="2"/><line x1="32" y1="20" x2="32" y2="14" stroke="white" stroke-width="2"/><line x1="28" y1="14" x2="36" y2="14" stroke="white" stroke-width="2"/></svg>
+<div class="app-name">Harbor</div><div class="app-ns">container registry</div>
+</div>
+
+<div class="infra-card"
+  data-title="Backup"
+  data-ns="backup"
+  data-tooltip="Custom Kubernetes CronJobs that snapshot application data and push to S3-compatible object storage. Covers database dumps, gzipped RBD images, and gzipped archives of CephFS PVCs.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#607D8B"/><path d="M20 20 H44 Q48 20 48 24 V40 Q48 44 44 44 H20 Q16 44 16 40 V24 Q16 20 20 20Z" fill="none" stroke="white" stroke-width="2"/><path d="M24 32 L32 24 L40 32" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><line x1="32" y1="24" x2="32" y2="42" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
+<div class="app-name">Backup</div><div class="app-ns">Custom k8s jobs · S3</div>
+</div>
+
+<div class="infra-card"
+  data-title="Mosquitto"
+  data-ns="mosquitto"
+  data-tooltip="Eclipse Mosquitto MQTT. Acts as a broker between home assistant and my reolink camera's RTSP feed. Home assistant subscribes to events like 'frigate/reolink/detect/state', person count,  pulls an image every 10 seconds and shares the latest screenshot of a detected person 'frigate/reolink/person/snapshot' to home assistant">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#3C4F99"/><path d="M14 46 Q14 32 32 32 Q50 32 50 18" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round"/><path d="M14 46 Q14 26 32 26 Q50 26 50 12" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" opacity=".6"/><path d="M14 46 Q14 38 32 38 Q50 38 50 24" stroke="white" stroke-width="1.2" fill="none" stroke-linecap="round" opacity=".35"/><circle cx="14" cy="46" r="3" fill="white"/></svg>
+<div class="app-name">Mosquitto</div><div class="app-ns">MQTT broker</div>
+</div>
+
+<div class="infra-card"
+  data-title="GitLab"
+  data-ns="gitlab"
+  data-tooltip="Self-hosted Git forge and CI/CD platform. Hosts all private repositories, runs pipelines that build container images and pushes to Harbor.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#FC6D26"/><path d="M32 50 L10 32 L16 14 L22 32 H42 L48 14 L54 32 Z" fill="white" opacity=".9"/></svg>
+<div class="app-name">GitLab</div><div class="app-ns">git · CI/CD</div>
+</div>
+
+</div>
+</div>
+
+<hr class="divider">
+
+<div class="ns-section">
+<div class="ns-section-title">Identity &amp; security</div>
+<div class="app-grid">
+
+<div class="app-card"
+  data-title="Authentik"
+  data-ns="authentik"
+  data-tooltip="Identity provider and SSO gateway. Fronts all internal services with OIDC/OAuth2 and LDAP, enforces MFA, and synchronizes users/groups with the Active directory.">
+<svg class="app-logo-svg" style="background:#FD4B2D;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M14 5 L22 10 V18 L14 23 L6 18 V10 Z" fill="none" stroke="white" stroke-width="1.5"/><circle cx="14" cy="14" r="3" fill="white"/></svg>
+<div class="app-name">Authentik</div><div class="app-ns">idp</div>
+</div>
+
+<div class="app-card"
+  data-title="Vaultwarden"
+  data-ns="vaultwarden"
+  data-tooltip="Bitwarden-compatible self-hosted password manager. Stores credentials for all services. Browser extension sync and mobile app.">
+<svg class="app-logo-svg" style="background:#175DDC;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M14 4 L22 8 V16 Q22 22 14 25 Q6 22 6 16 V8 Z" fill="none" stroke="white" stroke-width="1.5"/><path d="M10 14 L13 17 L18 11" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div class="app-name">Vaultwarden</div><div class="app-ns">password manager</div>
+</div>
+
+<div class="app-card"
+  data-title="KubeWarden"
+  data-ns="kubewarden"
+  data-tooltip="k8s admission controller. Enforces policies such as disallowing privileged containers, requiring resource limits, requiring health probes, blocking latest image tags in production namespaces, blocking containers from running with root privileges, blocking containers from running with SYS_ADMIN and NET_ADMIN permissions so that malicious containers can't impact the host kernel or host network stack.">
+<svg width="28" height="28" viewBox="0 0 64 64"><rect width="64" height="64" rx="10" fill="#6B3FA0"/><path d="M32 10 L50 18 L50 34 Q50 48 32 54 Q14 48 14 34 L14 18 Z" fill="none" stroke="white" stroke-width="2.5"/><path d="M23 32 L29 38 L41 26" stroke="white" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div class="app-name">KubeWarden</div><div class="app-ns">admission · policy</div>
+</div>
+
+</div>
+</div>
+
+<div class="ns-section">
+<div class="ns-section-title">Databases</div>
+<div class="app-grid">
+
+<div class="app-card"
+  data-title="PostgreSQL"
+  data-ns="postgres"
+  data-tooltip="Shared PostgreSQL cluster serving multiple applications including Authentik, Netbox, PostHog, and the custom Django backends.">
+<svg class="app-logo-svg" style="background:#336791;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><ellipse cx="14" cy="10" rx="7" ry="4" fill="none" stroke="white" stroke-width="1.5"/><path d="M7 10 V20 Q7 24 14 24 Q21 24 21 20 V10" fill="none" stroke="white" stroke-width="1.5"/><line x1="21" y1="10" x2="23" y2="8" stroke="white" stroke-width="1.2"/></svg>
+<div class="app-name">PostgreSQL</div>
+</div>
+
+<div class="app-card"
+  data-title="MariaDB"
+  data-ns="mariadb"
+  data-tooltip="MariaDB instance for applications that require MySQL-compatible storage. Used by Linkwarden and other services that don't support PostgreSQL. Managed with a Kubernetes operator.">
+<svg class="app-logo-svg" style="background:#003545;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M5 20 Q8 14 12 16 Q16 18 18 10 Q20 6 24 8" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>
+<div class="app-name">MariaDB</div>
+</div>
+
+<div class="app-card"
+  data-title="MongoDB"
+  data-ns="mongodb"
+  data-tooltip="MongoDB document store for applications requiring nosql schema storage. Used by the Amazon clone and other Node.js backends">
+<svg class="app-logo-svg" style="background:#13AA52;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M14 4 Q18 8 18 14 Q18 20 14 24 Q10 20 10 14 Q10 8 14 4Z" fill="white" opacity=".9"/><line x1="14" y1="20" x2="14" y2="26" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
+<div class="app-name">MongoDB</div>
+</div>
+
+</div>
+</div>
+
+<div class="ns-section">
+<div class="ns-section-title">Productivity &amp; tools</div>
+<div class="app-grid">
+
+<div class="app-card"
+  data-title="Paperless-ngx"
+  data-ns="paperless"
+  data-tooltip="Document management system with OCR. Ingests scanned documents via watched folder or email, auto-tags them, and makes everything full-text searchable.">
+<svg class="app-logo-svg" style="background:#17541C;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="7" y="5" width="14" height="18" rx="2" fill="none" stroke="white" stroke-width="1.5"/><line x1="10" y1="10" x2="18" y2="10" stroke="white" stroke-width="1.2"/><line x1="10" y1="14" x2="18" y2="14" stroke="white" stroke-width="1.2"/><line x1="10" y1="18" x2="14" y2="18" stroke="white" stroke-width="1.2"/></svg>
+<div class="app-name">Paperless</div><div class="app-ns">DMS</div>
+</div>
+
+<div class="app-card"
+  data-title="Linkwarden"
+  data-ns="linkwarden"
+  data-tooltip="Self-hosted bookmark manager with full-page archiving. Saves a local snapshot of every link so content remains accessible even after the original page disappears.">
+<svg class="app-logo-svg" style="background:#0EA5E9;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M10 18 L14 22 Q18 26 22 22 L26 18 Q30 14 26 10 L22 6" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M18 10 L14 6 Q10 2 6 6 L2 10 Q-2 14 2 18 L6 22" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" transform="translate(2,0)"/></svg>
+<div class="app-name">Linkwarden</div><div class="app-ns">bookmark manager</div>
+</div>
+
+<div class="app-card"
+  data-title="Trello clone"
+  data-ns="trellis"
+  data-tooltip="Self-hosted kanban board inspired by Trello. Used for personal project tracking with drag-and-drop cards, labels, and due dates.">
+<svg class="app-logo-svg" style="background:#026AA7;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="5" y="5" width="7" height="18" rx="2" fill="white" opacity=".9"/><rect x="16" y="5" width="7" height="11" rx="2" fill="white" opacity=".9"/></svg>
+<div class="app-name">Trello-clone</div><div class="app-ns">kanban board</div>
+</div>
+
+<div class="app-card"
+  data-title="Chirpy"
+  data-ns="chirpy"
+  data-tooltip="Self-hosted microblogging platform. Used as a personal blog and quick-note system.">
+<svg class="app-logo-svg" style="background:#1DA1F2;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M25 8 Q22 9 20 9 Q22 7 23 5 Q20 7 18 8 Q17 5 14 5 Q10 5 9 9 Q9 12 10 14 Q5 14 3 10 Q3 16 8 18 Q6 18 5 17 Q5 20 9 21 Q7 22 5 22 Q8 24 13 23 Q20 23 23 17 Q24 14 24 11 Q26 10 25 8Z" fill="white" opacity=".9"/></svg>
+<div class="app-name">Chirpy</div><div class="app-ns">blog</div>
+</div>
+
+<div class="app-card"
+  data-title="SFTPGo"
+  data-ns="sftpgo"
+  data-tooltip="Full-featured SFTP, FTP, and WebDAV server with a web admin UI. Provides secure remote file access and integrates with S3-backed storage for larger uploads.">
+<svg class="app-logo-svg" style="background:#0B3D91;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="6" y="10" width="16" height="12" rx="2" fill="none" stroke="white" stroke-width="1.5"/><path d="M10 10 V8 Q10 5 14 5 Q18 5 18 8 V10" fill="none" stroke="white" stroke-width="1.5"/><circle cx="14" cy="16" r="2" fill="white"/></svg>
+<div class="app-name">SFTPGo</div><div class="app-ns">ftp server</div>
+</div>
+
+<div class="app-card"
+  data-title="NetBox"
+  data-ns="netbox"
+  data-tooltip="Network source of truth and CMDB. Documents all VLANs, IP prefixes, rack inventory, and device roles. The basement rack diagram is modelled here.">
+<svg class="app-logo-svg" style="background:#009BDE;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="5" y="8" width="18" height="12" rx="2" fill="none" stroke="white" stroke-width="1.5"/><line x1="5" y1="13" x2="23" y2="13" stroke="white" stroke-width="1.2"/><line x1="12" y1="8" x2="12" y2="20" stroke="white" stroke-width="1.2"/></svg>
+<div class="app-name">NetBox</div><div class="app-ns">CMDB · IPAM</div>
+</div>
+
+<div class="app-card"
+  data-title="PostHog"
+  data-ns="posthog"
+  data-tooltip="Self-hosted product analytics. Tracks page views, funnel conversions, and custom events across the custom applications.">
+<svg class="app-logo-svg" style="background:#1D4AFF;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M6 20 L10 13 L14 17 L18 10 L22 14" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="14" r="2.5" fill="white"/></svg>
+<div class="app-name">PostHog</div><div class="app-ns">analytics · events</div>
+</div>
+
+</div>
+</div>
+
+<div class="ns-section">
+<div class="ns-section-title">AI powered</div>
+<div class="app-grid">
+
+<div class="app-card"
+  data-title="Open WebUI"
+  data-ns="open-webui"
+  data-tooltip="Web frontend for Ollama and OpenAI-compatible APIs. Supports multi-model chat, RAG with document upload, image generation, and conversation history.">
+<svg class="app-logo-svg" style="background:#000;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="7" fill="none" stroke="white" stroke-width="1.8"/><circle cx="14" cy="14" r="3" fill="white"/><line x1="14" y1="5" x2="14" y2="7" stroke="white" stroke-width="1.2"/><line x1="14" y1="21" x2="14" y2="23" stroke="white" stroke-width="1.2"/></svg>
+<div class="app-name">Open WebUI</div><div class="app-ns">front end for Ollama</div>
+</div>
+
+<div class="app-card"
+  data-title="Frigate"
+  data-ns="frigate"
+  data-tooltip="NVR with real-time AI object detection using CPU inference. Records and indexes events from the reolink camera. Integrates with Home Assistant via MQTT.">
+<svg class="app-logo-svg" style="background:#212121;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="4" y="9" width="16" height="11" rx="2" fill="none" stroke="white" stroke-width="1.5"/><path d="M20 13 L25 10 L25 18 L20 15 Z" fill="white" opacity=".9"/><circle cx="12" cy="14" r="3" fill="none" stroke="white" stroke-width="1.2"/></svg>
+<div class="app-name">Frigate</div><div class="app-ns">DVR recording</div>
+</div>
+
+<div class="app-card"
+  data-title="Scriberr"
+  data-ns="scriberr"
+  data-tooltip="Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts.">
+<svg class="app-logo-svg" style="background:#1C1C1E;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="8" y="5" width="12" height="14" rx="2" fill="none" stroke="white" stroke-width="1.4"/><circle cx="14" cy="12" r="3" fill="none" stroke="white" stroke-width="1.2"/><line x1="14" y1="19" x2="14" y2="22" stroke="white" stroke-width="1.4" stroke-linecap="round"/><line x1="10" y1="22" x2="18" y2="22" stroke="white" stroke-width="1.4" stroke-linecap="round"/></svg>
+<div class="app-name">Scriberr</div><div class="app-ns">voice transcription</div>
+</div>
+
+<div class="app-card"
+  data-title="Immich"
+  data-ns="immich"
+  data-tooltip="Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi.">
+<svg class="app-logo-svg" style="background:#4250AF;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="4" y="8" width="20" height="15" rx="2" fill="none" stroke="white" stroke-width="1.4"/><circle cx="10" cy="14" r="2.5" fill="white" opacity=".8"/><path d="M4 19 L9 14 L13 18 L17 13 L24 19" stroke="white" stroke-width="1.3" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 8 L16 5 M12 8 L11 5 M20 8 L21 5" stroke="white" stroke-width="1.2" stroke-linecap="round" opacity=".7"/></svg>
+<div class="app-name">Immich</div><div class="app-ns">google photos clone</div>
+</div>
+
+</div>
+</div>
+
+<div class="ns-section">
+<div class="ns-section-title">Applications</div>
+<div class="app-grid">
+
+<div class="app-card"
+  data-title="Booking clone"
+  data-ns="booking"
+  data-tooltip="Booking/reservation application built with Django. Hotel and property search with availability calendars and checkout flow.">
+<svg class="app-logo-svg" style="background:#FF5A5F;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="6" y="7" width="16" height="15" rx="2" fill="none" stroke="white" stroke-width="1.5"/><line x1="6" y1="12" x2="22" y2="12" stroke="white" stroke-width="1.2"/><line x1="10" y1="5" x2="10" y2="9" stroke="white" stroke-width="1.5" stroke-linecap="round"/><line x1="18" y1="5" x2="18" y2="9" stroke="white" stroke-width="1.5" stroke-linecap="round"/></svg>
+<div class="app-name">Booking</div><div class="app-ns">booking clone</div>
+</div>
+
+<div class="app-card"
+  data-title="Amazon clone"
+  data-ns="amazon-clone"
+  data-tooltip="E-commerce practice project with React frontend and Django backend. Includes product listing, cart, Stripe-style checkout, and order history backed by MongoDB.">
+<svg class="app-logo-svg" style="background:#FF9900;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M6 20 Q14 24 22 20" stroke="#232F3E" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M20 18 L23 20 L20 22" fill="#232F3E"/><text x="14" y="15" text-anchor="middle" fill="#232F3E" font-size="10" font-weight="700" font-family="monospace">a</text></svg>
+<div class="app-name">Amazon</div><div class="app-ns">amazon clone</div>
+</div>
+
+<div class="app-card"
+  data-title="Thrifty"
+  data-ns="thrifty"
+  data-tooltip="Personal budget tracker with category tagging, monthly summaries, and spending trend charts. Go application with a sqlite backend.">
+<svg class="app-logo-svg" style="background:#22C55E;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M7 18 L11 13 L15 16 L21 9" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 9 L21 9 L21 11" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>
+<div class="app-name">Thrifty</div><div class="app-ns">simple budget app</div>
+</div>
+
+<div class="app-card"
+  data-title="Makita"
+  data-ns="makita"
+  data-tooltip="Travel diary app for logging trips with photos, notes, and map pins. React + Django with image storage in Rook-Ceph S3-compatible object store.">
+<svg class="app-logo-svg" style="background:#003DA5;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><text x="14" y="19" text-anchor="middle" fill="white" font-size="12" font-weight="700" font-family="monospace">M</text></svg>
+<div class="app-name">Makita</div><div class="app-ns">travel diary</div>
+</div>
+
+<div class="app-card"
+  data-title="Portfolio"
+  data-ns="www-portfolio"
+  data-tooltip="Static site serving as a personal portfolio website.">
+<svg class="app-logo-svg" style="background:#0F172A;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><path d="M14 5 A9 9 0 0 1 14 23 A9 9 0 0 1 14 5Z" fill="none" stroke="white" stroke-width="1.2"/><ellipse cx="14" cy="14" rx="4" ry="9" fill="none" stroke="white" stroke-width="1.2"/><line x1="5" y1="14" x2="23" y2="14" stroke="white" stroke-width="1.2"/></svg>
+<div class="app-name">Portfolio</div>
+</div>
+
+<div class="app-card"
+  data-title="Spotify Collector"
+  data-ns="spotify"
+  data-tooltip="Pulls listening history from the Spotify API and displays statistics: top tracks, artists, genres over time, and a replay of your year in music. Django backend, React charts.">
+<svg class="app-logo-svg" style="background:#1DB954;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><circle cx="14" cy="14" r="9" fill="none" stroke="white" stroke-width="1.2" opacity=".3"/><path d="M8 11 Q14 8 20 11" stroke="white" stroke-width="2" fill="none" stroke-linecap="round"/><path d="M9 15 Q14 12 19 15" stroke="white" stroke-width="1.8" fill="none" stroke-linecap="round"/><path d="M10 19 Q14 16 18 19" stroke="white" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>
+<div class="app-name">Spotify collector</div><div class="app-ns">UI with statistics</div>
+</div>
+
+<div class="app-card"
+  data-title="HLS Streaming"
+  data-ns="hls-streaming"
+  data-tooltip="Live HLS video streaming server. Ingests RTSP or RTMP sources, transcodes with FFmpeg, and serves adaptive bitrate HLS playlists to a React player frontend.">
+<svg class="app-logo-svg" style="background:#7C3AED;border-radius:6px" viewBox="0 0 28 28" width="28" height="28"><rect x="3" y="8" width="18" height="13" rx="2" fill="none" stroke="white" stroke-width="1.4"/><path d="M21 13 L26 10 L26 18 L21 15 Z" fill="white" opacity=".9"/><path d="M9 12 L9 16 L14 14 Z" fill="white"/></svg>
+<div class="app-name">HLS Streaming</div><div class="app-ns">live stream</div>
+</div>
+
+</div>
+</div>
+
+</div>
+</div>
+</div>
+
+<script>
+const tt = document.getElementById('tt');
+const ttImg = document.getElementById('tt-img');
+const ttTitle = document.getElementById('tt-title');
+const ttText = document.getElementById('tt-text');
+const ttNs = document.getElementById('tt-ns');
+
+let hideTimer = null;
+
+function show(el, e) {
+  clearTimeout(hideTimer);
+
+  const title = el.dataset.title || el.querySelector('.app-name')?.textContent || '';
+  const text  = el.dataset.tooltip || '';
+  const ns    = el.dataset.ns || '';
+  const img   = el.dataset.img || '';
+
+  ttTitle.textContent = title;
+  ttText.textContent  = text;
+  ttNs.textContent    = ns ? 'ns: ' + ns : '';
+  ttNs.style.display  = ns ? 'inline-block' : 'none';
+
+  if (img) {
+    ttImg.src = img;
+    ttImg.classList.add('visible');
+  } else {
+    ttImg.src = '';
+    ttImg.classList.remove('visible');
+  }
+
+  position(e);
+  tt.classList.add('show');
+}
+
+function position(e) {
+  const margin = 12;
+  const tw = tt.offsetWidth  || 240;
+  const th = tt.offsetHeight || 160;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+
+  let x = e.clientX + margin;
+  let y = e.clientY + margin;
+
+  if (x + tw > vw - 8) x = e.clientX - tw - margin;
+  if (y + th > vh - 8) y = e.clientY - th - margin;
+  if (x < 8) x = 8;
+  if (y < 8) y = 8;
+
+  tt.style.left = x + 'px';
+  tt.style.top  = y + 'px';
+}
+
+function hide() {
+  hideTimer = setTimeout(() => tt.classList.remove('show'), 80);
+}
+
+document.querySelectorAll('[data-tooltip]').forEach(el => {
+  el.addEventListener('mouseenter', e => show(el, e));
+  el.addEventListener('mousemove',  e => position(e));
+  el.addEventListener('mouseleave', hide);
+});
+</script>
+</body>
+</html>

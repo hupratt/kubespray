@@ -1,0 +1,140 @@
+USER-SUPPLIED VALUES:
+MTU: 1450
+applySysctlOverwrites: false
+autoDirectNodeRoutes: true
+bandwidthManager:
+  bbr: false
+  enabled: false
+bgpControlPlane:
+  enabled: false
+bpf:
+  hostLegacyRouting: false
+  mapDynamicSizeRatio: 0.0025
+  masquerade: true
+  monitorAggregation: medium
+  preallocateMaps: false
+certgen:
+  image:
+    repository: quay.io/cilium/certgen
+    tag: v0.2.4
+cgroup:
+  autoMount:
+    enabled: false
+  hostRoot: /run/cilium/cgroupv2
+cluster:
+  id: 0
+  name: default
+cni:
+  exclusive: true
+  logFile: /var/run/cilium/cilium-cni.log
+debug:
+  enabled: false
+enableIPv4Masquerade: true
+enableIPv6Masquerade: true
+encryption:
+  enabled: false
+envoy:
+  image:
+    repository: quay.io/cilium/cilium-envoy
+    tag: v1.34.10-1762597008-ff7ae7d623be00078865cff1b0672cc5d9bfc6d5
+extraArgs: []
+extraConfig:
+  auto-direct-node-routes: "true"
+  bpf-lb-mode: snat
+  devices: enp7s0
+  enable-endpoint-routes: "true"
+  enable-host-reachable-services: "true"
+  enable-local-redirect-policy: "true"
+  host-reachable-services-cidrs: 10.233.0.0/18
+  host-reachable-services-protos: tcp,udp
+  routing-mode: native
+extraVolumeMounts: []
+extraVolumes: []
+gatewayAPI:
+  enabled: false
+healthPort: 9879
+hostFirewall:
+  enabled: false
+hubble:
+  enabled: true
+  export:
+    dynamic:
+      config:
+        content:
+        - excludeFilters: []
+          fieldMask: []
+          filePath: /var/run/cilium/hubble/events.log
+          includeFilters: []
+          name: all
+      enabled: false
+    fileMaxBackups: 5
+    fileMaxSizeMb: 10
+  metrics:
+    enabled:
+    - dns
+    - drop
+    - tcp
+    - flow
+    - icmp
+    - http
+  peerService:
+    clusterDomain: cluster.local
+  relay:
+    enabled: true
+    image:
+      repository: quay.io/cilium/hubble-relay
+      tag: v1.17.7
+  ui:
+    backend:
+      image:
+        repository: quay.io/cilium/hubble-ui-backend
+        tag: v0.13.3
+    enabled: true
+    frontend:
+      image:
+        repository: quay.io/cilium/hubble-ui
+        tag: v0.13.3
+identityAllocationMode: crd
+image:
+  repository: quay.io/cilium/cilium
+  tag: v1.17.7
+ipMasqAgent:
+  enabled: false
+ipam:
+  mode: kubernetes
+  operator:
+    clusterPoolIPv4MaskSize: 24
+    clusterPoolIPv4PodCIDRList:
+    - 10.233.64.0/18
+    clusterPoolIPv6MaskSize: 120
+    clusterPoolIPv6PodCIDRList:
+    - fd85:ee78:d8a6:8607::1:0000/112
+ipv4:
+  enabled: true
+ipv4NativeRoutingCIDR: 10.0.0.0/8
+ipv6:
+  enabled: false
+ipv6NativeRoutingCIDR: null
+k8sServiceHost: localhost
+k8sServicePort: "6443"
+kubeProxyReplacement: true
+l2announcements:
+  enabled: false
+loadBalancer:
+  mode: snat
+operator:
+  extraArgs: []
+  extraVolumeMounts: []
+  extraVolumes: []
+  image:
+    repository: quay.io/cilium/operator
+    tag: v1.17.7
+  replicas: 2
+  tolerations:
+  - operator: Exists
+policyAuditMode: false
+routingMode: tunnel
+tunnelProtocol: vxlan
+hostServices:
+  enabled: true
+  protocols: tcp,udp

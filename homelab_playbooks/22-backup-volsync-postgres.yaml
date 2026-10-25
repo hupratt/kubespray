@@ -1,0 +1,60 @@
+---
+- name: Setup VolSync ReplicationSource for postgres PVC
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  vars_files:
+    - group_vars/all/vault.yml
+  vars:
+    vault_kv_path: "restic"
+
+    backup_pvc:
+    
+      - pvc_name: shared-pg-1
+        namespace: cn-postgres
+
+      - pvc_name: shared-pg-2
+        namespace: cn-postgres
+
+      - pvc_name: immich-library
+        namespace: immich
+        secret: volsync-restic-secret-library
+        replication_name: immich-library-backup
+        runas: 1000
+
+      - pvc_name: immich-pg-1
+        namespace: immich
+        secret: volsync-restic-secret-db
+        replication_name: immich-db-backup
+        runas: 26
+
+    immich_storage_class: slow-local
+
+    volsync_schedule: "0 10 * * *"
+    volsync_retain_hourly: 2
+    volsync_retain_daily: 7
+    volsync_retain_weekly: 1
+    volsync_retain_monthly: 1
+
+  tasks:
+
+    # loop goes on include_tasks — blocks cannot loop directly
+    - name: Backup PVC
+      ansible.builtin.include_tasks: tasks/22-backup-task.yaml
+      loop: "{{ backup_pvc }}"
+      loop_control:
+        loop_var: pvc
+        label: "{{ pvc.pvc_name }}"
+
+
+# kubectl describe replicationsource postgres-backup -n postgres
+# kubectl patch volumesnapshotclass ceph-rbd-snapclass --type merge -p '{
+#   "parameters": {
+#     "clusterID": "rook-ceph",
+#     "csi.storage.k8s.io/snapshotter-secret-name": "rook-csi-rbd-provisioner",
+#     "csi.storage.k8s.io/snapshotter-secret-namespace": "rook-ceph"
+#   }
+# }'
+# k describe volumesnapshotclass/ceph-rbd-snapclass
+# kubectl get volumesnapshots -n postgres
+# kubectl annotate replicationsource postgres-backup -n postgres volsync.backube/trigger-immediate-sync=$(date +%s) --overwrite

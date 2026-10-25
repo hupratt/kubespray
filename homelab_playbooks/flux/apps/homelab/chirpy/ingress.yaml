@@ -1,0 +1,29 @@
+---
+# Migrated from 04b-chirpy.yaml
+#   task: "Deploy Jekyll Chirpy application and storage resources" (Ingress)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chirpy-ingress
+  namespace: chirpy
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - chirpy.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: chirpy.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: jekyll
+                port:
+                  number: 4000

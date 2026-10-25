@@ -1,0 +1,187 @@
+- name: Deploy Frigate to Kubernetes via Helm
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    default_storage_class: rook-ceph-block
+    frigate_namespace: frigate
+    vault_kv_path: frigate
+    frigate_chart_path: "{{ playbook_dir }}/charts/frigate"
+    frigate_config_configmap: frigate-config
+
+  tasks:
+    - name: Deploy ExternalSecret (vault secrets)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: frigate-vault-secrets
+            namespace: "{{ frigate_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: frigate-vault-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: frigate_rtsp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_rtsp_password
+              - secretKey: frigate_mqtt_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_mqtt_host
+              - secretKey: frigate_mqtt_user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_mqtt_user
+              - secretKey: frigate_mqtt_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_mqtt_password
+              - secretKey: ffmpeg_path
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: ffmpeg_path
+
+    - name: Deploy ExternalSecret (RTSP secret)
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: frigate-secret
+            namespace: "{{ frigate_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: frigate-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: FRIGATE_RTSP_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: frigate_rtsp_password
+
+    - name: Read secret (with wait retry loop)
+      kubernetes.core.k8s_info:
+        kubeconfig: "{{ kubeconfig_path }}"
+        kind: Secret
+        namespace: "{{ frigate_namespace }}"
+        name: frigate-vault-secrets
+      register: vault_secret
+      until: 
+        - vault_secret.resources | length > 0
+        - "'data' in vault_secret.resources[0]"
+        - "'ffmpeg_path' in vault_secret.resources[0].data"
+      retries: 15
+      delay: 2
+
+    - name: Set default StorageClass
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: patched
+        kind: StorageClass
+        name: "{{ default_storage_class }}"
+        definition:
+          metadata:
+            annotations:
+              storageclass.kubernetes.io/is-default-class: "true"
+
+    - name: Create Frigate config dict
+      ansible.builtin.set_fact:
+        frigate_config_dict:
+          auth:
+            enabled: false
+          mqtt:
+            enabled: true
+            host: "{{ vault_secret.resources[0].data.frigate_mqtt_host | b64decode }}"
+            user: "{{ vault_secret.resources[0].data.frigate_mqtt_user | b64decode }}"
+            password: "{{ vault_secret.resources[0].data.frigate_mqtt_password | b64decode }}"
+          cameras:
+            reolink:
+              enabled: true
+              detect:
+                enabled: true
+                height: 480
+                width: 704
+                fps: 5
+              objects:
+                track:
+                  - person
+                  - car
+              ffmpeg:
+                inputs:
+                  - path: "{{ vault_secret.resources[0].data.ffmpeg_path | b64decode }}"
+                    roles:
+                      - detect
+                      - record
+              mqtt:
+                enabled: true
+                timestamp: true
+                bounding_box: true
+                crop: false
+                height: 270
+                quality: 70
+              record:
+                enabled: true
+                continuous:
+                  days: 2
+                motion:
+                  days: 2
+                alerts:
+                  retain:
+                    days: 2
+                    mode: all
+                detections:
+                  retain:
+                    days: 2
+                    mode: all
+
+    - name: Create Frigate config ConfigMap
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig_path }}"
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: frigate-config
+            namespace: "{{ frigate_namespace }}"
+          data:
+            config.yml: "{{ frigate_config_dict | to_nice_yaml }}"
+
+    - name: Deploy Frigate Helm chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: frigate
+        chart_ref: "{{ frigate_chart_path }}"
+        release_namespace: "{{ frigate_namespace }}"
+        create_namespace: true
+        values:
+          image:
+            tag: stable
+          rtspPassword:
+            existingSecret: frigate-secret
+            key: FRIGATE_RTSP_PASSWORD
+          ingress:
+            enabled: true
+            ingressClassName: haproxy
+            host: frigate.thekor.eu
+            annotations:
+              haproxy.org/timeout-tunnel: "3600s"
+              haproxy.org/timeout-server: "30s"
+            tls:
+              enabled: true
+              secretName: wildcard-thekor

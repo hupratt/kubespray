@@ -1,0 +1,75 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: cephblock-backup-template
+  namespace: rook-ceph
+spec:
+  schedule: "0 0 31 2 *"  # Never runs (Feb 31st doesn't exist)
+  suspend: true
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        metadata:
+          name: cephblock-backup
+        spec:
+          restartPolicy: Never
+          securityContext:
+            runAsUser: 0
+          affinity:
+            nodeAffinity:
+              requiredDuringSchedulingIgnoredDuringExecution:
+                nodeSelectorTerms:
+                  - matchExpressions:
+                      - key: kubernetes.io/hostname
+                        operator: In
+                        values:
+                          - kube-node01
+          containers:
+            - name: cephblock-backup
+              image: rook/ceph:v1.15.5
+              command: ["/root/backupoutput/generated.sh"]
+              stdin: true
+              tty: true
+              securityContext:
+                privileged: true
+              volumeMounts:
+                - name: ceph-conf
+                  mountPath: /mnt/ceph
+                - name: dev
+                  mountPath: /dev
+                - name: backupoutput
+                  mountPath: /root/backupoutput
+                - name: tmp-backup-dir
+                  mountPath: /tmp
+          volumes:
+            - name: ceph-conf
+              hostPath:
+                path: /etc/ceph
+                type: Directory
+            - name: dev
+              hostPath:
+                path: /dev
+                type: Directory
+            - name: tmp-backup-dir
+              persistentVolumeClaim:
+                claimName: backup-mount-pvc
+            - name: backupoutput
+              hostPath:
+                path: /mnt/backupoutput
+                type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: backup-mount-pvc
+  namespace: rook-ceph
+spec:
+  storageClassName: rook-ceph-block
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 30Gi
+
+# kubectl create job --from=cronjob/cephblock-backup-template cephblock-backup-$(date +%F) -n rook-ceph

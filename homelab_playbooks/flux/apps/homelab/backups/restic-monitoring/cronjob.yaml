@@ -1,0 +1,75 @@
+---
+# Migrated verbatim from the "Deploy restic backup CronJob" task in
+# 39-restic-monitoring.yaml. Backs up the prometheus-grafana PVC.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: restic-backup-monitoring
+  namespace: monitoring
+spec:
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: restic-init
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic snapshots >/dev/null 2>&1 || restic init
+              envFrom:
+                - secretRef:
+                    name: monitoring-secrets
+          containers:
+            - name: restic
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic backup /data --host grafana
+                  restic forget \
+                    --keep-daily 7 \
+                    --keep-weekly 4 \
+                    --keep-monthly 6 \
+                    --prune
+              envFrom:
+                - secretRef:
+                    name: monitoring-secrets
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: prometheus-grafana

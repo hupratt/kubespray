@@ -1,0 +1,264 @@
+---
+# Source: 46-slow-storage.yaml — "Create StorageClass (no-provisioner)".
+# NOTE: the playbook also mkdir'd the backing directories on node coreos-wk-4
+# (delegate_to + become). That host-side step is NOT declarative — see BLOCKERS.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: slow-local
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolumes" (loop item slow-pv-01).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: slow-pv-01
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /var/mnt/slow-storage/slow-pv-01
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolumes immich db space".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-pg-1
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/immich/immich-pg-1
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolumes immich db space".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-pg-2
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/immich/immich-pg-2
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolumes tmp restore".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: volsync-src-immich-library-backup-cache
+spec:
+  capacity:
+    storage: 3000Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/immich/volsync-src-immich-library-backup-cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolumes tmp restore".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: volsync-src-immich-library-restore-cache
+spec:
+  capacity:
+    storage: 3000Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/immich/volsync-src-immich-library-restore-cache
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolumes for the immich library".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-library
+spec:
+  capacity:
+    storage: 3000Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/immich/library
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolume youtubeclone-static".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: youtubeclone-static
+spec:
+  capacity:
+    storage: 3000Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/youtubeclone-dockerized/static
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolume youtubeclone-uploads".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: youtubeclone-uploads
+spec:
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/youtubeclone-dockerized/youtubeclone-backend/uploads
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolume youtubeclone-vids".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: youtubeclone-vids
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/youtubeclone-dockerized/vids
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolume scriberr-data-pv".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: scriberr-data-pv
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/scriberr/scriberr_data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+# Source: 46-slow-storage.yaml — "Create PersistentVolume scriberr-whisperx-env-pv".
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: scriberr-whisperx-env-pv
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: /opt/scriberr/env_data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services

@@ -1,0 +1,23 @@
+---
+# Migrated verbatim from 03a-cert-manager.yaml, task "Create wildcard Certificate
+# for thekor.eu". cert-manager writes the resulting cert into Secret
+# wildcard-thekor in namespace cert-manager.
+#
+# NOTE: 03a also annotated the generated wildcard-thekor Secret with
+# replicator.v1.mittwald.de/replicate-to (kubernetes-replicator) to fan it out to
+# many namespaces. That annotation patches a cert-manager-OWNED Secret and the
+# kubernetes-replicator install are not migrated here (see BLOCKERS in the report).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-thekor
+  namespace: cert-manager
+spec:
+  secretName: wildcard-thekor
+  issuerRef:
+    name: letsencrypt-dns-hetzner
+    kind: ClusterIssuer
+  commonName: "*.thekor.eu"
+  dnsNames:
+    - "*.thekor.eu"
+    - "thekor.eu"

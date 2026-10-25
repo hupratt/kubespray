@@ -1,0 +1,66 @@
+---
+# Migrated verbatim from 37-ilo-exporter.yaml, task "Deploy iLO exporter manifests"
+# (Deployment). image -> mauvesoftware/ilo_exporter:latest ; port -> 9545
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ilo-exporter
+  namespace: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ilo-exporter
+  template:
+    metadata:
+      labels:
+        app: ilo-exporter
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ilo-exporter
+          image: "mauvesoftware/ilo_exporter:latest"
+          ports:
+            - containerPort: 9545
+              name: metrics
+          env:
+            - name: API_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ilo-exporter-secret
+                  key: username
+            - name: API_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: ilo-exporter-secret
+                  key: password
+          securityContext:
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi

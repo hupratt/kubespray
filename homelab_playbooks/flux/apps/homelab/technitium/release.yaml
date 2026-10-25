@@ -1,0 +1,115 @@
+---
+# Migrated from the Helm tasks in 45-technitium.yaml. External Helm repo
+# (obeone/technitium-dnsserver), chart version 1.10.0 pinned. Values are the
+# rendered charts/technitium/templates/values.yaml.j2 with vars inlined
+# (ingress host dns.thekor.eu, cluster-issuer letsencrypt-dns-hetzner,
+# storage slow-local 5Gi, tls wildcard-thekor). The one secret the template
+# interpolated — DNS_SERVER_SSO_CLIENT_ID (from technitium-admin-secret) — is
+# injected via valuesFrom + targetPath instead of being rendered as plaintext.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: obeone
+  namespace: technitium
+spec:
+  interval: 1h
+  url: https://charts.obeone.cloud
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: technitium
+  namespace: technitium
+spec:
+  releaseName: technitium
+  interval: 30m
+  chart:
+    spec:
+      chart: technitium-dnsserver
+      version: "1.10.0"
+      sourceRef:
+        kind: HelmRepository
+        name: obeone
+        namespace: technitium
+      interval: 1h
+  install:
+    createNamespace: false
+  valuesFrom:
+    - kind: Secret
+      name: technitium-admin-secret
+      valuesKey: technitium_sso_client_id
+      targetPath: env.DNS_SERVER_SSO_CLIENT_ID
+  values:
+    image:
+      repository: technitium/dns-server
+      tag: "15.3.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    env:
+      TZ: Europe/Berlin
+      DNS_SERVER_DOMAIN: "dns.thekor.eu"
+      DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/dns-secrets/admin-password"
+      DNS_SERVER_RECURSION: "AllowOnlyForPrivateNetworks"
+      DNS_SERVER_QNAME_MINIMIZATION: "true"
+      DNS_SERVER_DNSSEC_VALIDATION: "true"
+      DNS_SERVER_SSO_ENABLED: "true"
+      DNS_SERVER_SSO_AUTHORITY: "https://auth.thekor.eu/application/o/technitium/"
+      # DNS_SERVER_SSO_CLIENT_ID is injected via valuesFrom above.
+      DNS_SERVER_SSO_CLIENT_SECRET_FILE: "/run/dns-secrets/technitium_sso_client_secret"
+      DNS_SERVER_SSO_SCOPES: "openid,profile,email"
+      DNS_SERVER_SSO_ALLOW_SIGNUP: "true"
+      DNS_SERVER_SSO_ALLOW_SIGNUP_ONLY_FOR_MAPPED_USERS: "true"
+      DNS_SERVER_SSO_GROUP_MAP: "Technitium Admins:Administrators"
+    # IMPORTANT: needed for port 53 on the node
+    hostNetwork: true
+    dnsPolicy: Default
+    ingress:
+      main:
+        enabled: true
+        ingressClassName: haproxy
+        annotations:
+          cert-manager.io/cluster-issuer: "letsencrypt-dns-hetzner"
+        hosts:
+          - host: "dns.thekor.eu"
+            paths:
+              - path: /
+                pathType: Prefix
+        tls:
+          - secretName: "wildcard-thekor"
+            hosts:
+              - "dns.thekor.eu"
+    persistence:
+      config:
+        enabled: true
+        type: pvc
+        storageClass: "slow-local"
+        accessMode: ReadWriteOnce
+        size: "5Gi"
+        mountPath: /etc/dns
+      admin-secret:
+        enabled: true
+        type: secret
+        name: technitium-admin-secret
+        mountPath: /run/dns-secrets
+        readOnly: true
+      mysql-config:
+        enabled: true
+        type: secret
+        name: technitium-mysql-config
+        mountPath: "/etc/dns/apps/Query Logs (MySQL)/dnsApp.config"
+        subPath: dnsApp.config
+        readOnly: true
+    resources:
+      requests:
+        memory: "128Mi"
+      limits:
+        memory: "512Mi"
+    nodeSelector:
+      kubernetes.io/hostname: coreos-wk-4
+    tolerations:
+      - key: "dedicated"
+        operator: "Equal"
+        value: "slow-services"
+        effect: "NoSchedule"
+    securityContext: {}
+    podSecurityContext: {}

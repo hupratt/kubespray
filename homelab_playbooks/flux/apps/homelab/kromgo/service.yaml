@@ -1,0 +1,17 @@
+---
+# Migrated verbatim from 36-kromgo.yaml, task "Deploy kromgo Service".
+apiVersion: v1
+kind: Service
+metadata:
+  name: kromgo
+  namespace: monitoring
+spec:
+  selector:
+    app: kromgo
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+    - name: health
+      port: 8888
+      targetPort: 8888

@@ -1,0 +1,225 @@
+---
+- name: Deploy NetBird and STUN/TURN Engine
+  hosts: localhost
+  gather_facts: false
+  connection: local
+
+  vars:
+    netbird_namespace: netbird
+    netbird_release: netbird
+    netbird_chart_version: "1.9.0"
+    domain: "thekor.eu"
+    netbird_domain: "netbird.{{ domain }}"
+    netbird_dashboard_domain: "netbird.{{ domain }}"
+    netbird_stun_domain: "stun.{{ domain }}"
+
+    # HAProxy Ingress Controller config
+    haproxy_ingress_flavor: "haproxytech"
+    haproxy_ingress_class: "haproxy"
+    haproxy_cert_issuer: "letsencrypt-prod"
+
+    # Vault / ESO 
+    vault_secret_store: "vault-backend"
+    vault_kv_mount: "secret"
+    vault_kv_path: "netbird"
+
+    # IdP (Authentik)
+    idp_manager_type: "authentik"
+    idp_base_url: "https://auth.{{ domain }}/application/o/netbird"
+
+    netbird_use_postgres: true
+    values_out: "/tmp/netbird-values.yaml"
+    netbird_dashboard_image_tag: "v2.90.3"
+    netbird_signal_image_tag: "0.74.4"
+    netbird_relay_image_tag: "0.74.4"
+    netbird_management_image_tag: "0.74.4"
+
+  tasks:
+
+    - name: Create ExternalSecret to Sync Vault Keys to K8s Secret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: netbird
+            namespace: "{{ netbird_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: netbird
+              creationPolicy: Owner
+            data:
+              - secretKey: postgresDSN
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresDSN
+              - secretKey: turnServerPassword
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: turnServerPassword
+              - secretKey: relayPassword
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: relayPassword
+              - secretKey: datastoreEncryptionKey
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: datastoreEncryptionKey
+              - secretKey: idpClientID
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: idpClientID
+              - secretKey: idpServiceAccountUser
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: idpServiceAccountUser
+              - secretKey: idpServiceAccountPassword
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: idpServiceAccountPassword
+              - secretKey: idpClientSecret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: idpClientSecret
+              - secretKey: activityStoreEngine
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: activityStoreEngine
+              - secretKey: activityPostgresDSN
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: activityPostgresDSN
+
+    - name: Deploy Lightweight Co-located STUN/TURN Engine (eturnal)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: netbird-stun
+            namespace: "{{ netbird_namespace }}"
+            labels:
+              app: netbird-stun
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: netbird-stun
+            template:
+              metadata:
+                labels:
+                  app: netbird-stun
+              spec:
+                containers:
+                - name: eturnal
+                  image: ghcr.io/processone/eturnal:1.12.3
+                  ports:
+                  - containerPort: 3478
+                    name: stun-udp
+                    protocol: UDP
+                  - containerPort: 3478
+                    name: stun-tcp
+                    protocol: TCP
+                  env:
+                  # Pulls the secret dynamically via your synced environment values
+                  - name: ETURNAL_SECRET
+                    valueFrom:
+                      secretKeyRef:
+                        name: netbird
+                        key: turnServerPassword
+                  # Enable STUN + Time-based Auth for TURN discovery queries
+                  - name: ETURNAL_LOG_DIR
+                    value: "stdout"
+
+    - name: Expose STUN Server via L4 LoadBalancer (Required for P2P UDP)
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: netbird-stun-lb
+            namespace: "{{ netbird_namespace }}"
+          spec:
+            type: LoadBalancer
+            selector:
+              app: netbird-stun
+            ports:
+            - name: stun-udp
+              port: 3478
+              targetPort: 3478
+              protocol: UDP
+            - name: stun-tcp
+              port: 3478
+              targetPort: 3478
+              protocol: TCP
+
+    - name: Add netbirdio helm repo
+      kubernetes.core.helm_repository:
+        name: netbirdio
+        repo_url: "https://netbirdio.github.io/helms"
+
+    - name: Render helm values
+      ansible.builtin.template:
+        src: charts/netbird/values.yaml.j2
+        dest: "{{ values_out }}"
+        mode: "0600"
+
+    - name: Deploy NetBird Tier via Helm
+      kubernetes.core.helm:
+        name: "{{ netbird_release }}"
+        chart_ref: netbirdio/netbird
+        chart_version: "{{ netbird_chart_version }}"
+        release_namespace: "{{ netbird_namespace }}"
+        create_namespace: false
+        values_files:
+          - "{{ values_out }}"
+        wait: true
+        timeout: 5m0s
+
+    - name: Show status of running resources
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ netbird_namespace }}"
+      register: netbird_pods
+
+    - name: Print pod status
+      ansible.builtin.debug:
+        msg: "{{ item.metadata.name }}: {{ item.status.phase }}"
+      loop: "{{ netbird_pods.resources }}"
+      loop_control:
+        label: "{{ item.metadata.name }}"
+
+
+# ACCESS_TOKEN=$(curl -s -X POST https://auth.adata.de/application/o/token/ \
+#   -d grant_type=client_credentials \
+#   -d client_id=$client_id \
+#   -d username=$username \
+#   -d password=$password \
+#   -d scope="goauthentik.io/api" | jq -r .access_token)
+
+# curl -s -i -X GET "https://auth.adata.de/application/o/userinfo/" \
+#   -H "Origin: https://netbird.cloud2.adata.de" \
+#   -H "Accept: application/json" \
+#   -H "Authorization: Bearer $ACCESS_TOKEN"
+
+# echo $ACCESS_TOKEN
+
+# curl -s -H "Authorization: Bearer $ACCESS_TOKEN" \
+#   "https://auth.adata.de/api/v3/core/users/?email=hpratt@adata.de" | jq .
+
+# curl -fsSL https://pkgs.netbird.io/install.sh | sh
+
+# netbird up \
+#   --management-url https://netbird.cloud2.adata.de \
+#   --admin-url https://netbird.cloud2.adata.de \
+#   --no-browser
+
+# netbird service uninstall

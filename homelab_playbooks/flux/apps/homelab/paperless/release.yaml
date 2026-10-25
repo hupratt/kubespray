@@ -1,0 +1,104 @@
+---
+# Replaces the "Deploy paperless-ngx Helm chart" task in 32-paperless.yaml.
+#
+# The Ansible flow rendered secrets from Vault, then `helm install` of the local
+# chart at homelab_playbooks/charts/paperless-ngx. That chart lives inside THIS
+# repo (kube/kubespray.git), which Flux already syncs as the `flux-system`
+# GitRepository, so we reuse it as the chart source (no extra GitRepository).
+#
+# Non-secret values are committed inline; every value the playbook interpolated
+# from the Vault-read Secret is injected at reconcile time from the ESO-managed
+# Secret `paperless-vault-secrets` via valuesFrom + targetPath.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: paperless
+  namespace: paperless
+spec:
+  releaseName: paperless
+  interval: 30m
+  chart:
+    spec:
+      chart: homelab_playbooks/charts/paperless-ngx
+      sourceRef:
+        kind: GitRepository
+        name: flux-system
+        namespace: flux-system
+      interval: 30m
+  install:
+    timeout: 10m
+  # Secret / Vault-derived scalars injected from the ESO-managed Secret.
+  valuesFrom:
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_secret_key
+      targetPath: paperless.secret.secretKey
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_db_password
+      targetPath: paperless.secret.dbPassword
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_admin_user
+      targetPath: paperless.secret.adminUser
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_admin_password
+      targetPath: paperless.secret.adminPassword
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_admin_mail
+      targetPath: paperless.secret.adminMail
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_db_host
+      targetPath: externalPostgres.host
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_db_port
+      targetPath: externalPostgres.port
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_db_name
+      targetPath: externalPostgres.database
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_db_user
+      targetPath: externalPostgres.user
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_hostname
+      targetPath: ingress.host
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_tls_secret
+      targetPath: ingress.tls.secretName
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_url
+      targetPath: paperless.config.PAPERLESS_URL
+    - kind: Secret
+      name: paperless-vault-secrets
+      valuesKey: paperless_url
+      targetPath: paperless.config.PAPERLESS_CSRF_TRUSTED_ORIGINS
+  # Non-secret values carried over from the playbook's Helm `values:` block.
+  values:
+    persistence:
+      data:
+        existingClaim: paperless-paperless-ngx-data
+        size: 5Gi
+      media:
+        existingClaim: paperless-paperless-ngx-media
+        size: 20Gi
+      export:
+        existingClaim: paperless-paperless-ngx-export
+        size: 5Gi
+      consume:
+        existingClaim: paperless-paperless-ngx-consume
+        size: 2Gi
+    paperless:
+      config:
+        PAPERLESS_OCR_MODE: skip
+        PAPERLESS_OCR_OUTPUT_TYPE: pdf
+    redis:
+      storageClass: "rook-ceph-block"

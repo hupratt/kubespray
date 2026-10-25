@@ -1,0 +1,28 @@
+---
+# Migrated verbatim from 29-makita.yaml (task: "Create ingress").
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: makita-ingress
+  namespace: makita
+  annotations:
+    haproxy.org/check: "disabled"
+    haproxy.org/backend-config-snippet: |
+      no option httpchk
+spec:
+  ingressClassName: haproxy
+  tls:
+    - hosts:
+        - makita.thekor.eu
+      secretName: wildcard-thekor
+  rules:
+    - host: makita.thekor.eu
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: makita-backend
+                port:
+                  number: 9224

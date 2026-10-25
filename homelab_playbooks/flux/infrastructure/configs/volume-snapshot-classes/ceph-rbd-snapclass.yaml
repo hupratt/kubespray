@@ -1,0 +1,12 @@
+---
+# Source: 08c-setup-volsync.yaml — "Create Rook-Ceph RBD VolumeSnapshotClass".
+# Cluster-scoped storage config; used by VolSync ReplicationSources (copyMethod
+# Snapshot) in apps/homelab/volsync-backups.
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: ceph-rbd-snapclass
+  annotations:
+    snapshot.storage.kubernetes.io/is-default-class: "true"
+driver: rook-ceph.rbd.csi.ceph.com
+deletionPolicy: Delete

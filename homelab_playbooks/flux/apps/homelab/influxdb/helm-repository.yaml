@@ -1,0 +1,10 @@
+---
+# Migrated from 12-influx.yaml, task "Add InfluxData Helm repo".
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: influxdata
+  namespace: monitoring
+spec:
+  interval: 1h
+  url: https://helm.influxdata.com

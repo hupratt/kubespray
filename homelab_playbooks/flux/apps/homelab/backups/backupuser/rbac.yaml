@@ -1,0 +1,117 @@
+---
+# Migrated from 13-backupuser.yaml
+#   task: "Create backup-role ClusterRole"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: backup-role
+rules:
+  - apiGroups: ["", "apps", "extensions"]
+    resources:
+      - pods
+      - services
+      - deployments
+      - replicasets
+      - configmaps
+      - events
+      - persistentvolumeclaims
+      - persistentvolumes
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources:
+      - pods/exec
+    verbs:
+      - create
+  - apiGroups: ["batch"]
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+      - create
+      - delete
+      - patch
+      - update
+---
+# Migrated from 13-backupuser.yaml
+#   task: "Create backup-role-binding ClusterRoleBinding"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: backup-role-binding
+subjects:
+  - kind: ServiceAccount
+    name: backup
+    namespace: backup
+roleRef:
+  kind: ClusterRole
+  name: backup-role
+  apiGroup: rbac.authorization.k8s.io
+---
+# Migrated from 13-backupuser.yaml
+#   task: "Create delete-pushgateway-pods Role in monitoring namespace"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: delete-pushgateway-pods
+  namespace: monitoring
+rules:
+  - apiGroups: [""]
+    resources:
+      - pods
+    verbs:
+      - delete
+---
+# Migrated from 13-backupuser.yaml
+#   task: "Create delete-pushgateway-pods-binding RoleBinding in monitoring namespace"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: delete-pushgateway-pods-binding
+  namespace: monitoring
+subjects:
+  - kind: ServiceAccount
+    name: backup
+    namespace: backup
+roleRef:
+  kind: Role
+  name: delete-pushgateway-pods
+  apiGroup: rbac.authorization.k8s.io
+---
+# Migrated from 13-backupuser.yaml
+#   task: "Create Role to allow scaling the volsync deployment needed for the garage dynip"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scale-volsync
+  namespace: volsync
+rules:
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - deployments/scale
+    resourceNames:
+      - volsync
+    verbs:
+      - get
+      - patch
+      - update
+---
+# Migrated from 13-backupuser.yaml
+#   task: "Bind Role to backup service account needed for the garage dynip"
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scale-volsync
+  namespace: volsync
+subjects:
+  - kind: ServiceAccount
+    name: backup
+    namespace: backup
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scale-volsync

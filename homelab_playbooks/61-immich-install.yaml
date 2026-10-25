@@ -1,0 +1,500 @@
+---
+# deploy_immich.yml
+- name: Deploy/Update Immich
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    immich_namespace: immich
+    immich_chart_version: "0.12.0"
+    immich_chart_repo: https://immich-app.github.io/immich-charts
+    immich_release_name: immich
+
+    immich_node_selector:
+      node-role: slow-services
+
+    immich_tolerations:
+      - key: dedicated
+        operator: Equal
+        value: slow-services
+        effect: NoSchedule
+
+    immich_library_pv: immich-library
+    # immich_library_storage_class: rook-ceph-block
+    immich_library_storage_class: slow-local
+    immich_library_storage_size: 3000Gi
+
+    immich_db_pv: immich-pg-1
+    # immich_db_storage_class: rook-ceph-block
+    immich_db_storage_class: slow-local
+    immich_db_storage_size: 100Gi
+
+    # TensorChord image — built on CNPG base (UID 26), includes vectorchord
+    immich_db_image: ghcr.io/tensorchord/cloudnative-vectorchord:16.9-0.3.0
+
+    vault_secret_store: vault-backend
+    vault_kv_mount: immich
+    vault_kv_restic_mount: restic
+
+    volsync_schedule: "0 2 * * *"
+    volsync_retain_hourly: 24
+    volsync_retain_daily: 7
+    volsync_retain_weekly: 4
+    volsync_retain_monthly: 3
+
+  tasks:
+
+    # ── Idempotency check ──────────────────────────────────────────────────
+
+    - name: Check if Immich Helm release is already installed
+      kubernetes.core.helm_info:
+        name: "{{ immich_release_name }}"
+        release_namespace: "{{ immich_namespace }}"
+      register: immich_release_info
+
+    # - name: Debug Immich release info
+    #   ansible.builtin.debug:
+    #     var: immich_release_info
+
+    - name: Set fact for install state
+      ansible.builtin.set_fact:
+        immich_already_installed: "{{ immich_release_info.status is defined and immich_release_info.status.status == 'deployed' }}"
+
+    - name: Debug Immich release info
+      ansible.builtin.debug:
+        var: immich_already_installed
+
+    # ── ExternalSecrets ──────────────────────────────────────────────────────
+
+    - name: Deploy ExternalSecret for Immich DB credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: immich-db-secret
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: immich-db-secret
+              creationPolicy: Owner
+              template:
+                engineVersion: v2
+                data:
+                  username: "{{ '{{' }} .username {{ '}}' }}"
+                  password: "{{ '{{' }} .password {{ '}}' }}"
+                  # POSTGRES_USER: "{{ '{{' }} .username {{ '}}' }}"
+                  # POSTGRES_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
+                  # POSTGRES_DB: "{{ '{{' }} .name {{ '}}' }}"
+                  uri: "postgresql://{{ '{{' }} .username {{ '}}' }}:{{ '{{' }} .password {{ '}}' }}@immich-pg-rw.{{ immich_namespace }}.svc/{{ '{{' }} .name {{ '}}' }}"
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: password
+              - secretKey: name
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: name
+
+    - name: Deploy ExternalSecret for Immich application secrets
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: immich-app-secret
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: immich-app-secret
+              creationPolicy: Owner
+              template:
+                engineVersion: v2
+                data:
+                  DB_USERNAME: "{{ '{{' }} .username {{ '}}' }}"
+                  DB_PASSWORD: "{{ '{{' }} .password {{ '}}' }}"
+                  DB_DATABASE_NAME: "{{ '{{' }} .name {{ '}}' }}"
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: password
+              - secretKey: name
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: name
+
+    - name: Deploy ExternalSecret for VolSync library
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: volsync-restic-secret-library
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: volsync-restic-secret-library
+              creationPolicy: Owner
+            data:
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: RESTIC_PASSWORD
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: RESTIC_LIB_REPOSITORY
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_SECRET_ACCESS_KEY
+
+    - name: Deploy ExternalSecret for VolSync restic repository
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: volsync-restic-secret-db
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: "{{ vault_secret_store }}"
+              kind: ClusterSecretStore
+            target:
+              name: volsync-restic-secret-db
+              creationPolicy: Owner
+            data:
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: RESTIC_PASSWORD
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: "{{ vault_kv_mount }}"
+                  property: RESTIC_DB_REPOSITORY
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: "{{ vault_kv_restic_mount }}"
+                  property: AWS_SECRET_ACCESS_KEY
+
+    - name: Wait for ExternalSecrets to sync
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1
+        kind: ExternalSecret
+        namespace: "{{ immich_namespace }}"
+        name: "{{ item }}"
+      register: es_status
+      until: >-
+        es_status.resources | length > 0 and
+        es_status.resources[0].status is defined and
+        (es_status.resources[0].status.conditions |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length > 0)
+      retries: 20
+      delay: 10
+      loop:
+        - immich-db-secret
+        - immich-app-secret
+        - volsync-restic-secret-db
+        - volsync-restic-secret-library
+
+    - name: Create ExternalSecret for shared cluster superuser
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "superuser-vault-secret"
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: "superuser-vault-secret"
+              creationPolicy: Owner
+              template:
+                type: kubernetes.io/basic-auth
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ immich_namespace }}"
+                  property: superuser_username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ immich_namespace }}"
+                  property: superuser_password
+    # ── PVCs ─────────────────────────────────────────────────────────────────
+
+    - name: Create Immich library PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: immich-library
+            namespace: "{{ immich_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            # remove this in case you're dynamically provisioning the PV
+            volumeName: "{{ immich_library_pv }}"
+            storageClassName: "{{ immich_library_storage_class }}"
+            resources:
+              requests:
+                storage: "{{ immich_library_storage_size }}"
+
+    - name: Create ExternalSecret for backup user
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: cnpg-backup-user
+            namespace: "{{ immich_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: cnpg-backup-user
+              creationPolicy: Owner
+            data:
+              - secretKey: setup.sql
+                remoteRef:
+                  key: cn-postgres
+                  property: setup.sql
+
+    # ── CNPG Cluster ─────────────────────────────────────────────────────────
+
+    - name: Deploy CNPG Cluster for Immich
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Cluster
+          metadata:
+            name: immich-pg
+            namespace: "{{ immich_namespace }}"
+          spec:
+            instances: 1
+            enableSuperuserAccess: true
+            imageName: "{{ immich_db_image }}"
+            affinity:
+              nodeSelector: "{{ immich_node_selector }}"
+              tolerations: "{{ immich_tolerations }}"
+            postgresql:
+              shared_preload_libraries:
+                - vchord.so
+            superuserSecret:
+              name: superuser-vault-secret
+            bootstrap:
+              initdb:
+                database: immich
+                owner: immich
+                secret:
+                  name: superuser-vault-secret
+                postInitSQLRefs:
+                  secretRefs:
+                    - name: cnpg-backup-user
+                      key: setup.sql
+                postInitSQL:
+                  - CREATE EXTENSION IF NOT EXISTS vchord CASCADE;
+                  - CREATE EXTENSION IF NOT EXISTS vector CASCADE;
+                  - CREATE EXTENSION IF NOT EXISTS cube CASCADE;
+                  - CREATE EXTENSION IF NOT EXISTS earthdistance CASCADE;
+            storage:
+              pvcTemplate:
+                accessModes: [ReadWriteOnce]
+                storageClassName: "{{ immich_db_storage_class }}"
+                resources:
+                  requests:
+                    storage: "{{ immich_db_storage_size }}"
+
+    # - name: Wait for CNPG cluster to be ready
+    #   kubernetes.core.k8s_info:
+    #     api_version: postgresql.cnpg.io/v1
+    #     kind: Cluster
+    #     namespace: "{{ immich_namespace }}"
+    #     name: immich-pg
+    #   register: cnpg_status
+    #   until: >-
+    #     cnpg_status.resources | length > 0 and
+    #     cnpg_status.resources[0].status is defined and
+    #     (cnpg_status.resources[0].status.conditions |
+    #      selectattr('type', 'equalto', 'Ready') |
+    #      selectattr('status', 'equalto', 'True') | list | length > 0)
+    #   retries: 30
+    #   delay: 15
+
+    - name: Deploy Database CRD
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: postgresql.cnpg.io/v1
+          kind: Database
+          metadata:
+            name: "immich-db"
+            namespace: "immich"
+          spec:
+            name: "immich"
+            owner: "immich"
+            cluster:
+              name: "immich-pg"
+    # ── Helm release ─────────────────────────────────────────────────────────
+
+    - name: Add Immich Helm repository
+      kubernetes.core.helm_repository:
+        name: immich
+        repo_url: "{{ immich_chart_repo }}"
+
+    - name: Deploy Immich via Helm
+      kubernetes.core.helm:
+        name: "{{ immich_release_name }}"
+        chart_ref: immich/immich
+        chart_version: "{{ immich_chart_version }}"
+        release_namespace: "{{ immich_namespace }}"
+        create_namespace: false
+        wait: true
+        timeout: 10m0s
+        values: "{{ lookup('template', 'charts/immich/immich-values.yml.j2') | from_yaml }}"
+        
+    - name: Set ingressClassName on Immich ingress
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: Ingress
+          metadata:
+            name: immich-server
+            namespace: immich
+          spec:
+            ingressClassName: haproxy
+
+    # ── One-time cache permission fix (idempotent, declarative) ──────────
+
+    - name: Create temporary PolicyException for cache-perms fix job
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: kyverno.io/v2
+          kind: PolicyException
+          metadata:
+            name: immich-cache-fix-temp
+            namespace: "{{ immich_namespace }}"
+          spec:
+            exceptions:
+              - policyName: disallow-root-user
+                ruleNames:
+                  - mutate-runAsNonRoot
+                  - validate-runAsNonRoot
+            match:
+              any:
+                - resources:
+                    kinds: [Pod]
+                    namespaces: ["{{ immich_namespace }}"]
+                    names: ["fix-cache-perms*"]
+      when: not immich_already_installed
+
+    - name: Run chown job for machine-learning cache PVC
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: batch/v1
+          kind: Job
+          metadata:
+            name: fix-cache-perms
+            namespace: "{{ immich_namespace }}"
+          spec:
+            backoffLimit: 0
+            template:
+              spec:
+                restartPolicy: Never
+                containers:
+                  - name: fix-cache-perms
+                    image: busybox
+                    command: ["chown", "-R", "1000:0", "/cache"]
+                    volumeMounts:
+                      - name: cache
+                        mountPath: /cache
+                    securityContext:
+                      runAsUser: 0
+                volumes:
+                  - name: cache
+                    persistentVolumeClaim:
+                      claimName: immich-machine-learning
+      when: not immich_already_installed
+
+    - name: Wait for chown job to complete
+      kubernetes.core.k8s_info:
+        api_version: batch/v1
+        kind: Job
+        namespace: "{{ immich_namespace }}"
+        name: fix-cache-perms
+      register: chown_job
+      until: >-
+        chown_job.resources | length > 0 and
+        chown_job.resources[0].status.succeeded is defined and
+        chown_job.resources[0].status.succeeded >= 1
+      retries: 12
+      delay: 5
+      when: not immich_already_installed
+
+    - name: Remove chown job
+      kubernetes.core.k8s:
+        state: absent
+        api_version: batch/v1
+        kind: Job
+        namespace: "{{ immich_namespace }}"
+        name: fix-cache-perms
+      when: not immich_already_installed
+
+    - name: Remove temporary PolicyException
+      kubernetes.core.k8s:
+        state: absent
+        api_version: kyverno.io/v2
+        kind: PolicyException
+        namespace: "{{ immich_namespace }}"
+        name: immich-cache-fix-temp
+      when: not immich_already_installed

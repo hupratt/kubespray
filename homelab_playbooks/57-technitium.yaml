@@ -1,0 +1,230 @@
+---
+- name: Deploy Technitium
+  hosts: localhost
+  gather_facts: false
+  vars:
+    technitium_namespace: technitium
+    technitium_release_name: technitium
+    technitium_chart_version: "1.10.0"
+    technitium_ingress_host: "dns.thekor.eu"
+    technitium_storage_class: "slow-local"
+    technitium_storage_size: "5Gi"
+    technitium_tls_name: "wildcard-thekor"
+    vault_kv_path: "technitium"
+    technitium_node_ip: "10.10.85.24"
+    technitium_clusterissuer: "letsencrypt-dns-hetzner"
+    vault_init_json: "group_vars/all/vault_init.json"
+    vault_addr: "https://vault.thekor.eu"
+
+  tasks:
+
+    - name: Restrict CoreDNS to control-plane nodes
+      kubernetes.core.k8s:
+        state: patched
+        api_version: apps/v1
+        kind: Deployment
+        name: coredns
+        namespace: kube-system
+        definition:
+          spec:
+            template:
+              spec:
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: node-role.kubernetes.io/control-plane
+                              operator: Exists
+
+    - name: Load vault_init.json
+      ansible.builtin.set_fact:
+        vault_init: "{{ lookup('file', vault_init_json) | from_json }}"
+
+    - name: Deploy ExternalSecret for Technitium admin password
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: technitium-admin-secret
+            namespace: "{{ technitium_namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: technitium-admin-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: admin-password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: admin_password
+              - secretKey: db_name
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_name
+              - secretKey: user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: user
+              - secretKey: technitium_sso_client_id
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: technitium_sso_client_id
+              - secretKey: technitium_sso_client_secret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: technitium_sso_client_secret
+              - secretKey: AWS_ACCESS_KEY_ID
+                remoteRef:
+                  key: restic
+                  property: AWS_ACCESS_KEY_ID
+              - secretKey: AWS_SECRET_ACCESS_KEY
+                remoteRef:
+                  key: restic
+                  property: AWS_SECRET_ACCESS_KEY
+              - secretKey: RESTIC_REPOSITORY
+                remoteRef:
+                  key: restic
+                  property: RESTIC_REPOSITORY
+              - secretKey: RESTIC_PASSWORD
+                remoteRef:
+                  key: restic
+                  property: RESTIC_PASSWORD
+              - secretKey: RESTIC_DB_REPOSITORY
+                remoteRef:
+                  key: restic
+                  property: RESTIC_DB_REPOSITORY
+                  
+    - name: Read secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ technitium_namespace }}"
+        name: technitium-admin-secret
+      register: vault_secret
+
+    - name: Add obeone Helm repo
+      kubernetes.core.helm_repository:
+        name: obeone
+        repo_url: https://charts.obeone.cloud
+        state: present
+
+    - name: Render Technitium values
+      ansible.builtin.template:
+        src: charts/technitium/templates/values.yaml.j2
+        dest: /tmp/technitium-values.yaml
+        mode: "0600"
+
+    - name: Deploy Technitium via Helm
+      kubernetes.core.helm:
+        name: "{{ technitium_release_name }}"
+        chart_ref: obeone/technitium-dnsserver
+        chart_version: "{{ technitium_chart_version }}"
+        release_namespace: "{{ technitium_namespace }}"
+        create_namespace: false
+        values_files:
+          - /tmp/technitium-values.yaml
+
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/technitium-values.yaml
+        state: absent
+
+    - name: Verify Technitium pod is running
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Pod
+        namespace: "{{ technitium_namespace }}"
+        label_selectors:
+          - "app.kubernetes.io/name=technitium-dnsserver"
+      register: technitium_pods
+      until: >
+        technitium_pods.resources | length > 0
+      retries: 12
+      delay: 10
+
+    - name: Patch nodelocaldns DaemonSet with nodeAffinity exclusion
+      kubernetes.core.k8s:
+        state: present
+        kind: DaemonSet
+        name: nodelocaldns
+        namespace: kube-system
+        merge_type:
+          - strategic-merge
+        definition:
+          spec:
+            template:
+              spec:
+                affinity:
+                  nodeAffinity:
+                    requiredDuringSchedulingIgnoredDuringExecution:
+                      nodeSelectorTerms:
+                        - matchExpressions:
+                            - key: kubernetes.io/hostname
+                              operator: NotIn
+                              values:
+                                - coreos-wk-4
+
+# # On wk-4 make sure to remove the nodelocaldns reference as they would both run on port 53
+# sed -i 's/- 10.233.0.10/- 10.233.0.3/' /etc/kubernetes/kubelet-config.yaml
+# grep -A3 'clusterDNS' /etc/kubernetes/kubelet-config.yaml
+
+# # Restart kubelet
+# systemctl restart kubelet
+
+
+
+# before setting up technitium as a dns server you'll have to configure resolved to not 
+
+# /etc/systemd/resolved.conf
+# [Resolve]
+# DNSStubListener=no
+
+# and you'll need to patch nmcli by removing the current dns and adding the ip of the node itself 
+
+# nmcli con edit private 
+
+# make sure to reconfigure the deployments/ss that you deploy to use th
+
+# for ds in csi-rbdplugin csi-cephfsplugin; do
+#   kubectl patch daemonset $ds \
+#     -n rook-ceph \
+#     --type='merge' \
+#     -p '
+# spec:
+#   template:
+#     spec:
+#       affinity:
+#         nodeAffinity:
+#           requiredDuringSchedulingIgnoredDuringExecution:
+#             nodeSelectorTerms:
+#             - matchExpressions:
+#               - key: kubernetes.io/hostname
+#                 operator: NotIn
+#                 values:
+#                 - coreos-wk-4
+# '
+# done
+
+# ALLOW NODE4 ACCESS TO ITS OWN DNS
+
+# kubectl patch svc -n technitium technitium-technitium-dnsserver \
+#   -p '{"spec":{"externalTrafficPolicy":"Cluster"}}'
+
+
+# pods on core-wk-4 can reach technitium's dns ip 10.10.85.24 but the way back is blocked somehow
+# the solution is to have coredns serve the cluster pods on coreos-wk-4 and everyone else points to 10.10.85.24
+# the change should be made at the kubelet config level
+
+# make a deployment spawn on a specific node everytime and use the node's dns
+# kubectl -n monitoring patch deploy prometheus-grafana --type merge -p '{
+#   "spec":{"template":{"spec":{
+#     "dnsPolicy":"ClusterFirst",
+#     "dnsConfig":null,
+#     "nodeSelector":{"kubernetes.io/hostname":"coreos-wk-4"}
+#   }}}}'
+# kubectl -n monitoring rollout status deploy prometheus-grafana

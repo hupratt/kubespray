@@ -1,0 +1,10 @@
+*.bu
+*.json
+terraform.tfvars
+*.lock.hcl
+.terraform
+*.tfstate
+*.lock.info
+*.backup
+butane-config.env
+*.img

@@ -1,0 +1,342 @@
+---
+
+- name: Deploy AWX control plane on Kubernetes with Vault-backed secrets
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    awx_namespace: awx
+    awx_operator_version: "3.2.1"
+    awx_release_name: awx
+
+    secretstore_name: "vault-backend"
+    secretstore_kind: "ClusterSecretStore"
+    refresh_interval: "1h"
+
+    vault_kv_path: awx
+
+    awx_admin_secret_name: "awx-admin-password"
+    awx_secret_key_secret_name: "awx-secret-key"
+    awx_postgres_secret_name: "awx-postgres-configuration"
+
+    # --- CNPG (CloudNativePG) wiring ---
+    # Reference to your existing, already-running CNPG Cluster — nothing
+    # gets created here, we only build the connection info against it.
+    cnpg_cluster_name: "shared-pg"
+    cnpg_cluster_namespace: "cn-postgres"
+    postgres_database_name: "awx"
+    postgres_owner: "awx"
+
+    awx_hostname: "awx.thekor.eu"
+    ingress_class_name: "haproxy"
+
+  tasks:
+
+    - name: Confirm the existing vault-backend ClusterSecretStore is Ready
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1
+        kind: ClusterSecretStore
+        name: "{{ secretstore_name }}"
+      register: cluster_secretstore_check
+      failed_when: >
+        cluster_secretstore_check.resources | length == 0 or
+        (cluster_secretstore_check.resources[0].status.conditions | default([]) |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length == 0)
+
+    - name: Create ExternalSecret for AWX admin password
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ awx_admin_secret_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ awx_admin_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+        # when: create_secret == true
+
+    - name: Create ExternalSecret for AWX secret_key
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ awx_secret_key_secret_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ awx_secret_key_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+              - secretKey: secret_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: secret_key
+
+    - name: Create ExternalSecret for AWX Postgres configuration
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ awx_postgres_secret_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ awx_postgres_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+                metadata:
+                  labels:
+                    "app.kubernetes.io/managed-by": "external-secrets"
+                data:
+                  host: "{{ cnpg_cluster_name }}-rw.{{ cnpg_cluster_namespace }}.svc"
+                  port: "5432"
+                  database: "{{ postgres_database_name }}"
+                  username: "{{ '{{ .username }}' }}"
+                  password: "{{ '{{ .password }}' }}"
+                  sslmode: "prefer"
+                  type: "unmanaged"
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+
+    - name: Wait for AWX Postgres credentials secret to materialize from Vault
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_postgres_secret_name }}"
+      register: postgres_secret_check
+      until: postgres_secret_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    # ------------------------------------------------------------------
+    # We don't create or bootstrap anything here — this assumes the
+    # "{{ postgres_database_name }}" database and "{{ postgres_owner }}"
+    # role already exist on the referenced CNPG cluster, and that the
+    # username/password pulled from Vault above match that role.
+    # ------------------------------------------------------------------
+    - name: Confirm the referenced CNPG Cluster exists and is healthy
+      kubernetes.core.k8s_info:
+        api_version: postgresql.cnpg.io/v1
+        kind: Cluster
+        namespace: "{{ cnpg_cluster_namespace }}"
+        name: "{{ cnpg_cluster_name }}"
+      register: cnpg_status
+      failed_when: >
+        cnpg_status.resources | length == 0 or
+        (cnpg_status.resources[0].status.phase | default('')) != 'Cluster in healthy state'
+
+    - name: Wait for admin password secret to materialize from Vault
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_admin_secret_name }}"
+      register: admin_secret_check
+      until: admin_secret_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Add/refresh the awx-operator helm repo
+      kubernetes.core.helm_repository:
+        name: awx-operator
+        repo_url: https://ansible-community.github.io/awx-operator-helm/
+        state: present
+
+    - name: Deploy AWX Operator via Helm
+      kubernetes.core.helm:
+        name: awx-operator
+        chart_ref: awx-operator/awx-operator
+        chart_version: "{{ awx_operator_version }}"
+        release_namespace: "{{ awx_namespace }}"
+        create_namespace: false
+        wait: true
+        values:
+          AWX:
+            enabled: false
+          operator-controller-containers:
+            awx-manager:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1001
+                seccompProfile:
+                  type: RuntimeDefault
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              readinessProbe:
+                httpGet:
+                  path: /readyz
+                  port: 6789
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                httpGet:
+                  path: /healthz
+                  port: 6789
+                initialDelaySeconds: 15
+                periodSeconds: 20
+            kube-rbac-proxy:
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1001
+                seccompProfile:
+                  type: RuntimeDefault
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              readinessProbe:
+                tcpSocket:
+                  port: 8443
+                initialDelaySeconds: 5
+                periodSeconds: 10
+              livenessProbe:
+                tcpSocket:
+                  port: 8443
+                initialDelaySeconds: 15
+                periodSeconds: 20
+
+    - name: Wait for AWX Operator deployment to be ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ awx_namespace }}"
+        name: awx-operator-controller-manager
+      register: operator_deploy
+      until: >
+        operator_deploy.resources | length > 0 and
+        (operator_deploy.resources[0].status.readyReplicas | default(0)) ==
+        (operator_deploy.resources[0].spec.replicas | default(1))
+      retries: 30
+      delay: 10
+
+    - name: Deploy the AWX custom resource
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: awx.ansible.com/v1beta1
+          kind: AWX
+          metadata:
+            name: "{{ awx_release_name }}"
+            namespace: "{{ awx_namespace }}"
+          spec:
+            service_type: ClusterIP
+            ingress_type: ingress
+            ingress_class_name: "{{ ingress_class_name }}"
+            hostname: "{{ awx_hostname }}"
+
+            admin_user: admin
+            admin_password_secret: "{{ awx_admin_secret_name }}"
+
+            secret_key_secret: "{{ awx_secret_key_secret_name }}"
+
+            postgres_configuration_secret: "{{ awx_postgres_secret_name }}"
+
+            # Non-root / no-priv-escalation for the awx-web and awx-task pods
+            security_context_settings:
+              runAsNonRoot: true
+              runAsUser: 1001
+              allowPrivilegeEscalation: false
+              seccompProfile:
+                type: RuntimeDefault
+              capabilities:
+                drop: ["ALL"]
+
+            # Native probe support for the main web/task containers
+            web_liveness_period: 15
+            web_readiness_period: 15
+            task_liveness_period: 15
+            task_readiness_period: 15
+            task_readiness_timeout: 5
+            task_readiness_failure_threshold: 5
+            task_liveness_timeout: 5
+            web_readiness_timeout: 5
+            web_liveness_timeout: 5
+
+            # scale as your homelab allows
+            replicas: 1
+            web_replicas: 1
+            task_replicas: 1
+
+    # ------------------------------------------------------------------
+    # The operator's CR spec has no knobs for probes on the redis,
+    # awx-rsyslog, or awx-ee sidecar containers, so those get patched
+    # directly here under a separate field manager. Because we only ever
+    # own the readinessProbe/livenessProbe fields — which the operator
+    # never sets on these containers itself — this survives the
+    # operator's own reconcile loop without any field-ownership conflict.
+    # ------------------------------------------------------------------
+    - name: Wait for awx-web and awx-task Deployments to exist
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_release_name }}-{{ item }}"
+      loop: [web, task]
+      register: awx_deploy_check
+      until: awx_deploy_check.resources | length > 0
+      retries: 30
+      delay: 10
+                                          
+    - name: Wait for AWX deployment to report Running
+      kubernetes.core.k8s_info:
+        api_version: awx.ansible.com/v1beta1
+        kind: AWX
+        namespace: "{{ awx_namespace }}"
+        name: "{{ awx_release_name }}"
+      register: awx_status
+      until: >
+        awx_status.resources | length > 0 and
+        (awx_status.resources[0].status.conditions | default([]) |
+         selectattr('type', 'equalto', 'Running') |
+         selectattr('status', 'equalto', 'True') | list | length > 0)
+      retries: 60
+      delay: 15
+
+    - name: Show AWX access info
+      ansible.builtin.debug:
+        msg: >-
+          AWX deployed. Reach it at https://{{ awx_hostname }}/ once DNS/ingress
+          resolves. Postgres is backed by the existing CNPG Cluster
+          '{{ cnpg_cluster_name }}' in namespace '{{ cnpg_cluster_namespace }}'.
+          Admin password is stored in Vault at {{ vault_kv_path }} (via the
+          '{{ secretstore_name }}' ClusterSecretStore) and synced into the
+          '{{ awx_admin_secret_name }}' k8s Secret every {{ refresh_interval }}.

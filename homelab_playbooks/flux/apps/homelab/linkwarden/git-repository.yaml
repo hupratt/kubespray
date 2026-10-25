@@ -1,0 +1,22 @@
+---
+# Replaces the "Clone linkwarden git repo" task in 21-linkwarden.yaml.
+# The chart lives at charts/linkwarden inside this private repo, so Flux needs
+# SSH creds. Create the referenced secret once (not GitOps-managed):
+#
+#   flux create secret git linkwarden-git-auth \
+#     --namespace linkwarden \
+#     --url ssh://git@gitlab.thekor.eu/kube/linkwarden.git \
+#     --private-key-file ~/.ssh/id_ed25519
+#
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: linkwarden
+  namespace: linkwarden
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  secretRef:
+    name: linkwarden-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/linkwarden.git

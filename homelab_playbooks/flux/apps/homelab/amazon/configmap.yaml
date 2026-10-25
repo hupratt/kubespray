@@ -1,0 +1,11 @@
+---
+# Migrated from 07-amazon.yaml
+#   task: "Deploy Amazon clone stack to Kubernetes" (ConfigMap mongodb-configmap)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mongodb-configmap
+  namespace: amazon-clone
+data:
+  database_url: mongodb-service.mongodb.svc.cluster.local
+  database_name: Amazon

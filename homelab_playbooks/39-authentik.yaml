@@ -1,0 +1,218 @@
+- name: provision authentik
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: ~/.kube/config
+    vault_kv_path: "authentik"
+
+  tasks:
+
+    - name: ExternalSecret for backup credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: authentik-vault-secrets
+            namespace: authentik
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: authentik-vault-secrets
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+
+              - secretKey: hostname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: hostname
+
+              - secretKey: pg_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_username
+
+              - secretKey: pg_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: pg_password
+
+              - secretKey: postgresql_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresql_port
+
+              - secretKey: postgresql_dbname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresql_dbname
+
+              - secretKey: postgresql_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: postgresql_host
+
+              - secretKey: error_reporting_enabled
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: error_reporting_enabled
+
+              - secretKey: secret_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: secret_key
+
+              - secretKey: smtp_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_host
+
+              - secretKey: smtp_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_port
+
+              - secretKey: smtp_username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_username
+
+              - secretKey: smtp_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_password
+
+              - secretKey: smtp_use_tls
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_use_tls
+
+              - secretKey: smtp_use_ssl
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_use_ssl
+
+              - secretKey: smtp_timeout
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_timeout
+
+              - secretKey: smtp_from
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: smtp_from
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-authentik
+        definition:
+          metadata:
+            name: rook-cephfs-authentik
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    - name: Create authentik PVC
+      k8s:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: authentik
+        name: authentik-pvc
+        definition:
+          metadata:
+            name: authentik-pvc
+            namespace: authentik
+          spec:
+            storageClassName: rook-cephfs-authentik
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: 500Mi
+
+    - name: Create authentik data PVC
+      k8s:
+        api_version: v1
+        kind: PersistentVolumeClaim
+        namespace: authentik
+        name: authentik-data-pvc
+        definition:
+          metadata:
+            name: authentik-data-pvc
+            namespace: authentik
+          spec:
+            storageClassName: rook-cephfs-authentik
+            accessModes:
+              - ReadWriteMany
+            resources:
+              requests:
+                storage: 500Mi
+
+    - name: Add authentik Helm repository
+      community.kubernetes.helm_repository:
+        name: authentik
+        repo_url: https://charts.goauthentik.io
+
+    - name: Update Helm repositories
+      ansible.builtin.command: helm repo update
+      changed_when: false
+
+    - name: Read authentik secrets
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: authentik
+        name: authentik-vault-secrets
+      register: authentik_secret
+
+    - name: Render values template
+      ansible.builtin.template:
+        src: charts/authentik/values.yaml.j2
+        dest: /tmp/authentik-values.yaml
+        mode: "0600"
+
+    - name: Install authentik official chart
+      community.kubernetes.helm:
+        name: my-authentik
+        chart_ref: authentik/authentik
+        release_namespace: authentik
+        create_namespace: false
+        timeout: "10m0s"
+        values_files:
+          - /tmp/authentik-values.yaml
+
+    - name: Clean up rendered values file
+      ansible.builtin.file:
+        path: /tmp/authentik-values.yaml
+        state: absent
+
+
+# kubectl -n authentik-system exec -it deployment/authentik-server -c server -- ak changepassword akadmin
+
+# If you mean remove the user's enrolled MFA device so they can enroll 2FA again, you can do it directly from the authentik UI:
+
+# Go to Directory → Users
+# Open the user.
+# Go to MFA Authenticators / Credentials.
+# Find the user's TOTP device (or WebAuthn device).
+# Delete the authenticator.

@@ -1,0 +1,22 @@
+---
+# Replaces the "Clone git repo" task in 25-sftpgo.yaml. The chart lives at
+# `sftpgo` inside the private repo, so Flux needs SSH creds. Create the referenced
+# secret once (not GitOps-managed):
+#
+#   flux create secret git sftpgo-git-auth \
+#     --namespace sftpgo \
+#     --url ssh://git@gitlab.thekor.eu/kube/sftpgo.git \
+#     --private-key-file ~/.ssh/id_ed25519
+#
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: sftpgo
+  namespace: sftpgo
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  secretRef:
+    name: sftpgo-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/sftpgo.git

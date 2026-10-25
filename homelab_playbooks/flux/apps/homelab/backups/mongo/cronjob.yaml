@@ -1,0 +1,74 @@
+---
+# Migrated from 16-backup-mongo.yaml
+#   task: "Deploy mongodump CronJob"
+# MONGO_USER/MONGO_PASSWORD were Ansible-templated from vault vars; now sourced
+# from the `mongo-backup-credentials` Secret (see external-secret.yaml).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: mongodump-backup-template
+  namespace: mongodb
+spec:
+  schedule: "0 0 31 2 *"
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          imagePullSecrets:
+            - name: docker-registry-secret
+          nodeSelector:
+            kubernetes.io/hostname: coreos-cp-1
+          containers:
+            - name: pgdump
+              image: registry.thekor.eu/docker/k8s-fedora-backup/mongo-alpine:7
+              command:
+                - /bin/bash
+                - -c
+                - /home/mongo/mongo.sh
+              env:
+                - name: AWS_ACCESS_KEY_ID
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_ACCESS_KEY_ID
+                - name: AWS_SECRET_ACCESS_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: aws-credentials
+                      key: AWS_SECRET_ACCESS_KEY
+                - name: MONGO_HOST
+                  value: mongodb-service.mongodb.svc.cluster.local
+                - name: MONGO_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: mongo-backup-credentials
+                      key: MONGO_USER
+                - name: MONGO_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: mongo-backup-credentials
+                      key: MONGO_PASSWORD
+                - name: MONGO_TARGETS
+                  value: "Trellis your_spotify Amazon"
+              volumeMounts:
+                - name: backupoutput
+                  mountPath: /home/mongo
+              livenessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+              readinessProbe:
+                exec:
+                  command: ["true"]
+                initialDelaySeconds: 5
+                periodSeconds: 30
+          volumes:
+            - name: backupoutput
+              hostPath:
+                path: /mnt/backupoutput
+                type: DirectoryOrCreate

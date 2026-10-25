@@ -1,0 +1,28 @@
+{{- $fullname := include "paperless-ngx.fullname" . }}
+{{- $volumes := dict
+"data"    .Values.persistence.data
+"media"   .Values.persistence.media
+"export"  .Values.persistence.export
+"consume" .Values.persistence.consume
+}}
+{{- range $name, $pvc := $volumes }}
+{{- if not $pvc.existingClaim }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $fullname }}-{{ $name }}
+  labels:
+    app.kubernetes.io/name: {{ $fullname }}
+    app.kubernetes.io/component: {{ $name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+{{- if $pvc.storageClass }}
+  storageClassName: {{ $pvc.storageClass | quote }}
+{{- end }}
+  resources:
+    requests:
+      storage: {{ $pvc.size }}
+{{- end }}
+{{- end }}

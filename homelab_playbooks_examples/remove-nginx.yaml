@@ -1,0 +1,37 @@
+---
+- name: Uninstall Nginx webserver
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    kubeconfig_path: /root/.kube/config
+    nginx_namespace: default
+    nginx_labels:
+      app: nginx
+    nginx_manifests:
+      - nginx-deploy.yaml
+      - nginx-svc.yaml
+
+  tasks:
+    - name: Delete Nginx manifests
+      kubernetes.core.k8s:
+        state: absent
+        kubeconfig: "{{ kubeconfig_path }}"
+        src: "{{ item }}"
+      loop: "{{ nginx_manifests }}"
+
+    - name: Wait for Nginx pods to be fully deleted
+      kubernetes.core.k8s_info:
+        kind: Pod
+        namespace: "{{ nginx_namespace }}"
+        label_selectors:
+          - "app=nginx"
+      register: nginx_pods_info
+      retries: 30
+      delay: 5
+      until: nginx_pods_info.resources | length == 0
+
+    - name: Print success message
+      ansible.builtin.debug:
+        msg: "✅ Nginx resources fully deleted!"
+

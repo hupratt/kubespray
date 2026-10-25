@@ -1,0 +1,19 @@
+---
+# Source: 54c-matrix.yaml — task "Clone matrix-helm-charts from GitHub"
+# The signal bridge chart is not published to a Helm repo; the playbook cloned it
+# and ran `helm dependency build` before installing charts/mautrix-signal.
+# Flux pulls it from the same public Git repo instead.
+#
+# NOTE: the chart has subchart dependencies that Ansible resolved with
+# `helm dependency build`. Flux's source-controller only vendors dependencies it
+# can resolve from the repo/lock; verify the release builds (see BLOCKERS).
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: matrix-helm-charts
+  namespace: matrix
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  url: https://github.com/cyclikal94/matrix-helm-charts.git

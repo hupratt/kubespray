@@ -1,0 +1,83 @@
+---
+# Migrated verbatim from the "Deploy restic backup CronJob for media pvc" task
+# in 43-restic-booking.yaml. Backs up the booking-media PVC.
+# NOTE: the source playbook placed `env` at the pod-spec level (invalid PodSpec);
+# RESTIC_CACHE_DIR has been moved into each container where it belongs.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: booking-media
+  namespace: booking
+spec:
+  schedule: "0 0 31 2 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          initContainers:
+            - name: restic-init
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic snapshots >/dev/null 2>&1 || restic init
+              env:
+                - name: RESTIC_CACHE_DIR
+                  value: /tmp/restic-cache
+              envFrom:
+                - secretRef:
+                    name: booking-secrets
+          containers:
+            - name: restic
+              image: instrumentisto/restic:0.18.0
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 1000
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: false
+                capabilities:
+                  drop: ["ALL"]
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  restic backup /data --host booking-media
+                  restic forget \
+                    --keep-daily 7 \
+                    --keep-weekly 4 \
+                    --keep-monthly 6 \
+                    --prune
+              env:
+                - name: RESTIC_CACHE_DIR
+                  value: /tmp/restic-cache
+              envFrom:
+                - secretRef:
+                    name: booking-secrets
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                  readOnly: true
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: booking-media

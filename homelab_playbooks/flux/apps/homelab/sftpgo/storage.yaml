@@ -1,0 +1,38 @@
+---
+# Migrated verbatim from the "Create PersistentVolumes for sftpgo" + "Create PVC
+# for sftpgo" tasks in 25-sftpgo.yaml. Static local PV on the slow-services node,
+# bound by the sftpgo-data PVC and mounted by the chart at /var/lib/sftpgo.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sftpgo-data
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: slow-local
+  local:
+    path: "/opt/sftpgo/sftpgo-data"
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: node-role
+              operator: In
+              values:
+                - slow-services
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sftpgo-data
+  namespace: sftpgo
+spec:
+  accessModes: [ReadWriteOnce]
+  volumeName: sftpgo-data
+  storageClassName: slow-local
+  resources:
+    requests:
+      storage: 10Gi

@@ -1,0 +1,22 @@
+---
+# Replaces the "Clone git repo" task in 17-vaultwarden.yaml. The chart lives at
+# charts/vaultwarden inside the private repo, so Flux needs SSH creds. Create the
+# referenced secret once (not GitOps-managed):
+#
+#   flux create secret git vaultwarden-git-auth \
+#     --namespace vaultwarden \
+#     --url ssh://git@gitlab.thekor.eu/kube/vaultwarden.git \
+#     --private-key-file ~/.ssh/id_ed25519
+#
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: vaultwarden
+  namespace: vaultwarden
+spec:
+  interval: 30m
+  ref:
+    branch: main
+  secretRef:
+    name: vaultwarden-git-auth
+  url: ssh://git@gitlab.thekor.eu/kube/vaultwarden.git

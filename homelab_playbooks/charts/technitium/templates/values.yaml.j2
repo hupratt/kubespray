@@ -1,0 +1,85 @@
+image:
+  repository: technitium/dns-server
+  tag: "15.3.0"
+  pullPolicy: IfNotPresent
+
+replicaCount: 1
+
+env:
+  TZ: Europe/Berlin
+  DNS_SERVER_DOMAIN: "{{ technitium_ingress_host }}"
+  DNS_SERVER_ADMIN_PASSWORD_FILE: "/run/dns-secrets/admin-password"
+  DNS_SERVER_RECURSION: "AllowOnlyForPrivateNetworks"
+  DNS_SERVER_QNAME_MINIMIZATION: "true"
+  DNS_SERVER_DNSSEC_VALIDATION: "true"
+  DNS_SERVER_SSO_ENABLED: "true"
+  DNS_SERVER_SSO_AUTHORITY: "https://auth.thekor.eu/application/o/technitium/" 
+  DNS_SERVER_SSO_CLIENT_ID: "{{ vault_secret.resources[0].data.technitium_sso_client_id | b64decode }}"
+  DNS_SERVER_SSO_CLIENT_SECRET_FILE: "/run/dns-secrets/technitium_sso_client_secret"
+  DNS_SERVER_SSO_SCOPES: "openid,profile,email"
+  DNS_SERVER_SSO_ALLOW_SIGNUP: "true"
+  DNS_SERVER_SSO_ALLOW_SIGNUP_ONLY_FOR_MAPPED_USERS: "true"
+  DNS_SERVER_SSO_GROUP_MAP: "Technitium Admins:Administrators"
+
+# IMPORTANT: needed for port 53 on the node
+hostNetwork: true
+dnsPolicy: Default
+
+
+ingress:
+  main:
+    enabled: true
+    ingressClassName: haproxy
+    annotations:
+      cert-manager.io/cluster-issuer: "{{ technitium_clusterissuer }}"
+    hosts:
+      - host: "{{ technitium_ingress_host }}"
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: "{{ technitium_tls_name }}"
+        hosts:
+          - "{{ technitium_ingress_host }}"
+
+
+persistence:
+  config:
+    enabled: true
+    type: pvc
+    storageClass: "{{ technitium_storage_class }}"
+    accessMode: ReadWriteOnce
+    size: "{{ technitium_storage_size }}" 
+    mountPath: /etc/dns
+  admin-secret:
+    enabled: true
+    type: secret
+    name: technitium-admin-secret
+    mountPath: /run/dns-secrets
+    readOnly: true
+  mysql-config:
+    enabled: true
+    type: secret
+    name: technitium-mysql-config
+    mountPath: "/etc/dns/apps/Query Logs (MySQL)/dnsApp.config"
+    subPath: dnsApp.config
+    readOnly: true
+
+resources:
+  requests:
+    memory: "128Mi"
+  limits:
+    memory: "512Mi"
+
+nodeSelector:
+  kubernetes.io/hostname: coreos-wk-4
+
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "slow-services"
+    effect: "NoSchedule"
+
+securityContext: {}
+
+podSecurityContext: {}

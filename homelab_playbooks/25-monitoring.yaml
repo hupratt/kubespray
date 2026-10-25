@@ -1,0 +1,81 @@
+---
+- name: Deploy the monitoring
+  hosts: localhost
+  gather_facts: false
+  vars:
+    kubeconfig_path: /home/hugo/.kube/config
+    vault_kv_path: monitoring
+  tasks:
+
+    - name: Deploy ExternalSecret 
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: grafana-secret
+            namespace: monitoring
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: grafana-secret
+              creationPolicy: Owner
+            data:
+              - secretKey: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_AUTH_GENERIC_OAUTH_CLIENT_ID
+              - secretKey: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET
+              - secretKey: GF_SECURITY_ADMIN_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_SECURITY_ADMIN_PASSWORD
+              - secretKey: GF_DATABASE_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_DATABASE_PASSWORD
+              - secretKey: GF_EMAIL_USER
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_EMAIL_USER
+              - secretKey: GF_EMAIL_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: GF_EMAIL_PASSWORD
+
+    - name: Add Prometheus Helm repo
+      ansible.builtin.command:
+        cmd: helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+      register: add_repo
+      changed_when: "'has been added' in add_repo.stdout"
+
+    - name: Update Helm repos
+      ansible.builtin.command:
+        cmd: helm repo update
+
+    - name: Install Prometheus Pushgateway
+      community.kubernetes.helm:
+        name: prometheus-pushgateway
+        chart_ref: prometheus-community/prometheus-pushgateway
+        release_namespace: monitoring
+        kubeconfig: "{{ kubeconfig_path }}"
+        create_namespace: false
+        values_files: files/mon-pushgateway_values.yml
+        state: present
+
+    - name: Upgrade existing prometheus stack with grafana and alert manager
+      community.kubernetes.helm:
+        name: prometheus
+        chart_ref: prometheus-community/kube-prometheus-stack
+        release_namespace: monitoring
+        kubeconfig: "{{ kubeconfig_path }}"
+        create_namespace: false
+        values_files: charts/kube-prometheus-stack/mon-grafana-values.yml
+        state: present

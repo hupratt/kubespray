@@ -1,0 +1,25 @@
+mariadb:
+  rootPasswordSecret:
+    name: mariadb-root-secret   # your existing secret
+    key: password
+    generate: false             # false because you already have it
+  username: mariadb
+  passwordSecret:
+    name: mariadb-root-secret
+    key: password
+    generate: false
+  database: mariadb
+  storage:
+    size: 1Gi
+    storageClassName: rook-ceph-block
+  replicas: 1
+  port: 3306
+  resources:
+    requests:
+      cpu: 300m
+      memory: 128Mi
+    limits:
+      memory: 2Gi
+metrics:
+  # -- Enable operator internal metrics. Prometheus must be installed in the cluster
+  enabled: true

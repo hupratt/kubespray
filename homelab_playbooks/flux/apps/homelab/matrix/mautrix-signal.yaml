@@ -1,0 +1,97 @@
+---
+# Source: 54c-matrix.yaml — tasks "Write Helm values file" + "Deploy mautrix-signal Helm chart"
+# Git-sourced chart (charts/mautrix-signal from the matrix-helm-charts GitRepository).
+# Non-secret values are inline; the DB password is injected from the ESO-managed
+# `mautrix-signal-creds` Secret via valuesFrom (replacing the `{{ signal_db_password }}`
+# the Ansible values file interpolated).
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mautrix-signal
+  namespace: matrix
+spec:
+  releaseName: mautrix-signal
+  interval: 30m
+  chart:
+    spec:
+      chart: charts/mautrix-signal
+      sourceRef:
+        kind: GitRepository
+        name: matrix-helm-charts
+        namespace: matrix
+      interval: 30m
+  install:
+    createNamespace: false
+  timeout: 5m
+  valuesFrom:
+    - kind: Secret
+      name: mautrix-signal-creds
+      valuesKey: db_password
+      targetPath: database.postgres.password.value
+  values:
+    nameOverride: ""
+    fullnameOverride: "mautrix-signal"
+    image:
+      repository: dock.mau.dev/mautrix/signal
+      tag: latest
+      pullPolicy: IfNotPresent
+    podSecurityContext:
+      enabled: true
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      enabled: true
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: false
+      capabilities:
+        drop: [ALL]
+    logging: info
+    homeserver:
+      address: http://matrix-synapse.matrix.svc.cluster.local:8008
+      domain: matrix.thekor.eu
+    appservice:
+      address: http://mautrix-signal.matrix.svc.cluster.local
+      hostname: "0.0.0.0"
+      port: 29328
+      bot:
+        username: signal_bot
+    registration:
+      existingSecret: mautrix-signal-creds
+      autoGenerate: false
+      synapseNamespace: matrix
+    doublePuppet:
+      enabled: true
+    # Disable bundled postgres; point at CNPG.
+    postgres:
+      enabled: false
+    database:
+      postgres:
+        host: shared-pg-rw.cn-postgres.svc.cluster.local
+        port: 5432
+        user: mautrix
+        # password.value injected from mautrix-signal-creds via valuesFrom above.
+        database: mautrixsignal
+        sslMode: require
+    config:
+      baseExtra: |
+        bridge:
+          permissions:
+            "*": relay
+            "matrix.thekor.eu": user
+            "@wazinsky:matrix.thekor.eu": admin
+      networkExtra: ""
+    probes:
+      liveness:
+        enabled: true
+        path: /_matrix/mau/live
+        initialDelaySeconds: 20
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+      readiness:
+        enabled: true
+        path: /_matrix/mau/ready
+        initialDelaySeconds: 10
+        periodSeconds: 15
+        timeoutSeconds: 5
+        failureThreshold: 3

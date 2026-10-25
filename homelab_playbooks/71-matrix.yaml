@@ -1,0 +1,333 @@
+---
+# Deploys the mautrix-signal Matrix-Signal puppeting bridge via Helm
+# (cyclikal94/matrix-helm-charts) into an existing Kubernetes cluster.
+#
+# Prerequisites:
+#   - Synapse already deployed (matrix namespace assumed below)
+#   - HAProxy ingress class "haproxy" available
+#   - Kyverno running (policy-exempt label applied where needed)
+#   - External Secrets Operator + Vault backend configured
+#   - CNPG operator present (bridge uses its own small PG cluster)
+#   - cert-manager present for TLS
+
+- name: Deploy mautrix-signal bridge
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    vault_kv_path: "backup-matrix"
+    # ── Domains ──────────────────────────────────────────────────────────────
+    matrix_server_name: "matrix.thekor.eu"
+    matrix_public_hostname: "matrix.thekor.eu"
+    element_hostname: "element.thekor.eu"
+
+    # ── Namespace ─────────────────────────────────────────────────────────────
+    matrix_namespace: matrix
+
+    # ── Storage ───────────────────────────────────────────────────────────────
+    synapse_storage_class: rook-ceph-block
+    synapse_media_size: "20Gi"
+    bridge_data_size: "2Gi"
+
+    # ── CNPG ──────────────────────────────────────────────────────────────────
+    synapse_db_host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+    synapse_db_name: synapse
+    synapse_db_user: synapse
+
+    # ── Ingress / TLS ─────────────────────────────────────────────────────────
+    ingress_class: haproxy
+    cert_issuer: letsencrypt-prod
+
+    # ── Helm chart versions ───────────────────────────────────────────────────
+    synapse_chart_version: "3.12.28"
+    element_chart_version: "1.4.34"
+
+    # ── Synapse tuning ────────────────────────────────────────────────────────
+    synapse_max_upload_size: "50M"
+    synapse_enable_registration: true
+
+    # ── mautrix-discord ───────────────────────────────────────────────────────
+    mautrix_discord_image: "dock.mau.dev/mautrix/discord:latest"
+    mautrix_discord_port: 29334
+
+  vars:
+    # ── tunables with sane defaults ──────────────────────────────────────────
+    chart_ref: "oci://ghcr.io/cyclikal94/matrix-helm-charts/mautrix-signal"
+    chart_version: ""
+    release_name: mautrix-signal
+    bridge_port: 29328                   # mautrix-signal default appservice port
+    bridge_image_repo: "dock.mau.dev/mautrix/signal"
+    bridge_image_tag: "latest"           # pin this in production
+    storage_class: "rook-ceph-block"
+    db_storage_size: "2Gi"
+    data_storage_size: "1Gi"
+    signal_bridge_namespace: matrix
+    synapse_namespace: matrix
+    vault_path: synapse
+    vault_path_mautrix: mautrixsignal
+    signal_bridge_hostname: mautrix-signal.matrix.svc.cluster.local
+    matrix_domain: matrix.thekor.eu
+
+  tasks:
+
+    # ── 2. Vault ExternalSecret for bridge tokens + DB password ──────────────
+    - name: Deploy ExternalSecret for bridge credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: mautrix-signal-creds
+            namespace: "{{ signal_bridge_namespace }}"
+          spec:
+            refreshInterval: "1h"
+            secretStoreRef:
+              name: vault-backend          # adjust to your ClusterSecretStore name
+              kind: ClusterSecretStore
+            target:
+              name: mautrix-signal-creds
+              creationPolicy: Owner
+            data:
+              - secretKey: asToken
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: as_token
+              - secretKey: hsToken
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: hs_token
+              - secretKey: db_password
+                remoteRef:
+                  key: "{{ vault_path_mautrix }}"
+                  property: pg_password
+
+
+    - name: Wait for ExternalSecret to sync
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1
+        kind: ExternalSecret
+        name: mautrix-signal-creds
+        namespace: "{{ signal_bridge_namespace }}"
+      register: es_info
+      until: >
+        es_info.resources | length > 0 and
+        (es_info.resources[0].status.conditions | selectattr('type','eq','Ready') |
+         selectattr('status','eq','True') | list | length) > 0
+      retries: 20
+      delay: 10
+
+    - name: Fetch Secret value for Helm schema compliance
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        name: mautrix-signal-creds
+        namespace: "{{ signal_bridge_namespace }}"
+      register: signal_secret
+
+    # signal chart does not allow secretkey refs
+    - name: Set DB password fact
+      ansible.builtin.set_fact:
+        signal_db_password: "{{ signal_secret.resources[0].data.db_password | b64decode }}"
+
+    # ── 4. PVC for bridge data (Signal device state) ─────────────────────────
+    - name: Create PVC for signal bridge data
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: mautrix-signal-data
+            namespace: "{{ signal_bridge_namespace }}"
+          spec:
+            accessModes: [ReadWriteOnce]
+            resources:
+              requests:
+                storage: "{{ data_storage_size }}"
+            # storageClassName: "{{ storage_class }}"  # uncomment if needed
+
+    # ── 5. Helm values – strictly matching the chart's values.schema.json ─────
+    - name: Write Helm values file
+      ansible.builtin.copy:
+        dest: /tmp/mautrix-signal-values.yaml
+        content: |
+          nameOverride: ""
+          fullnameOverride: "mautrix-signal"
+ 
+          image:
+            repository: "{{ bridge_image_repo }}"
+            tag: "{{ bridge_image_tag }}"
+            pullPolicy: IfNotPresent
+ 
+          # podSecurityContext: chart only allows 'enabled' + 'seccompProfile'
+          podSecurityContext:
+            enabled: true
+            seccompProfile:
+              type: RuntimeDefault
+ 
+          # securityContext: chart schema accepts these fields
+          securityContext:
+            enabled: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+ 
+          logging: info
+ 
+          # ── Homeserver ───────────────────────────────────────────────────────
+          homeserver:
+            address: "http://matrix-synapse.{{ synapse_namespace }}.svc.cluster.local:8008"
+            domain: "{{ matrix_domain }}"
+ 
+          # ── Appservice ───────────────────────────────────────────────────────
+          appservice:
+            # FIX: Explicitly append the bridge port (29328) to the in-cluster URL
+            address: "http://mautrix-signal.{{ signal_bridge_namespace }}.svc.cluster.local:{{ bridge_port }}"
+            hostname: "0.0.0.0"
+            port: {{ bridge_port }}
+            bot:
+              username: signal_bot
+          # ── Registration ─────────────────────────────────────────────────────
+          registration:
+            # existingSecret is a plain string (secret name), not a map
+            existingSecret: "mautrix-signal-creds"
+            autoGenerate: false
+            synapseNamespace: "{{ synapse_namespace }}"
+ 
+          # ── Double puppet ────────────────────────────────────────────────────
+          doublePuppet:
+            enabled: true
+ 
+          # ── Database: chart only supports structured postgres block ──────────
+          # Disable bundled postgres; point at CNPG via config.baseExtra DSN.
+          postgres:
+            enabled: false
+          database:
+            postgres:
+              host: "shared-pg-rw.cn-postgres.svc.cluster.local"
+              port: 5432
+              user: mautrix
+              password:
+                value: "{{ signal_db_password }}"
+              database: mautrixsignal
+              sslMode: require
+          # ── baseExtra: inject the real DSN from CNPG, overriding the above ──
+          # The chart merges baseExtra last for appservice.database, so this wins.
+          config:
+            baseExtra: |
+              bridge:
+                permissions:
+                  "*": relay
+                  "matrix.thekor.eu": user
+                  "@wazinsky:matrix.thekor.eu": admin
+            networkExtra: ""
+          probes:
+            liveness:
+              enabled: true
+              path: /_matrix/mau/live
+              initialDelaySeconds: 20
+              periodSeconds: 30
+              timeoutSeconds: 5
+              failureThreshold: 3
+
+            readiness:
+              enabled: true
+              path: /_matrix/mau/ready
+              initialDelaySeconds: 10
+              periodSeconds: 15
+              timeoutSeconds: 5
+              failureThreshold: 3
+
+          securityContext:
+            enabled: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: [ALL]
+        mode: '0600'
+ 
+
+
+    # ── 6. Helm deploy ────────────────────────────────────────────────────────
+    - name: Clone matrix-helm-charts from GitHub
+      ansible.builtin.git:
+        repo: "https://github.com/cyclikal94/matrix-helm-charts.git"
+        dest: "/tmp/matrix-helm-charts"
+        version: "main"
+        depth: 1
+        force: true
+
+    - name: Build chart dependencies
+      ansible.builtin.command:
+        cmd: helm dependency build /tmp/matrix-helm-charts/charts/mautrix-signal
+    #   changed_when: true
+
+    - name: Deploy mautrix-signal Helm chart
+      kubernetes.core.helm:
+        release_name: "{{ release_name }}"
+        chart_ref: /tmp/matrix-helm-charts/charts/mautrix-signal
+        release_namespace: "{{ signal_bridge_namespace }}"
+        create_namespace: false
+        values_files:
+          - /tmp/mautrix-signal-values.yaml
+        wait: true
+        wait_timeout: "300s"
+        state: present
+ 
+
+    # ── 7. Confirm registration ConfigMap was mirrored to Synapse namespace ───
+    # - name: Wait for registration ConfigMap in Synapse namespace
+    #   kubernetes.core.k8s_info:
+    #     api_version: v1
+    #     kind: ConfigMap
+    #     # cyclikal94 chart naming: <release>-mautrix-signal-registration
+    #     name: "{{ release_name }}-mautrix-signal-registration"
+    #     namespace: "{{ synapse_namespace }}"
+    #   register: reg_cm
+    #   until: reg_cm.resources | length > 0
+    #   retries: 20
+    #   delay: 10
+
+    # ── 8. Print next steps ───────────────────────────────────────────────────
+    - name: Print post-deployment instructions
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════════╗
+          ║  mautrix-signal deployed successfully                            ║
+          ╠══════════════════════════════════════════════════════════════════╣
+          ║  NEXT STEPS (manual or bolt onto your Synapse playbook):         ║
+          ║                                                                  ║
+          ║  1. Mount the registration ConfigMap in Synapse:                 ║
+          ║     ConfigMap: {{ release_name }}-mautrix-signal-registration    ║
+          ║     namespace: {{ synapse_namespace }}                           ║
+          ║     Mount path in Synapse pod:                                   ║
+          ║       /bridges/mautrix-signal-registration.yaml                  ║
+          ║                                                                  ║
+          ║  2. Add to Synapse homeserver.yaml (or Helm values):             ║
+          ║     app_service_config_files:                                    ║
+          ║       - /bridges/mautrix-signal-registration.yaml                ║
+          ║                                                                  ║
+          ║  3. Restart Synapse, then DM the bridge bot:                     ║
+          ║       @signal_bot:{{ matrix_domain }}                            ║
+          ║     and run:  login, scan the qr code and youre done             ║
+          ╚══════════════════════════════════════════════════════════════════╝
+
+
+# kubectl patch cm mautrix-signal-registration -n matrix --type='json' -p='[
+#   {
+#     "op": "replace",
+#     "path": "/data/appservice-registration-signal.yaml",
+#     "value": "id: \"signal\"\nurl: \"http://mautrix-signal.matrix.svc.cluster.local:29328\"\nas_token: \"nas_token\"\nhs_token: \"nhs_token\"\nsender_localpart: \"signal_bot\"\nrate_limited: false\nnamespaces:\n  users:\n    - exclusive: true\n      regex: '\''@signal_.*:matrix.thekor.eu'\''"
+#   }
+# ]'
+
+
+# kubectl rollout restart deployment/matrix-synapse -n matrix
+
+# kubectl exec -n matrix deploy/matrix-synapse -- cat /synapse/config/conf.d/mautrix-signal.yaml
+
+# kubectl patch svc mautrix-signal -n matrix --type='json' -p='[{"op": "replace", "path": "/spec/ports/0/targetPort", "value": 29328}]'
+
+# There is still a dependency problem when creating the mautrix-signal because the configmap "mautrix-signal-registration" is created/managed by the helm chart

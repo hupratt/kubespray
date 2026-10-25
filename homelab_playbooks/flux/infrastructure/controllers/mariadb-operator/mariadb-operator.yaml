@@ -1,0 +1,79 @@
+---
+# Source: 09-maria-operator.yaml — "Add MariaDB Operator Helm repo".
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: mariadb-operator
+  namespace: mariadb
+spec:
+  interval: 1h
+  url: https://helm.mariadb.com/mariadb-operator
+---
+# Source: 09-maria-operator.yaml — "Install MariaDB Operator CRDs via Helm".
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mariadb-operator-crds
+  namespace: mariadb
+spec:
+  interval: 30m
+  chart:
+    spec:
+      chart: mariadb-operator-crds
+      version: "*"          # TODO pin version (playbook did not pin one)
+      sourceRef:
+        kind: HelmRepository
+        name: mariadb-operator
+        namespace: mariadb
+      interval: 1h
+  install:
+    createNamespace: false  # mariadb namespace created centrally by infra-configs/namespaces
+---
+# Source: 09-maria-operator.yaml — "Install MariaDB Operator with custom values".
+# Values inlined from charts/mariadb/mariadb-operator-values.yml.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: mariadb-operator
+  namespace: mariadb
+spec:
+  interval: 30m
+  dependsOn:
+    - name: mariadb-operator-crds
+  chart:
+    spec:
+      chart: mariadb-operator
+      version: "*"          # TODO pin version (playbook did not pin one)
+      sourceRef:
+        kind: HelmRepository
+        name: mariadb-operator
+        namespace: mariadb
+      interval: 1h
+  install:
+    createNamespace: false
+  values:
+    mariadb:
+      rootPasswordSecret:
+        name: mariadb-root-secret   # your existing secret
+        key: password
+        generate: false             # false because you already have it
+      username: mariadb
+      passwordSecret:
+        name: mariadb-root-secret
+        key: password
+        generate: false
+      database: mariadb
+      storage:
+        size: 1Gi
+        storageClassName: rook-ceph-block
+      replicas: 1
+      port: 3306
+      resources:
+        requests:
+          cpu: 300m
+          memory: 128Mi
+        limits:
+          memory: 2Gi
+    metrics:
+      # -- Enable operator internal metrics. Prometheus must be installed in the cluster
+      enabled: true

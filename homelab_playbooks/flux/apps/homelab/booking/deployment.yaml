@@ -1,0 +1,79 @@
+---
+# Migrated verbatim from 28-booking.yaml (task: "Deploy backend").
+# backend_image / backend_port vars inlined; port templated strings -> integers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-backend
+  namespace: booking
+  labels:
+    app: booking-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: booking-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: booking-backend
+    spec:
+      imagePullSecrets:
+        - name: docker-registry-secret
+      initContainers:
+        # Run migrations before the main container starts
+        - name: migrate
+          image: registry.thekor.eu/docker/booking/booking-backend:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - |
+              python manage.py makemigrations &&
+              python manage.py migrate
+          envFrom:
+            - secretRef:
+                name: booking-backend-env
+      containers:
+        - name: backend
+          image: registry.thekor.eu/docker/booking/booking-backend:latest
+          imagePullPolicy: Always
+          command:
+            - sh
+            - -c
+            - python manage.py runserver 0.0.0.0:9225
+          ports:
+            - containerPort: 9225
+          envFrom:
+            - secretRef:
+                name: booking-backend-env
+          volumeMounts:
+            - name: app-media
+              mountPath: /hdd/Dev/booking/media
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 9225
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 9225
+            initialDelaySeconds: 10
+            periodSeconds: 5
+      volumes:
+        - name: app-media
+          persistentVolumeClaim:
+            claimName: booking-media

@@ -1,0 +1,247 @@
+---
+- name: Deploy Paperless-ngx
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    paperless_chart_path: "{{ playbook_dir }}/charts/paperless-ngx"
+    vault_kv_path: paperless
+    namespace: paperless
+    kubeconfig_path: /home/hugo/.kube/config
+
+  tasks:
+    - name: Deploy ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: paperless-vault-secrets
+            namespace: "{{ namespace }}"
+          spec:
+            refreshInterval: 1h
+            secretStoreRef:
+              name: vault-backend
+              kind: ClusterSecretStore
+            target:
+              name: paperless-vault-secrets
+              creationPolicy: Owner
+            data:
+              - secretKey: vault_paperless_secret_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_paperless_secret_key
+              - secretKey: vault_paperless_db_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_paperless_db_password
+              - secretKey: vault_paperless_admin_user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_paperless_admin_user
+              - secretKey: vault_paperless_admin_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_paperless_admin_password
+              - secretKey: vault_paperless_admin_mail
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: vault_paperless_admin_mail
+              - secretKey: paperless_namespace
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_namespace
+              - secretKey: paperless_release_name
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_release_name
+              - secretKey: paperless_kubeconfig
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_kubeconfig
+              - secretKey: paperless_hostname
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_hostname
+              - secretKey: paperless_tls_secret
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_tls_secret
+              - secretKey: paperless_storage_class
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_storage_class
+              - secretKey: paperless_secret_key
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_secret_key
+              - secretKey: paperless_db_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_db_password
+              - secretKey: paperless_admin_user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_admin_user
+              - secretKey: paperless_admin_password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_admin_password
+              - secretKey: paperless_admin_mail
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_admin_mail
+              - secretKey: paperless_db_host
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_db_host
+              - secretKey: paperless_db_port
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_db_port
+              - secretKey: paperless_db_name
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_db_name
+              - secretKey: paperless_db_user
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: paperless_db_user
+
+    - name: Read secret
+      kubernetes.core.k8s_info:
+        kind: Secret
+        namespace: "{{ namespace }}"
+        name: paperless-vault-secrets
+      register: vault_secret
+
+    # - name: Debug vault_secret
+    #   debug:
+    #     var: vault_secret.resources[0].data
+
+    # - name: Pause for 6 seconds
+    #   ansible.builtin.pause:
+    #     seconds: 6
+
+    - name: Create rook-cephfs StorageClass
+      k8s:
+        api_version: storage.k8s.io/v1
+        kind: StorageClass
+        name: rook-cephfs-paperless
+        definition:
+          metadata:
+            name: rook-cephfs-paperless
+          provisioner: rook-ceph.cephfs.csi.ceph.com
+          parameters:
+            clusterID: rook-ceph
+            fsName: myfs
+            pool: myfs-data0
+            subvolumeGroup: csi
+            csi.storage.k8s.io/provisioner-secret-name: rook-csi-cephfs-provisioner
+            csi.storage.k8s.io/provisioner-secret-namespace: rook-ceph
+            csi.storage.k8s.io/node-stage-secret-name: rook-csi-cephfs-node
+            csi.storage.k8s.io/node-stage-secret-namespace: rook-ceph
+            monitors: ceph-mon.rook-ceph.svc.cluster.local
+            mounter: fuse
+          mountOptions:
+            - debug
+          reclaimPolicy: Retain
+          allowVolumeExpansion: true
+
+    - name: Pre-create Paperless PVCs
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: PersistentVolumeClaim
+          metadata:
+            name: "{{ item.name }}"
+            namespace: paperless
+          spec:
+            accessModes:
+              - ReadWriteMany
+            storageClassName: "{{ item.storageClass }}"
+            resources:
+              requests:
+                storage: "{{ item.size }}"
+      loop:
+        - name: paperless-paperless-ngx-data
+          storageClass: rook-cephfs-paperless
+          size: 5Gi
+        - name: paperless-paperless-ngx-media
+          storageClass: rook-cephfs-paperless
+          size: 20Gi
+        - name: paperless-paperless-ngx-export
+          storageClass: rook-cephfs-paperless
+          size: 5Gi
+        - name: paperless-paperless-ngx-consume
+          storageClass: rook-cephfs-paperless
+          size: 2Gi
+
+    - name: Deploy paperless-ngx Helm chart
+      kubernetes.core.helm:
+        kubeconfig: "{{ kubeconfig_path }}"
+        name: "{{ vault_secret.resources[0].data.paperless_release_name | b64decode }}"
+        chart_ref: "{{ paperless_chart_path }}"
+        release_namespace: "{{ namespace }}"
+        create_namespace: true
+        wait: true
+        wait_timeout: "10m"
+        reuse_values: true
+        values:
+          image:
+            repository: ghcr.io/paperless-ngx/paperless-ngx
+            tag: "3.2.1"
+            pullPolicy: IfNotPresent
+          ingress:
+            host: "{{ vault_secret.resources[0].data.paperless_hostname | b64decode }}"
+            tls:
+              secretName: "{{ vault_secret.resources[0].data.paperless_tls_secret | b64decode }}"
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          externalPostgres:
+            host: "{{ vault_secret.resources[0].data.paperless_db_host | b64decode }}"
+            port: "{{ vault_secret.resources[0].data.paperless_db_port | b64decode }}"
+            database: "{{ vault_secret.resources[0].data.paperless_db_name | b64decode }}"
+            user: "{{ vault_secret.resources[0].data.paperless_db_user | b64decode }}"
+          persistence:
+            data:
+              existingClaim: "paperless-paperless-ngx-data"
+              size: 5Gi
+            media:
+              existingClaim: "paperless-paperless-ngx-media"
+              size: 20Gi
+            export:
+              existingClaim: "paperless-paperless-ngx-export"
+              size: 5Gi
+            consume:
+              existingClaim: "paperless-paperless-ngx-consume"
+              size: 2Gi
+          paperless:
+            config:
+              PAPERLESS_URL: "https://{{ vault_secret.resources[0].data.paperless_hostname | b64decode }}"
+              PAPERLESS_CSRF_TRUSTED_ORIGINS: "https://{{ vault_secret.resources[0].data.paperless_hostname | b64decode }}"
+              PAPERLESS_OCR_MODE: skip
+              PAPERLESS_OCR_OUTPUT_TYPE: pdf
+              PAPERLESS_DBENGINE: postgresql
+            secret:
+              secretKey: "{{ vault_secret.resources[0].data.paperless_secret_key | b64decode }}"
+              dbPassword: "{{ vault_secret.resources[0].data.paperless_db_password | b64decode }}"
+              adminUser: "{{ vault_secret.resources[0].data.paperless_admin_user | b64decode }}"
+              adminPassword: "{{ vault_secret.resources[0].data.paperless_admin_password | b64decode }}"
+              adminMail: "{{ vault_secret.resources[0].data.paperless_admin_mail | b64decode }}"
+          redis:
+            storageClass: "rook-ceph-block"
+
+    - name: Verify deployment rollout
+      command: >
+        kubectl rollout status deployment/{{ paperless_release_name }}-paperless-ngx
+        -n {{ paperless_namespace }}
+        --timeout=300s
+      changed_when: false

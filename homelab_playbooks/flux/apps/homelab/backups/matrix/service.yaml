@@ -1,0 +1,25 @@
+---
+# Source: 53-backup-matrix.yaml — tasks "Expose web service" + "Expose screenshot service"
+apiVersion: v1
+kind: Service
+metadata:
+  name: backupmatrix-web
+  namespace: backup
+spec:
+  selector:
+    app: backupmatrix-web
+  ports:
+    - port: 8000
+      targetPort: 8000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backupmatrix-screenshot
+  namespace: backup
+spec:
+  selector:
+    app: backupmatrix-web
+  ports:
+    - port: 3000
+      targetPort: 3000
