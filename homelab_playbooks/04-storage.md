@@ -1,3 +1,10 @@
+## add toleration for the volsync mover pods to run despite the taint
+
+for d in rook-ceph.cephfs.csi.ceph.com rook-ceph.rbd.csi.ceph.com; do
+  kubectl -n rook-ceph patch drivers.csi.ceph.io $d --type merge -p \
+  '{"spec":{"nodePlugin":{"tolerations":[{"key":"dedicated","operator":"Equal","value":"slow-services","effect":"NoSchedule"}]}}}'
+done
+
 ## sync with upstream project
 git remote add upstream https://github.com/rook/rook.git
 git fetch upstream

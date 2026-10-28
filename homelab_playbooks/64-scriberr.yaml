@@ -19,6 +19,35 @@
 
   tasks:
 
+    - name: Kyverno Policy volsync-mover-tolerations
+      kubernetes.core.k8s:
+        kubeconfig: "{{ kubeconfig }}"
+        state: "{{ state }}"
+        definition:
+          apiVersion: kyverno.io/v1
+          kind: Policy
+          metadata:
+            name: volsync-mover-tolerations
+            namespace: "{{ namespace }}"
+          spec:
+            rules:
+              - name: add-slow-services-toleration
+                match:
+                  any:
+                    - resources:
+                        kinds: ["Job"]
+                        names: ["volsync-src-scriberr-*"]
+                mutate:
+                  patchStrategicMerge:
+                    spec:
+                      template:
+                        spec:
+                          tolerations:
+                            - key: dedicated
+                              operator: Equal
+                              value: slow-services
+                              effect: NoSchedule
+
 # ── VolSync – ExternalSecret (restic credentials) ──────────────────────────
 
     - name: ExternalSecret scriberr-restic

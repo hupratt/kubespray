@@ -151,7 +151,7 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 
 | | Application | Description | Helm | Operator | Chart | Container |
 |---|---|---|:---:|---|---|---|
-| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi. Deployed [via the official chart](https://immich-app.github.io/immich-charts) | ✅ | — | immich-0.12.0 | ghcr.io/immich-app/immich-server:v3.2.0 | 
+| <img src="./icons/immich.svg" width="16"/> | **Immich** | Self-hosted Google Photos replacement with ML-powered face recognition, object tagging, and map view. Backs up photos from mobile in the background over wifi. Deployed [via the official chart](https://immich-app.github.io/immich-charts) | ✅ | — | immich-0.12.0 | ghcr.io/immich-app/immich-server:v3.3.5 | 
 | <img src="./icons/paperless.svg" width="16"/> | **Paperless-ngx** | OCR document management with tagging and full-text search. Deployed via a [custom chart](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/paperless-ngx/Chart.yaml) loaded in this repository | 🔧 | — | paperless-ngx-1.0.0  | ghcr.io/paperless-ngx/paperless-ngx:3.2.1 | 
 | <img src="./icons/linkwarden.svg" width="16"/> | **Linkwarden** | Bookmark manager with full-page archiving. Deployed via a custom chart that slightly deviates from [this one](https://fmjstudios.github.io/helm) | 🔧 | — | linkwarden-0.3.3 | ghcr.io/linkwarden/linkwarden:v2.16.2 | 
 | <img src="./icons/trello.svg" width="16"/> | **Trello Clone** | Kanban board with cards, labels, and due dates. Deployment spawns from plain yaml files in homelab_playbooks | — | — | — | — | 
@@ -174,7 +174,6 @@ Kubernetes is bootstrapped by the ansible playbook in this repo: [cluster.yml](h
 | 🌐 | **Open WebUI** | Frontend for Ollama / OpenAI APIs with RAG and chat. Deployed using the [official helm chart](https://helm.openwebui.com) | ✅ | — | — | — | 
 | <img src="./icons/homeassistant.svg" width="16"/> | **Frigate** | NVR with real-time object detection. Deployment is handled by [a custom chart in this repo](https://github.com/hupratt/kubespray/blob/homelab/homelab_playbooks/charts/frigate/Chart.yaml) | 🔧 | — | frigate-0.2.0 | ghcr.io/blakeblackshear/frigate:stable | 
 | <img src="./icons/scriberr.svg" width="16"/> | **Scriberr** | Voice transcription service powered by OpenAI Whisper running locally. Accepts audio uploads or real-time mic input and returns structured transcripts. Deployment spawns from plain yaml files in homelab_playbooks | — | — | — | ghcr.io/rishikanthc/scriberr:v1.2.0 | 
-| <img src="./icons/googlephotos.svg" width="16"/> | **Immich** | Self-hosted photo management with ML tagging. Deployed using the [official helm chart](https://immich-app.github.io/immich-charts) | ✅ | — | immich-0.12.0 | ghcr.io/immich-app/immich-server:v3.2.0 | 
 
 ### 6. My Projects
 
