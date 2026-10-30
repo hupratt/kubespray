@@ -9,19 +9,24 @@
     seafile_release_name: "seafile"
     seafile_chart_version: "12.0"
 
+    # true on the first run, set to false after the first successful init
+    seafile_first_init: true
+
     secretstore_name: "vault-backend"
     secretstore_kind: "ClusterSecretStore"
     refresh_interval: "1h"
 
+    # Vault KV path "seafile" needs: db_password, db_root_password, admin_email, admin_password
     vault_kv_path: "seafile"
 
     seafile_admin_secret_name: "seafile-admin-credentials"
-    mariadb_credentials_secret: "seafile-db-credentials"
 
-    # --- MariaDB Operator wiring ---
-    mariadb_instance_name: "mariadb"
-    mariadb_namespace: "mariadb"
-    mariadb_user: "seafile"
+    # --- Dedicated MariaDB for Seafile (MariaDB Operator) ---
+    seafile_mariadb_name: "seafile-mariadb"
+    seafile_mariadb_root_secret: "seafile-db-root"
+    seafile_mariadb_storage_size: "5Gi"
+    seafile_mariadb_host: "{{ seafile_mariadb_name }}.{{ seafile_namespace }}.svc.cluster.local"
+    seafile_db_user: "seafile"
 
     # --- Rook Ceph Storage wiring ---
     rook_ceph_storage_class_name: "rook-ceph-block"
@@ -44,15 +49,16 @@
          selectattr('type', 'equalto', 'Ready') |
          selectattr('status', 'equalto', 'True') | list | length == 0)
 
-    # Create database credentials in Seafile namespace
-    - name: Create ExternalSecret for Seafile database credentials
+    # Root password of the dedicated MariaDB. The key is named DB_ROOT_PASSWD because
+    # the Seafile image reads that variable, and the same key is used by the MariaDB CR.
+    - name: Create ExternalSecret for the Seafile MariaDB root password
       kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: external-secrets.io/v1
           kind: ExternalSecret
           metadata:
-            name: "{{ mariadb_credentials_secret }}"
+            name: "{{ seafile_mariadb_root_secret }}"
             namespace: "{{ seafile_namespace }}"
           spec:
             refreshInterval: "{{ refresh_interval }}"
@@ -60,132 +66,60 @@
               name: "{{ secretstore_name }}"
               kind: "{{ secretstore_kind }}"
             target:
-              name: "{{ mariadb_credentials_secret }}"
+              name: "{{ seafile_mariadb_root_secret }}"
               creationPolicy: Owner
             data:
-              - secretKey: password
+              - secretKey: DB_ROOT_PASSWD
                 remoteRef:
                   key: "{{ vault_kv_path }}"
-                  property: db_password
+                  property: db_root_password
 
-    # Replicate credentials into MariaDB namespace
-    - name: Annotate Seafile database credentials for replication
-      kubernetes.core.k8s:
-        state: patched
-        kind: Secret
-        namespace: "{{ seafile_namespace }}"
-        name: "{{ mariadb_credentials_secret }}"
-        definition:
-          metadata:
-            annotations:
-              replicator.v1.mittwald.de/replicate-to: "{{ mariadb_namespace }}"
-
-    - name: Wait for replicated MariaDB credentials
+    - name: Wait for the MariaDB root secret
       kubernetes.core.k8s_info:
         api_version: v1
         kind: Secret
-        namespace: "{{ mariadb_namespace }}"
-        name: "{{ mariadb_credentials_secret }}"
-      register: mariadb_credentials
+        namespace: "{{ seafile_namespace }}"
+        name: "{{ seafile_mariadb_root_secret }}"
+      register: seafile_mariadb_root
       until: >
-        mariadb_credentials.resources | length > 0 and
-        'password' in mariadb_credentials.resources[0].data
+        seafile_mariadb_root.resources | length > 0 and
+        'DB_ROOT_PASSWD' in seafile_mariadb_root.resources[0].data
       retries: 30
       delay: 10
       no_log: true
 
-    # Create the 3 required MariaDB Databases (Kubernetes-compliant metadata names, mysql database names with underscores)
-    - name: Create MariaDB Databases for Seafile
+    - name: Create dedicated MariaDB instance for Seafile
       kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: k8s.mariadb.com/v1alpha1
-          kind: Database
+          kind: MariaDB
           metadata:
-            name: "{{ item.k8s_name }}"
-            namespace: "{{ mariadb_namespace }}"
+            name: "{{ seafile_mariadb_name }}"
+            namespace: "{{ seafile_namespace }}"
           spec:
-            name: "{{ item.db_name }}"
-            mariaDbRef:
-              kind: MariaDB
-              name: "{{ mariadb_instance_name }}"
-              namespace: "{{ mariadb_namespace }}"
-              waitForIt: true
-            characterSet: utf8
-            collate: utf8_general_ci
-      loop:
-        - { k8s_name: "ccnet-db", db_name: "ccnet_db" }
-        - { k8s_name: "seafile-db", db_name: "seafile_db" }
-        - { k8s_name: "seahub-db", db_name: "seahub_db" }
+            rootPasswordSecretKeyRef:
+              name: "{{ seafile_mariadb_root_secret }}"
+              key: DB_ROOT_PASSWD
+              generate: false
+            storage:
+              size: "{{ seafile_mariadb_storage_size }}"
+              storageClassName: "{{ rook_ceph_storage_class_name }}"
 
-    # Create database user
-    - name: Create MariaDB User for Seafile
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: User
-          metadata:
-            name: "{{ mariadb_user }}"
-            namespace: "{{ mariadb_namespace }}"
-          spec:
-            mariaDbRef:
-              name: "{{ mariadb_instance_name }}"
-              namespace: "{{ mariadb_namespace }}"
-            passwordSecretKeyRef:
-              name: "{{ mariadb_credentials_secret }}"
-              key: password
-            maxUserConnections: 20
-
-    # Create database connections for each database
-    - name: Create MariaDB Connections for Seafile
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: Connection
-          metadata:
-            name: "{{ item.k8s_name }}-connection"
-            namespace: "{{ mariadb_namespace }}"
-          spec:
-            username: "{{ mariadb_user }}"
-            database: "{{ item.db_name }}"
-            mariaDbRef:
-              name: "{{ mariadb_instance_name }}"
-              namespace: "{{ mariadb_namespace }}"
-              waitForIt: true
-            passwordSecretKeyRef:
-              name: "{{ mariadb_credentials_secret }}"
-              key: password
-      loop:
-        - { k8s_name: "ccnet-db", db_name: "ccnet_db" }
-        - { k8s_name: "seafile-db", db_name: "seafile_db" }
-        - { k8s_name: "seahub-db", db_name: "seahub_db" }
-
-    # Grant privileges for all three databases
-    - name: Create MariaDB Grants for Seafile Databases
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: k8s.mariadb.com/v1alpha1
-          kind: Grant
-          metadata:
-            name: "{{ item.k8s_name }}-grant"
-            namespace: "{{ mariadb_namespace }}"
-          spec:
-            mariaDbRef:
-              name: "{{ mariadb_instance_name }}"
-              namespace: "{{ mariadb_namespace }}"
-            username: "{{ mariadb_user }}"
-            database: "{{ item.db_name }}"
-            table: "*"
-            privileges:
-              - ALL
-            grantOption: false
-      loop:
-        - { k8s_name: "ccnet-db", db_name: "ccnet_db" }
-        - { k8s_name: "seafile-db", db_name: "seafile_db" }
-        - { k8s_name: "seahub-db", db_name: "seahub_db" }
+    - name: Wait for the Seafile MariaDB to be Ready
+      kubernetes.core.k8s_info:
+        api_version: k8s.mariadb.com/v1alpha1
+        kind: MariaDB
+        name: "{{ seafile_mariadb_name }}"
+        namespace: "{{ seafile_namespace }}"
+      register: seafile_mariadb
+      until: >
+        seafile_mariadb.resources | length > 0 and
+        (seafile_mariadb.resources[0].status.conditions | default([]) |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length > 0)
+      retries: 60
+      delay: 10
 
     - name: Create Seafile application credentials ExternalSecret
       kubernetes.core.k8s:
@@ -268,12 +202,20 @@
         helm repo update seafile
       changed_when: true
 
+    # The chart renders extraEnv inside envFrom, so entries are secretRef items.
+    # The root secret is only needed on the first start, before seafile.conf exists.
+    - name: Build extraEnv (root password for first init only)
+      ansible.builtin.set_fact:
+        seafile_extra_env: >-
+          {{ [{'secretRef': {'name': seafile_mariadb_root_secret}}] if (seafile_first_init | bool) else [] }}
+
     - name: Create values file for Seafile deployment matching native chart keys
       ansible.builtin.copy:
         dest: "/tmp/seafile-values.yaml"
+        mode: "0600"
         content: |
           seafile:
-            initMode: true
+            initMode: {{ 'true' if (seafile_first_init | bool) else 'false' }}
             existingSecret:
               name: seafile-secret
 
@@ -289,27 +231,17 @@
               SEAFILE_SERVER_HOSTNAME: "{{ seafile_hostname }}"
               SITE_BASE: "https://{{ seafile_hostname }}"
               SEAFILE_SERVER_PROTOCOL: "https"
-              
-              DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
+
+              DB_HOST: "{{ seafile_mariadb_host }}"
               DB_PORT: "3306"
-              DB_USER: "{{ mariadb_user }}"
-              CCNET_DB: "ccnet_db"
-              SEAFILE_DB: "seafile_db"
-              SEAHUB_DB: "seahub_db"
+              DB_USER: "{{ seafile_db_user }}"
+              SEAFILE_MYSQL_DB_CCNET_DB_NAME: "ccnet_db"
+              SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: "seafile_db"
+              SEAFILE_MYSQL_DB_SEAHUB_DB_NAME: "seahub_db"
 
               INIT_SEAFILE_ADMIN_EMAIL: "{{ seafile_admin_secret.resources[0].data.email | b64decode }}"
 
-            # Explicitly map both password environment variables from the secret
-            secretsMap:
-              DB_PASSWORD:
-                secret: seafile-secret
-                key: SEAFILE_MYSQL_DB_PASSWORD
-              SEAFILE_MYSQL_DB_PASSWORD:
-                secret: seafile-secret
-                key: SEAFILE_MYSQL_DB_PASSWORD
-              INIT_SEAFILE_ADMIN_PASSWORD:
-                secret: seafile-secret
-                key: INIT_SEAFILE_ADMIN_PASSWORD
+            extraEnv: {{ seafile_extra_env | to_json }}
 
           securityContext:
             runAsNonRoot: true
@@ -343,6 +275,7 @@
               - secretName: seafile-tls
                 hosts:
                   - "{{ seafile_hostname }}"
+      no_log: true
 
     - name: Deploy Seafile via native Helm command
       ansible.builtin.command: >
@@ -351,12 +284,12 @@
         --namespace "{{ seafile_namespace }}"
         --values /tmp/seafile-values.yaml
         --wait
+        --timeout 10m
       changed_when: true
 
     - name: Show Seafile access info
       ansible.builtin.debug:
         msg: >-
-          Seafile successfully deployed. Reach it securely at https://{{ seafile_hostname }}/.
-          Databases (ccnet_db, seafile_db, seahub_db) are backed by MariaDB Operator instance '{{ mariadb_instance_name }}' 
-          and block storage is provisioned via Rook Ceph storage class '{{ rook_ceph_storage_class_name }}'.
-          Secrets are synchronized via Vault ClusterSecretStore '{{ secretstore_name }}'.
+          Seafile deployed at https://{{ seafile_hostname }}/ using its own MariaDB
+          '{{ seafile_mariadb_name }}' in namespace '{{ seafile_namespace }}'.
+          {{ 'initMode is ON: after the site is up, set seafile_first_init to false and run again.' if (seafile_first_init | bool) else 'initMode is OFF.' }}
