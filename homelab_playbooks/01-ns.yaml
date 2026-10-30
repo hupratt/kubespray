@@ -41,6 +41,7 @@
       - postgres
       - rook-ceph
       - scriberr
+      - seafile
       - sftpgo
       - spotify
       - technitium

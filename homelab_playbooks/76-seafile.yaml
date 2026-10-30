@@ -1,0 +1,244 @@
+---
+- name: Deploy Seafile
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    seafile_namespace: "seafile"
+    seafile_release_name: "seafile"
+    seafile_chart_version: "12.0" # Adjust to match currenthaiwen/seafile-helm-chart release
+
+    secretstore_name: "vault-backend"
+    secretstore_kind: "ClusterSecretStore"
+    refresh_interval: "1h"
+
+    vault_kv_path: "seafile"
+
+    seafile_admin_secret_name: "seafile-admin-credentials"
+    seafile_db_secret_name: "seafile-db-configuration"
+
+    # --- MariaDB Operator wiring ---
+    # Reference to an existing MariaDB instance managed by mariadb-operator
+    mariadb_instance_name: "mariadb"
+    mariadb_namespace: "mariadb"
+    mariadb_database_name: "seafile"
+    mariadb_user: "seafile"
+
+    # --- Rook Ceph Storage wiring ---
+    # Uses a pre-configured Rook Ceph block storage class
+    rook_ceph_storage_class_name: "rook-ceph-block"
+    storage_size: "50Gi"
+
+    seafile_hostname: "seafile.thekor.eu"
+    ingress_class_name: "haproxy"
+
+  tasks:
+
+    - name: Confirm the existing vault-backend ClusterSecretStore is Ready
+      kubernetes.core.k8s_info:
+        api_version: external-secrets.io/v1
+        kind: ClusterSecretStore
+        name: "{{ secretstore_name }}"
+      register: cluster_secretstore_check
+      failed_when: >
+        cluster_secretstore_check.resources | length == 0 or
+        (cluster_secretstore_check.resources[0].status.conditions | default([]) |
+         selectattr('type', 'equalto', 'Ready') |
+         selectattr('status', 'equalto', 'True') | list | length == 0)
+
+    - name: Create Seafile application credentials ExternalSecret
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: seafile-secret
+            namespace: "{{ seafile_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: seafile-secret
+              creationPolicy: Owner
+              template:
+                type: Opaque
+            data:
+              - secretKey: DB_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_password
+              - secretKey: DB_ROOT_PASSWD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_root_password
+              - secretKey: JWT_PRIVATE_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: jwt_private_key
+              - secretKey: INIT_SEAFILE_ADMIN_PASSWORD
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: admin_password
+                  
+    - name: Create ExternalSecret for Seafile admin credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ seafile_admin_secret_name }}"
+            namespace: "{{ seafile_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ seafile_admin_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+                data:
+                  email: "{{ '{{ .email }}' }}"
+                  password: "{{ '{{ .password }}' }}"
+            data:
+              - secretKey: email
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: admin_email
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: admin_password
+
+    - name: Create ExternalSecret for Seafile MariaDB configuration
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ seafile_db_secret_name }}"
+            namespace: "{{ seafile_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ seafile_db_secret_name }}"
+              creationPolicy: Owner
+              template:
+                type: Opaque
+                metadata:
+                  labels:
+                    "app.kubernetes.io/managed-by": "external-secrets"
+                data:
+                  host: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
+                  port: "3306"
+                  database: "{{ mariadb_database_name }}"
+                  username: "{{ '{{ .username }}' }}"
+                  password: "{{ '{{ .password }}' }}"
+            data:
+              - secretKey: username
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_username
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_password
+
+    - name: Wait for Seafile DB credentials secret to materialize from Vault
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ seafile_namespace }}"
+        name: "{{ seafile_db_secret_name }}"
+      register: db_secret_check
+      until: db_secret_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Wait for admin credentials secret to materialize from Vault
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ seafile_namespace }}"
+        name: "{{ seafile_admin_secret_name }}"
+      register: admin_secret_check
+      until: admin_secret_check.resources | length > 0
+      retries: 30
+      delay: 10
+
+    - name: Add/refresh the Seafile helm repo
+      kubernetes.core.helm_repository:
+        name: seafile
+        repo_url: https://haiwen.github.io/seafile-helm-chart/repo
+        state: present
+
+
+    - name: Wait for Seafile admin credentials from ExternalSecret
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ seafile_namespace }}"
+        name: "{{ seafile_admin_secret_name }}"
+      register: seafile_admin_secret
+      until: >
+        seafile_admin_secret.resources | length > 0 and
+        'email' in seafile_admin_secret.resources[0].data
+      retries: 30
+      delay: 10
+      no_log: true
+
+    - name: Deploy Seafile via Helm 
+      kubernetes.core.helm:
+        name: "{{ seafile_release_name }}"
+        chart_ref: seafile/ce
+        chart_version: "{{ seafile_chart_version }}"
+        release_namespace: "{{ seafile_namespace }}"
+        create_namespace: false
+        wait: true
+        values:
+          seafile:
+            env:
+              SEAFILE_SERVER_HOSTNAME: "{{ seafile_hostname }}"
+              SEAFILE_SERVER_PROTOCOL: "https"
+              INIT_SEAFILE_ADMIN_EMAIL: "{{ seafile_admin_secret.resources[0].data.email | b64decode }}"
+              DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
+              DB_PORT: "3306"
+              DB_USER: "{{ mariadb_user }}"
+
+            configs:
+              seafileDataVolume:
+                storageClassName: "{{ rook_ceph_storage_class_name }}"
+
+          ingress:
+            enabled: true
+            className: "{{ ingress_class_name }}"
+            annotations:
+              cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            hosts:
+              - host: "{{ seafile_hostname }}"
+                paths:
+                  - path: /
+                    pathType: Prefix
+            tls:
+              - secretName: seafile-tls
+                hosts:
+                  - "{{ seafile_hostname }}"
+
+
+    - name: Show Seafile access info
+      ansible.builtin.debug:
+        msg: >-
+          Seafile successfully deployed. Reach it securely at https://{{ seafile_hostname }}/.
+          Database is backed by MariaDB Operator instance '{{ mariadb_instance_name }}' 
+          and object/block storage is provisioned via Rook Ceph storage class '{{ rook_ceph_storage_class_name }}'.
+          Secrets are synchronized via Vault ClusterSecretStore '{{ secretstore_name }}'.
