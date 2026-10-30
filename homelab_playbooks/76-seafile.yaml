@@ -287,9 +287,9 @@
               SEAFILE_LOG_TO_STDOUT: "true"
               SITE_ROOT: "/"
               SEAFILE_SERVER_HOSTNAME: "{{ seafile_hostname }}"
+              SITE_BASE: "https://{{ seafile_hostname }}"
               SEAFILE_SERVER_PROTOCOL: "https"
-
-              # Required by seafile-env.yaml template checks
+              
               DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
               DB_PORT: "3306"
               DB_USER: "{{ mariadb_user }}"
@@ -297,20 +297,19 @@
               SEAFILE_DB: "seafile_db"
               SEAHUB_DB: "seahub_db"
 
-              # Required by Seafile container entrypoint script
-              SEAFILE_MYSQL_DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
-              SEAFILE_MYSQL_DB_PORT: "3306"
-              SEAFILE_MYSQL_DB_USER: "{{ mariadb_user }}"
-              SEAFILE_MYSQL_DB_CCNET_DB_NAME: "ccnet_db"
-              SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: "seafile_db"
-              SEAFILE_MYSQL_DB_SEAHUB_DB_NAME: "seahub_db"
-
               INIT_SEAFILE_ADMIN_EMAIL: "{{ seafile_admin_secret.resources[0].data.email | b64decode }}"
 
+            # Explicitly map both password environment variables from the secret
             secretsMap:
               DB_PASSWORD:
                 secret: seafile-secret
                 key: SEAFILE_MYSQL_DB_PASSWORD
+              SEAFILE_MYSQL_DB_PASSWORD:
+                secret: seafile-secret
+                key: SEAFILE_MYSQL_DB_PASSWORD
+              INIT_SEAFILE_ADMIN_PASSWORD:
+                secret: seafile-secret
+                key: INIT_SEAFILE_ADMIN_PASSWORD
 
           securityContext:
             runAsNonRoot: true
