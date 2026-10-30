@@ -149,6 +149,10 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: admin_password
+              - secretKey: JWT_PRIVATE_KEY
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: JWT_PRIVATE_KEY
 
     - name: Create ExternalSecret for Seafile admin credentials
       kubernetes.core.k8s:
