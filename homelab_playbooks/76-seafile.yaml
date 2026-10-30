@@ -7,7 +7,7 @@
   vars:
     seafile_namespace: "seafile"
     seafile_release_name: "seafile"
-    seafile_chart_version: "12.0" # Adjust to match currenthaiwen/seafile-helm-chart release
+    seafile_chart_version: "12.0"
 
     secretstore_name: "vault-backend"
     secretstore_kind: "ClusterSecretStore"
@@ -17,16 +17,15 @@
 
     seafile_admin_secret_name: "seafile-admin-credentials"
     seafile_db_secret_name: "seafile-db-configuration"
+    mariadb_credentials_secret: "seafile-db-credentials"
 
     # --- MariaDB Operator wiring ---
-    # Reference to an existing MariaDB instance managed by mariadb-operator
     mariadb_instance_name: "mariadb"
     mariadb_namespace: "mariadb"
     mariadb_database_name: "seafile"
     mariadb_user: "seafile"
 
     # --- Rook Ceph Storage wiring ---
-    # Uses a pre-configured Rook Ceph block storage class
     rook_ceph_storage_class_name: "rook-ceph-block"
     storage_size: "50Gi"
 
@@ -46,6 +45,136 @@
         (cluster_secretstore_check.resources[0].status.conditions | default([]) |
          selectattr('type', 'equalto', 'Ready') |
          selectattr('status', 'equalto', 'True') | list | length == 0)
+
+    # Create database credentials in Seafile namespace
+    - name: Create ExternalSecret for Seafile database credentials
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: external-secrets.io/v1
+          kind: ExternalSecret
+          metadata:
+            name: "{{ mariadb_credentials_secret }}"
+            namespace: "{{ seafile_namespace }}"
+          spec:
+            refreshInterval: "{{ refresh_interval }}"
+            secretStoreRef:
+              name: "{{ secretstore_name }}"
+              kind: "{{ secretstore_kind }}"
+            target:
+              name: "{{ mariadb_credentials_secret }}"
+              creationPolicy: Owner
+            data:
+              - secretKey: password
+                remoteRef:
+                  key: "{{ vault_kv_path }}"
+                  property: db_password
+
+    # Replicate credentials into MariaDB namespace
+    - name: Annotate Seafile database credentials for replication
+      kubernetes.core.k8s:
+        state: patched
+        kind: Secret
+        namespace: "{{ seafile_namespace }}"
+        name: "{{ mariadb_credentials_secret }}"
+        definition:
+          metadata:
+            annotations:
+              replicator.v1.mittwald.de/replicate-to: "{{ mariadb_namespace }}"
+
+    - name: Wait for replicated MariaDB credentials
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Secret
+        namespace: "{{ mariadb_namespace }}"
+        name: "{{ mariadb_credentials_secret }}"
+      register: mariadb_credentials
+      until: >
+        mariadb_credentials.resources | length > 0 and
+        'password' in mariadb_credentials.resources[0].data
+      retries: 30
+      delay: 10
+      no_log: true
+
+    # Create database
+    - name: Create MariaDB Database for Seafile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Database
+          metadata:
+            name: "{{ mariadb_database_name }}"
+            namespace: "{{ mariadb_namespace }}"
+          spec:
+            mariaDbRef:
+              kind: MariaDB
+              name: "{{ mariadb_instance_name }}"
+              namespace: "{{ mariadb_namespace }}"
+              waitForIt: true
+            characterSet: utf8mb4
+            collate: utf8mb4_unicode_ci
+
+    # Create database user
+    - name: Create MariaDB User for Seafile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: User
+          metadata:
+            name: "{{ mariadb_user }}"
+            namespace: "{{ mariadb_namespace }}"
+          spec:
+            mariaDbRef:
+              name: "{{ mariadb_instance_name }}"
+              namespace: "{{ mariadb_namespace }}"
+            passwordSecretKeyRef:
+              name: "{{ mariadb_credentials_secret }}"
+              key: password
+            maxUserConnections: 20
+
+    # Create database connection
+    - name: Create MariaDB Connection for Seafile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Connection
+          metadata:
+            name: seafile-connection
+            namespace: "{{ mariadb_namespace }}"
+          spec:
+            username: "{{ mariadb_user }}"
+            database: "{{ mariadb_database_name }}"
+            mariaDbRef:
+              name: "{{ mariadb_instance_name }}"
+              namespace: "{{ mariadb_namespace }}"
+              waitForIt: true
+            passwordSecretKeyRef:
+              name: "{{ mariadb_credentials_secret }}"
+              key: password
+
+    # Grant privileges
+    - name: Create MariaDB Grant for Seafile
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: k8s.mariadb.com/v1alpha1
+          kind: Grant
+          metadata:
+            name: seafile-grant
+            namespace: "{{ mariadb_namespace }}"
+          spec:
+            mariaDbRef:
+              name: "{{ mariadb_instance_name }}"
+              namespace: "{{ mariadb_namespace }}"
+            username: "{{ mariadb_user }}"
+            database: "{{ mariadb_database_name }}"
+            table: "*"
+            privileges:
+              - ALL
+            grantOption: false
 
     - name: Create Seafile application credentials ExternalSecret
       kubernetes.core.k8s:
@@ -83,7 +212,7 @@
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: admin_password
-                  
+
     - name: Create ExternalSecret for Seafile admin credentials
       kubernetes.core.k8s:
         state: present
@@ -182,7 +311,6 @@
         repo_url: https://haiwen.github.io/seafile-helm-chart/repo
         state: present
 
-
     - name: Wait for Seafile admin credentials from ExternalSecret
       kubernetes.core.k8s_info:
         api_version: v1
@@ -197,7 +325,7 @@
       delay: 10
       no_log: true
 
-    - name: Deploy Seafile via Helm 
+    - name: Deploy Seafile via Helm
       kubernetes.core.helm:
         name: "{{ seafile_release_name }}"
         chart_ref: seafile/ce
@@ -233,7 +361,6 @@
               - secretName: seafile-tls
                 hosts:
                   - "{{ seafile_hostname }}"
-
 
     - name: Show Seafile access info
       ansible.builtin.debug:
