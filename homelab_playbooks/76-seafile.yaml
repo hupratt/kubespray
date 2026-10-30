@@ -16,7 +16,6 @@
     vault_kv_path: "seafile"
 
     seafile_admin_secret_name: "seafile-admin-credentials"
-    seafile_db_secret_name: "seafile-db-configuration"
     mariadb_credentials_secret: "seafile-db-credentials"
 
     # --- MariaDB Operator wiring ---
@@ -95,17 +94,18 @@
       delay: 10
       no_log: true
 
-    # Create the 3 required Seafile Databases
-    - name: Create MariaDB Databases for Seafile (ccnet, seafile, seahub)
+    # Create the 3 required MariaDB Databases (Kubernetes-compliant metadata names, mysql database names with underscores)
+    - name: Create MariaDB Databases for Seafile
       kubernetes.core.k8s:
         state: present
         definition:
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: Database
           metadata:
-            name: "{{ item }}"
+            name: "{{ item.k8s_name }}"
             namespace: "{{ mariadb_namespace }}"
           spec:
+            name: "{{ item.db_name }}"
             mariaDbRef:
               kind: MariaDB
               name: "{{ mariadb_instance_name }}"
@@ -114,9 +114,9 @@
             characterSet: utf8
             collate: utf8_general_ci
       loop:
-        - ccnet-db
-        - seafile-db
-        - seahub-db
+        - { k8s_name: "ccnet-db", db_name: "ccnet_db" }
+        - { k8s_name: "seafile-db", db_name: "seafile_db" }
+        - { k8s_name: "seahub-db", db_name: "seahub_db" }
 
     # Create database user
     - name: Create MariaDB User for Seafile
@@ -145,11 +145,11 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: Connection
           metadata:
-            name: "{{ item }}-connection"
+            name: "{{ item.k8s_name }}-connection"
             namespace: "{{ mariadb_namespace }}"
           spec:
             username: "{{ mariadb_user }}"
-            database: "{{ item }}"
+            database: "{{ item.db_name }}"
             mariaDbRef:
               name: "{{ mariadb_instance_name }}"
               namespace: "{{ mariadb_namespace }}"
@@ -158,9 +158,9 @@
               name: "{{ mariadb_credentials_secret }}"
               key: password
       loop:
-        - ccnet-db
-        - seafile-db
-        - seahub-db
+        - { k8s_name: "ccnet-db", db_name: "ccnet_db" }
+        - { k8s_name: "seafile-db", db_name: "seafile_db" }
+        - { k8s_name: "seahub-db", db_name: "seahub_db" }
 
     # Grant privileges for all three databases
     - name: Create MariaDB Grants for Seafile Databases
@@ -170,22 +170,22 @@
           apiVersion: k8s.mariadb.com/v1alpha1
           kind: Grant
           metadata:
-            name: "{{ item }}-grant"
+            name: "{{ item.k8s_name }}-grant"
             namespace: "{{ mariadb_namespace }}"
           spec:
             mariaDbRef:
               name: "{{ mariadb_instance_name }}"
               namespace: "{{ mariadb_namespace }}"
             username: "{{ mariadb_user }}"
-            database: "{{ item }}"
+            database: "{{ item.db_name }}"
             table: "*"
             privileges:
               - ALL
             grantOption: false
       loop:
-        - ccnet-db
-        - seafile-db
-        - seahub-db
+        - { k8s_name: "ccnet-db", db_name: "ccnet_db" }
+        - { k8s_name: "seafile-db", db_name: "seafile_db" }
+        - { k8s_name: "seahub-db", db_name: "seahub_db" }
 
     - name: Create Seafile application credentials ExternalSecret
       kubernetes.core.k8s:
@@ -207,18 +207,10 @@
               template:
                 type: Opaque
             data:
-              - secretKey: DB_PASSWORD
+              - secretKey: SEAFILE_MYSQL_DB_PASSWORD
                 remoteRef:
                   key: "{{ vault_kv_path }}"
                   property: db_password
-              - secretKey: DB_ROOT_PASSWD
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: db_root_password
-              - secretKey: JWT_PRIVATE_KEY
-                remoteRef:
-                  key: "{{ vault_kv_path }}"
-                  property: jwt_private_key
               - secretKey: INIT_SEAFILE_ADMIN_PASSWORD
                 remoteRef:
                   key: "{{ vault_kv_path }}"
@@ -270,35 +262,56 @@
       delay: 10
       no_log: true
 
-    - name: Add/refresh the Seafile helm repo
-      kubernetes.core.helm_repository:
-        name: seafile
-        repo_url: https://haiwen.github.io/seafile-helm-chart/repo
-        state: present
+    - name: Add and update the Seafile helm repo via command
+      ansible.builtin.shell: |
+        helm repo add seafile https://haiwen.github.io/seafile-helm-chart/repo
+        helm repo update seafile
+      changed_when: true
 
-    - name: Deploy Seafile via Helm with strict Kyverno-compliant security parameters
-      kubernetes.core.helm:
-        name: "{{ seafile_release_name }}"
-        chart_ref: seafile/ce
-        chart_version: "{{ seafile_chart_version }}"
-        release_namespace: "{{ seafile_namespace }}"
-        create_namespace: false
-        wait: true
-        values:
+    - name: Create values file for Seafile deployment matching native chart keys
+      ansible.builtin.copy:
+        dest: "/tmp/seafile-values.yaml"
+        content: |
           seafile:
-            env:
-              SEAFILE_SERVER_HOSTNAME: "{{ seafile_hostname }}"
-              SEAFILE_SERVER_PROTOCOL: "https"
-              INIT_SEAFILE_ADMIN_EMAIL: "{{ seafile_admin_secret.resources[0].data.email | b64decode }}"
-              DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
-              DB_PORT: "3306"
-              DB_USER: "{{ mariadb_user }}"
+            initMode: true
+            existingSecret:
+              name: seafile-secret
 
             configs:
               seafileDataVolume:
+                storage: 10Gi
                 storageClassName: "{{ rook_ceph_storage_class_name }}"
 
-          # Strict Non-Root Security Context overrides to satisfy Kyverno policies
+            env:
+              TIME_ZONE: "UTC"
+              SEAFILE_LOG_TO_STDOUT: "true"
+              SITE_ROOT: "/"
+              SEAFILE_SERVER_HOSTNAME: "{{ seafile_hostname }}"
+              SEAFILE_SERVER_PROTOCOL: "https"
+
+              # Required by seafile-env.yaml template checks
+              DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
+              DB_PORT: "3306"
+              DB_USER: "{{ mariadb_user }}"
+              CCNET_DB: "ccnet_db"
+              SEAFILE_DB: "seafile_db"
+              SEAHUB_DB: "seahub_db"
+
+              # Required by Seafile container entrypoint script
+              SEAFILE_MYSQL_DB_HOST: "{{ mariadb_instance_name }}.{{ mariadb_namespace }}.svc.cluster.local"
+              SEAFILE_MYSQL_DB_PORT: "3306"
+              SEAFILE_MYSQL_DB_USER: "{{ mariadb_user }}"
+              SEAFILE_MYSQL_DB_CCNET_DB_NAME: "ccnet_db"
+              SEAFILE_MYSQL_DB_SEAFILE_DB_NAME: "seafile_db"
+              SEAFILE_MYSQL_DB_SEAHUB_DB_NAME: "seahub_db"
+
+              INIT_SEAFILE_ADMIN_EMAIL: "{{ seafile_admin_secret.resources[0].data.email | b64decode }}"
+
+            secretsMap:
+              DB_PASSWORD:
+                secret: seafile-secret
+                key: SEAFILE_MYSQL_DB_PASSWORD
+
           securityContext:
             runAsNonRoot: true
             runAsUser: 1001
@@ -332,10 +345,19 @@
                 hosts:
                   - "{{ seafile_hostname }}"
 
+    - name: Deploy Seafile via native Helm command
+      ansible.builtin.command: >
+        helm upgrade --install "{{ seafile_release_name }}" seafile/ce
+        --version "{{ seafile_chart_version }}"
+        --namespace "{{ seafile_namespace }}"
+        --values /tmp/seafile-values.yaml
+        --wait
+      changed_when: true
+
     - name: Show Seafile access info
       ansible.builtin.debug:
         msg: >-
           Seafile successfully deployed. Reach it securely at https://{{ seafile_hostname }}/.
-          Databases (ccnet-db, seafile-db, seahub-db) are backed by MariaDB Operator instance '{{ mariadb_instance_name }}' 
+          Databases (ccnet_db, seafile_db, seahub_db) are backed by MariaDB Operator instance '{{ mariadb_instance_name }}' 
           and block storage is provisioned via Rook Ceph storage class '{{ rook_ceph_storage_class_name }}'.
           Secrets are synchronized via Vault ClusterSecretStore '{{ secretstore_name }}'.
